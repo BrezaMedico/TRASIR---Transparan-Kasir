@@ -1,0 +1,46 @@
+{
+  "name": "trasir",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/setup-test-db.mjs && vitest run",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:use-postgres": "node scripts/switch-db-provider.mjs postgresql",
+    "db:use-sqlite": "node scripts/switch-db-provider.mjs sqlite"
+  },
+  "dependencies": {
+    "@google/genai": "^3.6.1",
+    "@phosphor-icons/react": "^2.1.7",
+    "@prisma/client": "^6.5.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "bcryptjs": "^3.0.2",
+    "clsx": "^2.1.1",
+    "jose": "^6.0.10",
+    "next": "15.2.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.0.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.22.0",
+    "eslint-config-next": "15.2.3",
+    "postcss": "^8.5.3",
+    "prisma": "^6.5.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}

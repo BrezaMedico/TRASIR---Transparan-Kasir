@@ -1,0 +1,302 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #334E6B;
+    --color-secondary: #3DC2CA;
+    --color-canvas: #F5F5F5;
+    --color-surface: #FFFFFF;
+    --color-rose: #FC5086;
+  }
+
+  html {
+    background-color: #F5F5F5;
+    color: #0F172A;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Enforce cursor: pointer on all enabled interactive elements (antislop R-39) */
+  a[href],
+  button:not(:disabled),
+  summary,
+  select:not(:disabled),
+  label[for],
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  textarea:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  /* Visible high-contrast focus indicator (antislop R-32) */
+  :focus-visible {
+    outline: 2px solid #334E6B;
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Public Landing Page Utilities & Scoped Architectural Motion */
+.landing-root {
+  overflow-wrap: break-word;
+  background-color: #F8FAFC;
+}
+
+.landing-arch-grid {
+  background-image:
+    linear-gradient(to right, rgba(51, 78, 107, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(51, 78, 107, 0.05) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+
+.landing-dot-matrix {
+  background-image: radial-gradient(rgba(37, 99, 235, 0.22) 1px, transparent 1px);
+  background-size: 10px 10px;
+}
+
+.landing-hero-glow {
+  background: radial-gradient(
+    ellipse 70% 64% at 62% 48%,
+    rgba(56, 189, 248, 0.22) 0%,
+    rgba(37, 99, 235, 0.14) 44%,
+    rgba(248, 250, 252, 0) 76%
+  );
+}
+
+.landing-closing-glow {
+  background: radial-gradient(
+    ellipse 65% 70% at 82% 18%,
+    rgba(56, 189, 248, 0.22) 0%,
+    rgba(37, 99, 235, 0.16) 40%,
+    rgba(15, 23, 42, 0) 74%
+  );
+}
+
+.landing-hero-title {
+  font-size: clamp(2.15rem, 1.35rem + 2.9vw, 3.65rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.landing-section-title {
+  font-size: clamp(1.65rem, 1.25rem + 1.6vw, 2.35rem);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.landing-pretty-copy {
+  text-wrap: pretty;
+}
+
+.landing-skip-link {
+  position: fixed;
+  inset-block-start: -4rem;
+  inset-inline-start: 1rem;
+  z-index: 60;
+  background-color: #2563EB;
+  color: #FFFFFF;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: inset-block-start 150ms ease;
+}
+
+.landing-skip-link:focus-visible {
+  inset-block-start: 1rem;
+}
+
+.landing-on-dark:focus-visible {
+  outline: 3px solid #FFFFFF;
+  outline-offset: 3px;
+}
+
+.landing-header-inner > * {
+  flex-shrink: 0;
+}
+
+.landing-menu-trigger {
+  anchor-name: --trasir-menu-trigger;
+}
+
+.landing-menu[popover] {
+  position: fixed;
+  inset: auto;
+  inset-block-start: 4.75rem;
+  inset-block-start: anchor(--trasir-menu-trigger bottom);
+  inset-inline-end: 1rem;
+  inline-size: min(86dvw, 20rem);
+  margin-block-start: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid #E2E8F0;
+  background-color: #FFFFFF;
+  box-shadow: 0 20px 48px -18px rgba(15, 23, 42, 0.22);
+}
+
+.landing-menu[popover]:is(:popover-open, .\:popover-open) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.landing-header-cta {
+  display: none;
+}
+
+.landing-header.is-wide .landing-header-inner {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  column-gap: 1.5rem;
+}
+
+.landing-header.is-wide .landing-brand {
+  justify-self: start;
+}
+
+.landing-header.is-wide .landing-nav {
+  justify-self: center;
+}
+
+.landing-header.is-wide .landing-header-cta {
+  display: inline-flex;
+  justify-self: end;
+}
+
+.landing-header.is-wide .landing-menu-trigger,
+.landing-header.is-wide .landing-menu-mobile-cta {
+  display: none;
+}
+
+.landing-header.is-wide .landing-menu {
+  position: static;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2.25rem;
+  inline-size: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.landing-nav-link {
+  position: relative;
+}
+
+.landing-header.is-wide .landing-nav-link {
+  padding-inline: 0.125rem;
+  border-radius: 0.25rem;
+}
+
+.landing-header.is-wide .landing-nav-link:hover {
+  background-color: transparent;
+}
+
+.landing-header.is-wide .landing-nav-link::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0.125rem;
+  inset-block-end: 0.5rem;
+  block-size: 1.5px;
+  background-color: #2563EB;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.landing-header.is-wide .landing-nav-link:hover::after,
+.landing-header.is-wide .landing-nav-link:focus-visible::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+.landing-header.is-measuring * {
+  transition: none !important;
+}
+
+/* Hero load entrance only (no scroll fade-in on cards/sections), opt-in on motion preference */
+@keyframes trasirHeroRise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes trasirStageSettle {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing-enter-copy {
+    animation: trasirHeroRise 580ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .landing-enter-visual {
+    animation: trasirStageSettle 700ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+  }
+
+  @starting-style {
+    .landing-menu:is(:popover-open, .\:popover-open) {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+  }
+
+  .landing-menu[popover] {
+    transition:
+      opacity 180ms ease-out,
+      transform 180ms ease-out,
+      display,
+      overlay;
+    transition-behavior: allow-discrete;
+  }
+}
+
+@media (forced-colors: active) {
+  .landing-surface-card,
+  .landing-menu[popover] {
+    border: 1px solid CanvasText;
+  }
+}
+

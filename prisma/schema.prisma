@@ -1,0 +1,378 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Default provider is "sqlite" for instant zero-config local database execution;
+// Run `npm run db:use-postgres` after setting Supabase PostgreSQL `DATABASE_URL` in `.env`.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("KASIR") // PEMILIK | MANAJER | KASIR | GUDANG
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  purchasesSubmitted Purchase[]           @relation("PurchaseSubmitter")
+  purchasesReviewed  Purchase[]           @relation("PurchaseReviewer")
+  salesCashier       Sale[]               @relation("SaleCashier")
+  amendmentsReq      SaleAmendment[]      @relation("AmendmentRequester")
+  amendmentsRev      SaleAmendment[]      @relation("AmendmentReviewer")
+  shiftClosings      ShiftClosing[]       @relation("ShiftCashier")
+  adjustmentsReq     StockAdjustment[]    @relation("AdjustmentRequester")
+  adjustmentsRev     StockAdjustment[]    @relation("AdjustmentReviewer")
+  opnamesCreated     StockOpnameSession[] @relation("OpnameCreator")
+  opnamesReviewed    StockOpnameSession[] @relation("OpnameReviewer")
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+}
+
+model RolePermission {
+  id         String   @id @default(cuid())
+  role       String   // PEMILIK | MANAJER | KASIR | GUDANG
+  module     String   // dashboard | kasir | penjualan | pembelian | produk | inventaris | laporan | aktivitas | pengaturan
+  canView    Boolean  @default(false)
+  canCreate  Boolean  @default(false)
+  canEdit    Boolean  @default(false)
+  canApprove Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([role, module])
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  name      String   @unique // kg, g, mg, ton, liter, ml, meter, cm, pcs, dus, pak, botol, bungkus, sachet, butir, ikat, renteng, lusin, kotak, kemasan, karung
+  label     String
+  group     String   // BERAT | VOLUME | PANJANG | HITUNGAN
+  createdAt DateTime @default(now())
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  areaType    String    @default("TERBUKA") // TERBUKA | TERTUTUP
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+}
+
+model Warehouse {
+  id          String            @id @default(cuid())
+  name        String            @unique
+  location    String?
+  isDefault   Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  stocks      ProductStock[]
+  fromAdjusts StockAdjustment[] @relation("FromWarehouse")
+  toAdjusts   StockAdjustment[] @relation("ToWarehouse")
+  opnames     StockOpnameSession[]
+}
+
+model Product {
+  id              String   @id @default(cuid())
+  sku             String   @unique
+  barcode         String?  @unique
+  name            String
+  categoryId      String
+  category        Category @relation(fields: [categoryId], references: [id])
+  stockMethod     String   @default("TETAP") // TETAP | PECAH | RESEP
+  isRawMaterial   Boolean  @default(false)
+  purchaseUnit    String   @default("pcs")
+  sellUnit        String   @default("pcs")
+  conversionRatio Float    @default(1) // 1 purchaseUnit = conversionRatio sellUnit (e.g. 1 dus = 24 botol, 1 liter = 1000 ml)
+  costPrice       Int      @default(0) // HPP per sellUnit in Rupiah (integer)
+  sellPrice       Int      @default(0) // Harga jual default in Rupiah (integer)
+  currentStock    Float    @default(0) // Stok dalam sellUnit
+  minStockAlert   Float    @default(5)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  variants         ProductVariant[]
+  usedInRecipes    RecipeIngredient[] @relation("IngredientMaterial")
+  warehouseStocks  ProductStock[]
+  purchaseItems    PurchaseItem[]
+  saleItems        SaleItem[]
+  stockAdjustments StockAdjustment[]
+  opnameItems      StockOpnameItem[]
+}
+
+model ProductVariant {
+  id         String             @id @default(cuid())
+  productId  String
+  product    Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name       String             // e.g. Regular, Large
+  sellPrice  Int                // Harga jual varian dalam Rupiah
+  costPrice  Int                @default(0) // Estimasi HPP varian berdasarkan resep
+  ingredients RecipeIngredient[]
+  saleItems  SaleItem[]
+
+  @@unique([productId, name])
+}
+
+model RecipeIngredient {
+  id          String          @id @default(cuid())
+  variantId   String
+  variant     ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  materialId  String
+  material    Product         @relation("IngredientMaterial", fields: [materialId], references: [id])
+  quantity    Float           // Takaran bahan baku dalam sellUnit material (misal: 20 ml susu, 5 g kopi)
+  unit        String          // Label satuan takaran
+
+  @@unique([variantId, materialId])
+}
+
+model ProductStock {
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  quantity    Float     @default(0)
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, warehouseId])
+}
+
+model Purchase {
+  id                  String         @id @default(cuid())
+  invoiceNumber       String
+  supplierName        String
+  purchaseDate        DateTime
+  fundingSource       String         @default("DANA_TOKO") // DANA_TOKO (Belanja Pegawai dgn Dana Toko) | BELANJA_PEMILIK (Penerimaan Barang Belanja Pemilik)
+  captureMethod       String         @default("LIVE_CAMERA") // LIVE_CAMERA (Nota Fisik) | DIGITAL_UPLOAD (Nota Digital)
+  receiptImageData    String         // Base64 / Data URL bukti nota
+  receiptHash         String?        // Hash untuk mendeteksi unggahan file nota ganda
+  totalAmount         Int            // Total nilai pembelian yang diinput pegawai (Rupiah)
+  aiValidationStatus  String         @default("PENDING") // PENDING | SESUAI | ADA_SELISIH | NOTA_GANDA | TERINDIKASI_EDIT
+  aiExtractedSupplier String?
+  aiExtractedDate     String?
+  aiExtractedTotal    Int?
+  aiAnalysisJson      String?        // JSON hasil pembacaan Gemini AI (item, selisih, catatan netral)
+  approvalStatus      String         @default("MENUNGGU_PERSETUJUAN") // MENUNGGU_PERSETUJUAN | PERLU_PERBAIKAN | DISETUJUI | DITOLAK
+  ownerNotes          String?
+  submittedById       String
+  submittedBy         User           @relation("PurchaseSubmitter", fields: [submittedById], references: [id])
+  reviewedById        String?
+  reviewedBy          User?          @relation("PurchaseReviewer", fields: [reviewedById], references: [id])
+  reviewedAt          DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  items               PurchaseItem[]
+}
+
+model PurchaseItem {
+  id                 String   @id @default(cuid())
+  purchaseId         String
+  purchase           Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId          String?
+  product            Product? @relation(fields: [productId], references: [id])
+  isNewProduct       Boolean  @default(false)
+  itemName           String
+  categoryName       String?
+  quantity           Float
+  unit               String
+  conversionRatio    Float    @default(1) // Rasio ke satuan jual
+  sellUnit           String   @default("pcs")
+  unitCost           Int      // Harga beli per satuan beli (Rupiah)
+  sellPrice          Int      @default(0)
+  subtotal           Int      // Total harga baris (Rupiah)
+  aiExtractedQty     Float?
+  aiExtractedPrice   Int?
+  aiDiscrepancyNote  String?
+}
+
+model Sale {
+  id            String          @id @default(cuid())
+  receiptNumber String          @unique
+  cashierId     String
+  cashier       User            @relation("SaleCashier", fields: [cashierId], references: [id])
+  paymentMethod String          @default("TUNAI") // TUNAI | QRIS | TRANSFER | KARTU
+  totalAmount   Int             // Total penjualan (Rupiah)
+  totalCost     Int             // Total HPP barang terjual (Rupiah) untuk rumus Laba Kotor
+  cashReceived  Int             @default(0)
+  changeAmount  Int             @default(0)
+  status        String          @default("NORMAL") // NORMAL | MENUNGGU_PERSETUJUAN | DIBATALKAN | DIKEMBALIKAN | DIUBAH
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  items         SaleItem[]
+  amendments    SaleAmendment[]
+}
+
+model SaleItem {
+  id          String          @id @default(cuid())
+  saleId      String
+  sale        Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product         @relation(fields: [productId], references: [id])
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+  productName String
+  variantName String?
+  quantity    Float
+  unitPrice   Int
+  unitCost    Int             // HPP per unit saat transaksi terjadi
+  subtotal    Int
+  totalCost   Int
+}
+
+model SaleAmendment {
+  id              String    @id @default(cuid())
+  saleId          String
+  sale            Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  amendmentType   String    // PEMBATALAN | RETUR | PERUBAHAN
+  reason          String
+  proofImageData  String?
+  proposedPayload String?   // JSON rincian perubahan jika tipe PERUBAHAN
+  status          String    @default("MENUNGGU_PERSETUJUAN") // MENUNGGU_PERSETUJUAN | DISETUJUI | DITOLAK
+  requestedById   String
+  requestedBy     User      @relation("AmendmentRequester", fields: [requestedById], references: [id])
+  reviewedById    String?
+  reviewedBy      User?     @relation("AmendmentReviewer", fields: [reviewedById], references: [id])
+  reviewNotes     String?
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+}
+
+model ShiftClosing {
+  id               String   @id @default(cuid())
+  cashierId        String
+  cashier          User     @relation("ShiftCashier", fields: [cashierId], references: [id])
+  shiftDate        DateTime @default(now())
+  systemTxCount    Int
+  systemCashTotal  Int
+  systemQrisTotal  Int
+  systemTransferTotal Int
+  systemCardTotal  Int
+  systemGrandTotal Int
+  actualCashTotal  Int
+  actualDigitalTotal Int
+  cashDifference   Int      // actualCashTotal - systemCashTotal
+  digitalDifference Int     // actualDigitalTotal - (QRIS + Transfer + Card)
+  totalDifference  Int
+  status           String   @default("SESUAI") // SESUAI | PERLU_DIPERIKSA
+  notes            String?
+  createdAt        DateTime @default(now())
+}
+
+model StockAdjustment {
+  id              String     @id @default(cuid())
+  productId       String
+  product         Product    @relation(fields: [productId], references: [id])
+  adjustmentType  String     // RUSAK | KEDALUWARSA | HILANG | DIKEMBALIKAN | PINDAH_GUDANG
+  quantity        Float      // Jumlah dalam satuan jual
+  reason          String
+  proofImageData  String?
+  fromWarehouseId String?
+  fromWarehouse   Warehouse? @relation("FromWarehouse", fields: [fromWarehouseId], references: [id])
+  toWarehouseId   String?
+  toWarehouse     Warehouse? @relation("ToWarehouse", fields: [toWarehouseId], references: [id])
+  status          String     @default("MENUNGGU_PERSETUJUAN") // MENUNGGU_PERSETUJUAN | DISETUJUI | DITOLAK
+  requestedById   String
+  requestedBy     User       @relation("AdjustmentRequester", fields: [requestedById], references: [id])
+  reviewedById    String?
+  reviewedBy      User?      @relation("AdjustmentReviewer", fields: [reviewedById], references: [id])
+  reviewNotes     String?
+  reviewedAt      DateTime?
+  createdAt       DateTime   @default(now())
+}
+
+model StockOpnameSession {
+  id                 String            @id @default(cuid())
+  title              String
+  scheduleType       String            @default("MINGGUAN") // HARIAN | MINGGUAN | BULANAN | INSIDENTAL
+  warehouseId        String?
+  warehouse          Warehouse?        @relation(fields: [warehouseId], references: [id])
+  toleranceThreshold Int               @default(50000) // Batas toleransi Rp saat opname dijalankan
+  status             String            @default("SUBMITTED") // OPEN | SUBMITTED | EVALUATED
+  createdById        String
+  createdBy          User              @relation("OpnameCreator", fields: [createdById], references: [id])
+  reviewedById       String?
+  reviewedBy         User?             @relation("OpnameReviewer", fields: [reviewedById], references: [id])
+  createdAt          DateTime          @default(now())
+  submittedAt        DateTime?
+  evaluatedAt        DateTime?
+
+  items              StockOpnameItem[]
+}
+
+model StockOpnameItem {
+  id                  String             @id @default(cuid())
+  sessionId           String
+  session             StockOpnameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productId           String
+  product             Product            @relation(fields: [productId], references: [id])
+  areaType            String             // TERBUKA | TERTUTUP
+  systemStock         Float
+  physicalStock       Float
+  differenceUnit      Float              // physicalStock - systemStock
+  unitCost            Int
+  lossValueRp         Int                // Nilai selisih absolut dalam Rupiah: abs(differenceUnit * unitCost)
+  exceedsTolerance    Boolean            @default(false)
+  toleranceStatus     String             @default("AMAN") // SESUAI | DALAM_TOLERANSI | ANOMALI_TERBUKA | ANOMALI_TERTUTUP
+  employeeExplanation String?
+  proofImageData      String?
+  ownerDecision       String             @default("BELUM_DIEVALUASI") // BELUM_DIEVALUASI | TERIMA_PENJELASAN | MINTA_INFO_TAMBAHAN | TANDAI_TINDAK_LANJUT
+  ownerNotes          String?
+  updatedAt           DateTime           @updatedAt
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  title      String
+  message    String
+  severity   String   @default("INFO") // INFO | WARNING | CRITICAL
+  category   String   // PEMBELIAN | PENJUALAN | STOK_OPNAME | PERUBAHAN_STOK | SHIFT | SISTEM
+  targetRole String?  // Jika null maka untuk PEMILIK & MANAJER, atau spesifik userId
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  linkUrl    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  actorId       String?
+  actor         User?    @relation(fields: [actorId], references: [id])
+  actorName     String
+  actorRole     String
+  actionType    String   // LOGIN | PEMBELIAN | PENJUALAN | PERUBAHAN_TRANSAKSI | PERUBAHAN_STOK | STOK_OPNAME | KATALOG | HAK_AKSES | PENGATURAN
+  actionSummary String
+  entityType    String
+  entityId      String?
+  beforeData    String?  // JSON string nilai sebelum
+  afterData     String?  // JSON string nilai sesudah
+  approvalState String?  // MENUNGGU_PERSETUJUAN | DISETUJUI | DITOLAK | PERLU_PERBAIKAN | TERCATAT
+  linkUrl       String?
+  ipAddress     String?
+  createdAt     DateTime @default(now())
+}
+
+model SystemSetting {
+  id                        String   @id @default("default")
+  storeName                 String   @default("TRASIR Toko Utama")
+  storeAddress              String   @default("Jakarta, Indonesia")
+  toleranceThresholdRp      Int      @default(50000)
+  opnameSchedule            String   @default("MINGGUAN") // HARIAN | MINGGUAN | BULANAN
+  openAreaPolicy            String   @default("Evaluasi faktor eksternal (pelanggan/kerusakan fisik) sebelum tindak lanjut internal.")
+  closedAreaPolicy          String   @default("Evaluasi ketat berbasis log akses pegawai, bukti foto, dan kronologi shift.")
+  autoBackupInterval        String   @default("HARIAN") // HARIAN | MINGGUAN | NONAKTIF
+  lastBackupAt              DateTime?
+  updatedAt                 DateTime @updatedAt
+}
+

@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+build/
+.env
+.env.local
+.env*.local
+*.db
+*.db-journal
+prisma/schema.test.prisma
+.superpowers/
+.taste-skill/
+.agents/
+
