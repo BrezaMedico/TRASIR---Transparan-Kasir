@@ -75,7 +75,10 @@ export async function POST(request: Request) {
     const canCreate = await checkUserPermission(user.role, "produk", "create");
     if (!canCreate) {
       return NextResponse.json(
-        { error: "Anda tidak memiliki izin menambahkan atau mengajukan produk baru." },
+        {
+          error:
+            "Peran Kasir tidak diizinkan menambahkan barang. Hanya Gudang, Kasir + Gudang, Manajer, atau Pemilik yang dapat menambahkan atau mengajukan barang.",
+        },
         { status: 403 }
       );
     }

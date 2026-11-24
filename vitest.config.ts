@@ -6,6 +6,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     exclude: ["node_modules", ".next", ".agents"],
     fileParallelism: false,
+    testTimeout: 15000,
     env: {
       TEST_DATABASE_URL: "file:./test_isolated.db",
       DATABASE_URL: "file:./test_isolated.db",

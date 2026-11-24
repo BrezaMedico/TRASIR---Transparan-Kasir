@@ -1,5 +1,6 @@
 export interface IngredientRow {
   materialId: string;
+  materialName?: string;
   quantity: number;
   unit: string;
 }
@@ -9,6 +10,28 @@ export interface VariantRow {
   sellPrice: number;
   costPrice: number;
   ingredients: IngredientRow[];
+}
+
+export interface ProposalCartItem {
+  clientTempId: string;
+  sku: string;
+  barcode: string | null;
+  name: string;
+  categoryId: string;
+  categoryName?: string;
+  stockMethod: "TETAP" | "PECAH" | "RESEP";
+  isRawMaterial: boolean;
+  purchaseUnit: string;
+  sellUnit: string;
+  conversionRatio: number;
+  costPrice: number;
+  sellPrice: number;
+  currentStock: number;
+  minStockAlert: number;
+  variants?: VariantRow[];
+  packSize?: number;
+  packCount?: number;
+  packPrice?: number;
 }
 
 export interface CategoryOption {

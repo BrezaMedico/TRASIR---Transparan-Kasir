@@ -139,7 +139,15 @@ export async function ensureSystemBaseline(): Promise<void> {
     const kasirProductRow = permRows.find(
       (p) => p.role === "KASIR" && p.module === "produk"
     );
-    const kasirNeedsSync = Boolean(kasirProductRow && !kasirProductRow.canCreate);
+    const kasirNeedsSync = Boolean(
+      kasirProductRow && (kasirProductRow.canCreate || kasirProductRow.canEdit)
+    );
+    const gudangNeedsSync = permRows.some(
+      (p) =>
+        p.role === "GUDANG" &&
+        (p.module === "kasir" || p.module === "penjualan") &&
+        (p.canView || p.canCreate || p.canEdit || p.canApprove)
+    );
 
     const tasks: Promise<unknown>[] = [];
 
@@ -177,8 +185,31 @@ export async function ensureSystemBaseline(): Promise<void> {
       tasks.push(
         prisma.rolePermission
           .updateMany({
-            where: { role: "KASIR", module: "produk", canCreate: false },
-            data: { canCreate: true },
+            where: {
+              role: "KASIR",
+              module: "produk",
+              OR: [{ canCreate: true }, { canEdit: true }],
+            },
+            data: { canCreate: false, canEdit: false },
+          })
+          .catch(() => undefined)
+      );
+    }
+
+    if (gudangNeedsSync) {
+      tasks.push(
+        prisma.rolePermission
+          .updateMany({
+            where: {
+              role: "GUDANG",
+              module: { in: ["kasir", "penjualan"] },
+            },
+            data: {
+              canView: false,
+              canCreate: false,
+              canEdit: false,
+              canApprove: false,
+            },
           })
           .catch(() => undefined)
       );

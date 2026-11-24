@@ -12,11 +12,13 @@ import {
   CaretDown,
   CaretUp,
   Trash,
+  ShoppingCartSimple,
 } from "@phosphor-icons/react";
 import {
   getUnitDisplayLabel,
   type CategoryOption,
   type ProductItem,
+  type ProposalCartItem,
   type UnitOption,
 } from "./types";
 
@@ -30,6 +32,7 @@ interface RawMaterialDrawerProps {
   canSave: boolean;
   onSaved: (mode: "DIRECT" | "REQUEST", productName: string) => Promise<void> | void;
   onRequestDelete?: (product: ProductItem) => void;
+  onAddToCart?: (item: ProposalCartItem) => void;
 }
 
 const COMMON_MATERIAL_UNITS = [
@@ -83,6 +86,7 @@ export function RawMaterialDrawer({
   canSave,
   onSaved,
   onRequestDelete,
+  onAddToCart,
 }: RawMaterialDrawerProps) {
   const { showToast } = useToast();
 
@@ -180,25 +184,52 @@ export function RawMaterialDrawer({
       return;
     }
 
+    const resolvedCatObj = categories.find((c) => c.id === resolvedCategoryId);
+    const resolvedSku = sku.trim() || `BHN-${Math.floor(1000 + Math.random() * 9000)}`;
+    const payload = {
+      id: editingProduct?.id || undefined,
+      sku: resolvedSku,
+      barcode: editingProduct?.barcode || null,
+      name: trimmedName,
+      categoryId: resolvedCategoryId,
+      stockMethod: (safePackSize > 1 ? "PECAH" : "TETAP") as "TETAP" | "PECAH",
+      isRawMaterial: true,
+      purchaseUnit: "kemasan",
+      sellUnit: unit,
+      conversionRatio: safePackSize,
+      costPrice: savedCostPerUnit,
+      sellPrice: 0,
+      currentStock: computedTotalStock,
+      minStockAlert: Math.max(0, Number(minStockAlert) || Math.round(safePackSize * 0.2)),
+    };
+
+    if (!editingProduct && !isAdmin && onAddToCart) {
+      onAddToCart({
+        clientTempId: `cart-mat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        sku: payload.sku,
+        barcode: payload.barcode,
+        name: payload.name,
+        categoryId: payload.categoryId,
+        categoryName: resolvedCatObj?.name,
+        stockMethod: payload.stockMethod,
+        isRawMaterial: true,
+        purchaseUnit: payload.purchaseUnit,
+        sellUnit: payload.sellUnit,
+        conversionRatio: payload.conversionRatio,
+        costPrice: payload.costPrice,
+        sellPrice: payload.sellPrice,
+        currentStock: payload.currentStock,
+        minStockAlert: payload.minStockAlert,
+        packSize: safePackSize,
+        packCount: Math.max(0, Number(packCount) || 0),
+        packPrice: safePackPrice,
+      });
+      onClose();
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const payload = {
-        id: editingProduct?.id || undefined,
-        sku: sku.trim() || `BHN-${Math.floor(1000 + Math.random() * 9000)}`,
-        barcode: editingProduct?.barcode || null,
-        name: trimmedName,
-        categoryId: resolvedCategoryId,
-        stockMethod: safePackSize > 1 ? "PECAH" : "TETAP",
-        isRawMaterial: true,
-        purchaseUnit: "kemasan",
-        sellUnit: unit,
-        conversionRatio: safePackSize,
-        costPrice: savedCostPerUnit,
-        sellPrice: 0,
-        currentStock: computedTotalStock,
-        minStockAlert: Math.max(0, Number(minStockAlert) || Math.round(safePackSize * 0.2)),
-      };
-
       const res = await fetch("/api/products", {
         method: editingProduct ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -243,11 +274,12 @@ export function RawMaterialDrawer({
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         {!editingProduct && !isAdmin && (
-          <div className="p-3.5 rounded-xl bg-[#EBEBEB] text-[#202531] border border-[#202531]/15 flex items-start gap-2.5">
+          <div className="p-3.5 rounded-xl bg-[#EBEBEB] text-[#202531] border border-[#202531]/15 flex items-start gap-2.5 text-xs">
             <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
             <p>
-              Bahan baku yang Anda masukkan akan masuk antrean{" "}
-              <strong>Menunggu Persetujuan</strong> sebelum aktif dipakai di resep.
+              {onAddToCart
+                ? "Item ini akan dimasukkan ke Keranjang Pengajuan. Anda bisa menambahkan beberapa barang/resep lalu mengirim semuanya sekaligus."
+                : "Bahan baku yang Anda masukkan akan masuk antrean Menunggu Persetujuan sebelum aktif dipakai di resep."}
             </p>
           </div>
         )}
@@ -567,7 +599,11 @@ export function RawMaterialDrawer({
               aria-busy={submitting}
               className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity duration-150 cursor-pointer"
             >
-              <FloppyDisk size={18} weight="bold" aria-hidden="true" />
+              {!editingProduct && !isAdmin && onAddToCart ? (
+                <ShoppingCartSimple size={18} weight="bold" aria-hidden="true" />
+              ) : (
+                <FloppyDisk size={18} weight="bold" aria-hidden="true" />
+              )}
               <span>
                 {submitting
                   ? "Menyimpan Bahan Baku..."
@@ -575,6 +611,8 @@ export function RawMaterialDrawer({
                   ? "Simpan Perubahan Bahan Baku"
                   : isAdmin
                   ? "Simpan Bahan Baku"
+                  : onAddToCart
+                  ? "Masukkan ke Keranjang Pengajuan"
                   : "Kirim Usulan Bahan Baku"}
               </span>
             </button>

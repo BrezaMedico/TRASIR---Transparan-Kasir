@@ -1,37 +1,45 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AppShell, useToast } from "@/components/layout/AppShell";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { SlideDrawer } from "@/components/ui/SlideDrawer";
 import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
 import { fetchJsonCached, getCachedData, invalidateCache, setCachedData } from "@/lib/client-cache";
 import { formatRoleLabel, isStoreAdmin } from "@/lib/rbac-shared";
+import {
+  groupProductRequestsIntoBatches,
+  parseProductRequestEnvelope,
+  type GroupedProductRequestBatch,
+} from "@/lib/product-request-batch";
 import {
   Plus,
   MagnifyingGlass,
   Package,
   CookingPot,
   ClockCounterClockwise,
-  CheckCircle,
-  XCircle,
   Eye,
   Trash,
   Warning,
+  ShoppingCartSimple,
+  Sparkle,
+  Receipt,
+  Info,
 } from "@phosphor-icons/react";
 import {
   computeProductMaxPortions,
   getUnitDisplayLabel,
-  parseRequestInitialStock,
   type CategoryOption,
   type InitialProdukCatalog,
   type ProductItem,
   type ProductRequestItem,
+  type ProposalCartItem,
   type UnitOption,
 } from "./types";
 import { RawMaterialDrawer } from "./RawMaterialDrawer";
 import { ProductDrawer } from "./ProductDrawer";
+import { ProposalCartDrawer } from "./ProposalCartDrawer";
+import { ProductBatchReviewDrawer } from "./ProductBatchReviewDrawer";
 
 export function ProdukClient({
   initialCatalog = null,
@@ -71,10 +79,15 @@ export function ProdukClient({
   const [editingProduct, setEditingProduct] = useState<ProductItem | null>(null);
   const [restockingId, setRestockingId] = useState<string | null>(null);
 
-  // Review Request Drawer
-  const [reviewingRequest, setReviewingRequest] = useState<ProductRequestItem | null>(null);
-  const [rejectionReason, setRejectionReason] = useState("");
-  const [reviewingBusy, setReviewingBusy] = useState(false);
+  // Review Batch Request Drawer
+  const [reviewingBatch, setReviewingBatch] =
+    useState<GroupedProductRequestBatch<ProductRequestItem> | null>(null);
+
+  // Keranjang Pengajuan (khusus Gudang & Kasir+Gudang sebelum dikirim ke Manajer/Pemilik)
+  const [proposalCart, setProposalCart] = useState<ProposalCartItem[]>([]);
+  const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+  const activeCartRoomRef = useRef<string | null>(null);
+  const cartHydratedRef = useRef(false);
 
   // Delete confirmation modal
   const [deletingTarget, setDeletingTarget] = useState<ProductItem | null>(null);
@@ -86,6 +99,88 @@ export function ProdukClient({
   useEffect(() => {
     setPortalMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!portalMounted || !activeCartRoomRef.current || cartHydratedRef.current) return;
+    cartHydratedRef.current = true;
+    try {
+      const saved = window.sessionStorage.getItem(
+        `trasir_proposal_cart:${activeCartRoomRef.current}`
+      );
+      if (saved) {
+        const parsed = JSON.parse(saved) as ProposalCartItem[];
+        if (Array.isArray(parsed)) setProposalCart(parsed);
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [portalMounted]);
+
+  useEffect(() => {
+    if (!portalMounted || !activeCartRoomRef.current || !cartHydratedRef.current) return;
+    try {
+      window.sessionStorage.setItem(
+        `trasir_proposal_cart:${activeCartRoomRef.current}`,
+        JSON.stringify(proposalCart)
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, [proposalCart, portalMounted]);
+
+  const queuedMaterialsAsProducts: ProductItem[] = useMemo(
+    () =>
+      proposalCart
+        .filter((item) => item.isRawMaterial)
+        .map((item) => ({
+          id: item.clientTempId,
+          sku: item.sku,
+          barcode: item.barcode,
+          name: item.name,
+          categoryId: item.categoryId,
+          category: categories.find((c) => c.id === item.categoryId) || {
+            id: item.categoryId,
+            name: item.categoryName || "Bahan Baku",
+            areaType: "TERTUTUP",
+          },
+          stockMethod: item.stockMethod,
+          isRawMaterial: true,
+          purchaseUnit: item.purchaseUnit,
+          sellUnit: item.sellUnit,
+          conversionRatio: item.conversionRatio,
+          costPrice: item.costPrice,
+          sellPrice: item.sellPrice,
+          currentStock: item.currentStock,
+          minStockAlert: item.minStockAlert,
+          variants: [],
+        })),
+    [proposalCart, categories]
+  );
+
+  const handleAddToCart = useCallback(
+    (item: ProposalCartItem) => {
+      const normalizedNewName = item.name.trim().toLowerCase();
+      const normalizedNewSku = item.sku.trim().toUpperCase();
+      const dupInCart = proposalCart.find(
+        (existing) =>
+          existing.name.trim().toLowerCase() === normalizedNewName ||
+          existing.sku.trim().toUpperCase() === normalizedNewSku
+      );
+      if (dupInCart) {
+        showToast(
+          `"${item.name}" sudah ada di Keranjang Pengajuan. Hapus item lama jika ingin menggantinya.`,
+          "info"
+        );
+        return;
+      }
+      setProposalCart((prev) => [...prev, item]);
+      showToast(
+        `"${item.name}" dimasukkan ke Keranjang Pengajuan (${proposalCart.length + 1} item).`,
+        "success"
+      );
+    },
+    [proposalCart, showToast]
+  );
 
   useEffect(() => {
     if (!deletingTarget || deletingBusy) return;
@@ -224,41 +319,6 @@ export function ProdukClient({
     }
   };
 
-  const handleReviewRequest = async (decision: "DISETUJUI" | "DITOLAK") => {
-    if (!reviewingRequest) return;
-    setReviewingBusy(true);
-    try {
-      const res = await fetch(`/api/product-requests/${reviewingRequest.id}/review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          decision,
-          rejectionReason: decision === "DITOLAK" ? rejectionReason.trim() || undefined : undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error || "Gagal memproses keputusan.", "error");
-        return;
-      }
-
-      showToast(
-        decision === "DISETUJUI"
-          ? `"${reviewingRequest.name}" disetujui dan langsung aktif.`
-          : `Pengajuan "${reviewingRequest.name}" ditolak.`,
-        decision === "DISETUJUI" ? "success" : "info"
-      );
-      setReviewingRequest(null);
-      setRejectionReason("");
-      invalidateCache("/api/dashboard");
-      await Promise.all([loadCatalog(), loadRequests()]);
-    } catch {
-      showToast("Gagal menghubungi server.", "error");
-    } finally {
-      setReviewingBusy(false);
-    }
-  };
-
   const handleConfirmDelete = async () => {
     if (!deletingTarget) return;
     setDeletingBusy(true);
@@ -297,9 +357,12 @@ export function ProdukClient({
   return (
     <AppShell>
       {(session) => {
+        activeCartRoomRef.current = session.user.roomId ?? null;
         const isAdmin = isStoreAdmin(session.user.role);
         const canCreate = Boolean(session.permissions.produk?.canCreate);
         const canEdit = Boolean(session.permissions.produk?.canEdit);
+        const canAccessRequests = isAdmin || canCreate;
+        const effectiveTab = pageTab === "requests" && !canAccessRequests ? "catalog" : pageTab;
         const q = search.trim().toLowerCase();
 
         const sellableProducts = products.filter((p) => !p.isRawMaterial);
@@ -330,6 +393,7 @@ export function ProdukClient({
             r.requestedBy.name.toLowerCase().includes(q)
           );
         });
+        const groupedBatches = groupProductRequestsIntoBatches(filteredRequests);
 
         return (
           <div className="space-y-5">
@@ -345,7 +409,7 @@ export function ProdukClient({
                   </p>
                 </div>
 
-                {canCreate && (
+                {canCreate ? (
                   <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                     <button
                       type="button"
@@ -361,13 +425,30 @@ export function ProdukClient({
                       className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity duration-150 cursor-pointer"
                     >
                       <Plus size={17} weight="bold" aria-hidden="true" />
-                      <span>{isAdmin ? "+ Tambah Menu / Produk" : "+ Ajukan Menu Baru"}</span>
+                      <span>{isAdmin ? "+ Tambah Menu / Produk" : "+ Ajukan Menu / Produk"}</span>
                     </button>
+                    {!isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setCartDrawerOpen(true)}
+                        className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl border border-[#202531]/25 bg-white text-[#202531] text-xs font-extrabold hover:bg-[#EBEBEB] transition-colors cursor-pointer"
+                      >
+                        <ShoppingCartSimple size={17} weight="bold" aria-hidden="true" />
+                        <span>Keranjang ({proposalCart.length})</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="px-3.5 py-2.5 rounded-xl bg-[#EBEBEB] border border-[#202531]/15 text-xs text-[#202531] flex items-center gap-2">
+                    <Info size={16} weight="bold" className="shrink-0" aria-hidden="true" />
+                    <span>
+                      Mode Lihat Saja: Penambahan produk dikelola oleh bagian Gudang, Manajer, atau Pemilik.
+                    </span>
                   </div>
                 )}
               </div>
 
-              {/* 3 Tab Bersih */}
+              {/* Tab Bersih */}
               <div
                 role="tablist"
                 aria-label="Tab Produk dan Bahan Baku"
@@ -376,10 +457,10 @@ export function ProdukClient({
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={pageTab === "catalog"}
+                  aria-selected={effectiveTab === "catalog"}
                   onClick={() => setPageTab("catalog")}
                   className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
-                    pageTab === "catalog"
+                    effectiveTab === "catalog"
                       ? "bg-[#202531] text-white"
                       : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
                   }`}
@@ -391,10 +472,10 @@ export function ProdukClient({
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={pageTab === "materials"}
+                  aria-selected={effectiveTab === "materials"}
                   onClick={() => setPageTab("materials")}
                   className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
-                    pageTab === "materials"
+                    effectiveTab === "materials"
                       ? "bg-[#202531] text-white"
                       : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
                   }`}
@@ -403,34 +484,36 @@ export function ProdukClient({
                   <span>Bahan Baku ({rawMaterialProducts.length})</span>
                 </button>
 
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={pageTab === "requests"}
-                  onClick={() => {
-                    setPageTab("requests");
-                    loadRequests();
-                  }}
-                  className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
-                    pageTab === "requests"
-                      ? "bg-[#202531] text-white"
-                      : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
-                  }`}
-                >
-                  <ClockCounterClockwise size={16} weight="bold" aria-hidden="true" />
-                  <span>{isAdmin ? "Persetujuan" : "Pengajuan Saya"}</span>
-                  {pendingRequestsCount > 0 && (
-                    <span
-                      className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold ${
-                        pageTab === "requests"
-                          ? "bg-[#01DAD7] text-[#202531]"
-                          : "bg-[#FF2A63] text-white"
-                      }`}
-                    >
-                      {pendingRequestsCount}
-                    </span>
-                  )}
-                </button>
+                {canAccessRequests && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={effectiveTab === "requests"}
+                    onClick={() => {
+                      setPageTab("requests");
+                      loadRequests();
+                    }}
+                    className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
+                      effectiveTab === "requests"
+                        ? "bg-[#202531] text-white"
+                        : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
+                    }`}
+                  >
+                    <ClockCounterClockwise size={16} weight="bold" aria-hidden="true" />
+                    <span>{isAdmin ? "Persetujuan" : "Pengajuan Saya"}</span>
+                    {pendingRequestsCount > 0 && (
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold ${
+                          effectiveTab === "requests"
+                            ? "bg-[#01DAD7] text-[#202531]"
+                            : "bg-[#FF2A63] text-white"
+                        }`}
+                      >
+                        {pendingRequestsCount}
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* Filter Pencarian Ringkas */}
@@ -447,9 +530,9 @@ export function ProdukClient({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder={
-                      pageTab === "materials"
+                      effectiveTab === "materials"
                         ? "Cari nama bahan baku (misal: Susu, Gula, Teh)..."
-                        : pageTab === "requests"
+                        : effectiveTab === "requests"
                         ? "Cari nama produk atau pengaju..."
                         : "Cari nama menu atau produk..."
                     }
@@ -458,7 +541,7 @@ export function ProdukClient({
                   />
                 </div>
 
-                {pageTab === "catalog" && (
+                {effectiveTab === "catalog" && (
                   <div className="flex flex-wrap gap-1.5">
                     {(
                       [
@@ -483,7 +566,7 @@ export function ProdukClient({
                   </div>
                 )}
 
-                {pageTab === "requests" && (
+                {effectiveTab === "requests" && (
                   <div className="flex flex-wrap gap-1.5">
                     {(
                       [
@@ -512,7 +595,7 @@ export function ProdukClient({
             </div>
 
             {/* TAB 1: MENU & PRODUK JUAL */}
-            {pageTab === "catalog" && (
+            {effectiveTab === "catalog" && (
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                 {loading ? (
                   <div className="p-10 text-center text-xs text-slate-600">
@@ -666,7 +749,7 @@ export function ProdukClient({
             )}
 
             {/* TAB 2: BAHAN BAKU (RAMAH PEMULA) */}
-            {pageTab === "materials" && (
+            {effectiveTab === "materials" && (
               <div className="space-y-4">
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                   {loading ? (
@@ -784,103 +867,148 @@ export function ProdukClient({
               </div>
             )}
 
-            {/* TAB 3: PERSETUJUAN PRODUK BARU */}
-            {pageTab === "requests" && (
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            {/* TAB 3: PERSETUJUAN PRODUK BARU (TERKELOMPOK PER PAKET) */}
+            {effectiveTab === "requests" && canAccessRequests && (
+              <div className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4">
                 <div>
-                  <h2 className="text-base font-extrabold text-slate-900">
+                  <h2 className="text-base font-extrabold text-[#202531]">
                     {isAdmin
-                      ? "Antrean Persetujuan Produk & Bahan Baru"
+                      ? "Antrean Persetujuan Paket Barang & Bahan Baru"
                       : "Riwayat Pengajuan Anda"}
                   </h2>
-                  <p className="text-xs text-slate-600 mt-0.5">
+                  <p className="text-xs text-[#525866] mt-0.5">
                     {isAdmin
-                      ? "Periksa detail yang diajukan pegawai sebelum mengaktifkannya."
-                      : "Pengajuan Anda akan langsung aktif setelah disetujui Pemilik atau Manajer."}
+                      ? "Tinjau paket barang sekaligus, pindai kesesuaian dengan nota lewat AI bila perlu, lalu setujui 1 kali klik."
+                      : "Setiap paket pengajuan akan aktif di katalog setelah disetujui Pemilik atau Manajer."}
                   </p>
                 </div>
 
                 {loadingRequests ? (
-                  <div className="py-10 text-center text-xs text-slate-600">
+                  <div className="py-10 text-center text-xs text-[#525866]">
                     Memuat daftar pengajuan...
                   </div>
-                ) : filteredRequests.length === 0 ? (
-                  <div className="py-10 text-center text-xs text-slate-600 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                ) : groupedBatches.length === 0 ? (
+                  <div className="py-10 text-center text-xs text-[#525866] bg-[#F8FAFC] rounded-xl border border-dashed border-[#202531]/15">
                     Belum ada pengajuan pada kategori ini.
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {filteredRequests.map((req) => {
-                      const reqInitStock = parseRequestInitialStock(req.variantsJson);
+                    {groupedBatches.map((batch) => {
+                      const leadRejectReason = batch.items.find(
+                        (i) => i.status === "DITOLAK" && i.rejectionReason
+                      )?.rejectionReason;
+
                       return (
                         <div
-                          key={req.id}
-                          className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                          key={batch.batchId}
+                          className="p-4 rounded-2xl border border-[#202531]/15 bg-[#F8FAFC] flex flex-col lg:flex-row lg:items-center justify-between gap-4"
                         >
-                          <div className="space-y-1.5">
+                          <div className="space-y-2 min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-extrabold text-slate-900">
-                                {req.name}
+                              <span className="text-sm font-extrabold text-[#202531]">
+                                {batch.batchTitle}
                               </span>
-                              <span className="px-2 py-0.5 rounded bg-slate-200 text-[11px] font-bold text-slate-700">
-                                {req.isRawMaterial ? "Bahan Baku" : "Menu / Produk"}
+                              <span className="px-2 py-0.5 rounded-md bg-[#202531] text-white text-[11px] font-bold">
+                                {batch.items.length} Barang
                               </span>
-                              <StatusBadge status={req.status} />
+                              <StatusBadge
+                                status={
+                                  batch.status === "SEBAGIAN"
+                                    ? "MENUNGGU_PERSETUJUAN"
+                                    : batch.status
+                                }
+                              />
+                              {batch.receiptImageData && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#202531]/20 text-[11px] font-bold text-[#202531]">
+                                  <Receipt size={12} weight="bold" aria-hidden="true" />
+                                  <span>
+                                    {batch.receiptSource === "FISIK" ? "Nota Fisik" : "Nota Digital"}
+                                  </span>
+                                </span>
+                              )}
+                              {batch.aiScanResult && (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                                    batch.aiScanResult.status === "SESUAI"
+                                      ? "bg-[#01DAD7]/20 text-[#202531] border border-[#008F8C]/30"
+                                      : "bg-[#FFF0F4] text-[#D41448] border border-[#FF2A63]/30"
+                                  }`}
+                                >
+                                  <Sparkle size={12} weight="fill" aria-hidden="true" />
+                                  <span>
+                                    {batch.aiScanResult.status === "SESUAI"
+                                      ? "AI: Sesuai Nota"
+                                      : "AI: Ada Selisih"}
+                                  </span>
+                                </span>
+                              )}
                             </div>
-                            <p className="text-xs text-slate-700">
-                              Modal:{" "}
-                              <strong className="font-mono">{formatRupiah(req.costPrice)}</strong>
-                              {!req.isRawMaterial && (
-                                <>
-                                  {" "}• Harga Jual:{" "}
-                                  <strong className="font-mono text-[#202531]">
-                                    {formatRupiah(req.sellPrice)}
-                                  </strong>
-                                </>
+
+                            <div className="flex flex-wrap gap-1.5">
+                              {batch.items.slice(0, 5).map((item) => {
+                                const env = parseProductRequestEnvelope(item.variantsJson);
+                                const initStock =
+                                  item.stockMethod !== "RESEP" ? env.initialStock ?? 0 : 0;
+                                return (
+                                  <span
+                                    key={item.id}
+                                    className="px-2.5 py-1 rounded-lg bg-white border border-[#202531]/10 text-[11px] font-semibold text-[#202531]"
+                                  >
+                                    {item.name}
+                                    {initStock > 0
+                                      ? ` (${formatNumber(initStock)} ${getUnitDisplayLabel(item.sellUnit)})`
+                                      : item.stockMethod === "RESEP"
+                                      ? " (Resep)"
+                                      : ""}
+                                  </span>
+                                );
+                              })}
+                              {batch.items.length > 5 && (
+                                <span className="px-2.5 py-1 rounded-lg bg-[#EBEBEB] text-[11px] font-bold text-[#202531]">
+                                  +{batch.items.length - 5} lainnya
+                                </span>
                               )}
-                              {reqInitStock !== null && reqInitStock > 0 && (
+                            </div>
+
+                            <p className="text-[11px] text-[#525866]">
+                              Diajukan <strong>{batch.requestedBy.name}</strong> (
+                              {formatRoleLabel(batch.requestedBy.role)}) pada{" "}
+                              {formatDateTimeJakarta(batch.createdAt)}
+                              {batch.totalEstimatedCost > 0 && (
                                 <>
-                                  {" "}• Stok Awal:{" "}
+                                  {" "}
+                                  • Estimasi modal:{" "}
                                   <strong className="font-mono text-[#202531]">
-                                    {formatNumber(reqInitStock)} {getUnitDisplayLabel(req.sellUnit)}
+                                    {formatRupiah(batch.totalEstimatedCost)}
                                   </strong>
                                 </>
                               )}
                             </p>
-                            <p className="text-[11px] text-slate-600">
-                              Diajukan oleh <strong>{req.requestedBy.name}</strong> (
-                              {formatRoleLabel(req.requestedBy.role)}) pada{" "}
-                              {formatDateTimeJakarta(req.createdAt)}
-                            </p>
-                            {req.status === "DITOLAK" && req.rejectionReason && (
-                              <p className="text-xs font-semibold text-[#D41448] bg-[#FFF0F4] border border-[#FF2A63]/35 rounded-lg px-3 py-1.5 mt-1">
-                                Alasan Penolakan: {req.rejectionReason}
+
+                            {leadRejectReason && (
+                              <p className="text-xs font-semibold text-[#D41448] bg-[#FFF0F4] border border-[#FF2A63]/35 rounded-lg px-3 py-1.5">
+                                Alasan Penolakan: {leadRejectReason}
                               </p>
                             )}
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0">
-                            {isAdmin && req.status === "MENUNGGU_PERSETUJUAN" ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setReviewingRequest(req);
-                                  setRejectionReason("");
-                                }}
-                                className="inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] cursor-pointer"
-                              >
-                                <Eye size={16} weight="bold" aria-hidden="true" />
-                                <span>Tinjau &amp; Putuskan</span>
-                              </button>
-                            ) : (
-                              <span className="text-xs font-semibold text-slate-600">
-                                {req.status === "MENUNGGU_PERSETUJUAN"
-                                  ? "Menunggu tinjauan"
-                                  : req.status === "DISETUJUI"
-                                  ? "Sudah aktif"
-                                  : "Ditolak"}
+                            <button
+                              type="button"
+                              onClick={() => setReviewingBatch(batch)}
+                              className={`inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-xl text-xs font-bold cursor-pointer ${
+                                isAdmin && batch.pendingCount > 0
+                                  ? "bg-[#01DAD7] text-[#202531] hover:opacity-90 font-extrabold"
+                                  : "bg-[#202531] text-white hover:bg-[#2a3140]"
+                              }`}
+                            >
+                              <Eye size={16} weight="bold" aria-hidden="true" />
+                              <span>
+                                {isAdmin && batch.pendingCount > 0
+                                  ? "Tinjau Paket & Putuskan"
+                                  : "Lihat Detail Paket"}
                               </span>
-                            )}
+                            </button>
                           </div>
                         </div>
                       );
@@ -890,122 +1018,39 @@ export function ProdukClient({
               </div>
             )}
 
-            {/* DRAWER TINJAUAN PERSETUJUAN */}
-            <SlideDrawer
-              isOpen={Boolean(reviewingRequest)}
-              onClose={() => setReviewingRequest(null)}
-              title={
-                reviewingRequest
-                  ? `Tinjau Pengajuan: ${reviewingRequest.name}`
-                  : "Tinjau Pengajuan"
-              }
-              subtitle="Periksa rincian harga dan stok sebelum mengaktifkan"
-            >
-              {reviewingRequest && (
-                <div className="space-y-5 text-xs">
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-600">Status</span>
-                      <StatusBadge status={reviewingRequest.status} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Pengaju</span>
-                      <span className="font-bold text-slate-900">
-                        {reviewingRequest.requestedBy.name} (
-                        {formatRoleLabel(reviewingRequest.requestedBy.role)})
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Waktu Pengajuan</span>
-                      <span className="font-semibold text-slate-800">
-                        {formatDateTimeJakarta(reviewingRequest.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-slate-200 grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-slate-500">Nama</p>
-                      <p className="font-bold text-slate-900 mt-0.5">{reviewingRequest.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Jenis</p>
-                      <p className="font-bold text-slate-900 mt-0.5">
-                        {reviewingRequest.isRawMaterial ? "Bahan Baku" : "Menu / Produk Jual"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Modal (HPP)</p>
-                      <p className="font-mono font-bold text-[#B45309] mt-0.5">
-                        {formatRupiah(reviewingRequest.costPrice)} /{" "}
-                        {getUnitDisplayLabel(reviewingRequest.sellUnit)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Harga Jual</p>
-                      <p className="font-mono font-extrabold text-[#202531] mt-0.5">
-                        {reviewingRequest.isRawMaterial
-                          ? "Tidak dijual langsung"
-                          : formatRupiah(reviewingRequest.sellPrice)}
-                      </p>
-                    </div>
-                    {(() => {
-                      const initStock = parseRequestInitialStock(reviewingRequest.variantsJson);
-                      if (initStock === null) return null;
-                      return (
-                        <div>
-                          <p className="text-slate-500">Stok Awal Diajukan</p>
-                          <p className="font-mono font-extrabold text-[#202531] mt-0.5">
-                            {formatNumber(initStock)}{" "}
-                            {getUnitDisplayLabel(reviewingRequest.sellUnit)}
-                          </p>
-                        </div>
-                      );
-                    })()}
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="prod-reject-reason"
-                      className="block font-bold text-slate-700 mb-1"
-                    >
-                      Alasan Penolakan (isi jika menolak)
-                    </label>
-                    <textarea
-                      id="prod-reject-reason"
-                      rows={3}
-                      value={rejectionReason}
-                      onChange={(e) => setRejectionReason(e.target.value)}
-                      placeholder="Contoh: Harga modal perlu diperiksa ulang..."
-                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs text-slate-900"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                    <button
-                      type="button"
-                      disabled={reviewingBusy}
-                      aria-busy={reviewingBusy}
-                      onClick={() => handleReviewRequest("DISETUJUI")}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                    >
-                      <CheckCircle size={18} weight="bold" aria-hidden="true" />
-                      <span>{reviewingBusy ? "Memproses..." : "Setujui & Aktifkan"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={reviewingBusy}
-                      aria-busy={reviewingBusy}
-                      onClick={() => handleReviewRequest("DITOLAK")}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-[#D41448] text-white text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
-                    >
-                      <XCircle size={18} weight="bold" aria-hidden="true" />
-                      <span>Tolak Pengajuan</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </SlideDrawer>
+            {/* DRAWER TINJAUAN PAKET + CEK AI OPSIONAL */}
+            <ProductBatchReviewDrawer
+              batch={reviewingBatch}
+              isOpen={Boolean(reviewingBatch)}
+              onClose={() => setReviewingBatch(null)}
+              isAdmin={isAdmin}
+              onCompleted={async () => {
+                invalidateCache("/api/dashboard");
+                const [, updatedReqs] = await Promise.all([
+                  loadCatalog(),
+                  fetch("/api/product-requests", { cache: "no-store" })
+                    .then((r) => (r.ok ? r.json() : null))
+                    .catch(() => null),
+                ]);
+                if (updatedReqs?.requests) {
+                  setRequests(updatedReqs.requests);
+                  setPendingRequestsCount(updatedReqs.pendingCount ?? 0);
+                  if (reviewingBatch) {
+                    const refreshedBatches = groupProductRequestsIntoBatches(
+                      updatedReqs.requests as ProductRequestItem[]
+                    );
+                    const nextMatch = refreshedBatches.find(
+                      (b) => b.batchId === reviewingBatch.batchId
+                    );
+                    if (nextMatch) {
+                      setReviewingBatch(nextMatch);
+                    }
+                  }
+                } else {
+                  await loadRequests();
+                }
+              }}
+            />
 
             {/* DRAWER KHUSUS BAHAN BAKU */}
             <RawMaterialDrawer
@@ -1017,6 +1062,7 @@ export function ProdukClient({
               isAdmin={isAdmin}
               canSave={editingMaterial ? canEdit : canCreate}
               onRequestDelete={(mat) => setDeletingTarget(mat)}
+              onAddToCart={!isAdmin ? handleAddToCart : undefined}
               onSaved={async (mode) => {
                 invalidateCache("/api/dashboard");
                 if (mode === "REQUEST") {
@@ -1035,11 +1081,13 @@ export function ProdukClient({
               onClose={() => setProductDrawerOpen(false)}
               editingProduct={editingProduct}
               products={products}
+              queuedMaterials={!isAdmin ? queuedMaterialsAsProducts : []}
               categories={categories}
               units={units}
               isAdmin={isAdmin}
               canSave={editingProduct ? canEdit : canCreate}
               onRequestDelete={(prod) => setDeletingTarget(prod)}
+              onAddToCart={!isAdmin ? handleAddToCart : undefined}
               onSwitchToAddMaterial={() => {
                 setProductDrawerOpen(false);
                 openAddMaterial();
@@ -1055,6 +1103,60 @@ export function ProdukClient({
                 }
               }}
             />
+
+            {/* DRAWER KERANJANG PENGAJUAN GUDANG / KASIR+GUDANG */}
+            {!isAdmin && canCreate && (
+              <ProposalCartDrawer
+                isOpen={cartDrawerOpen}
+                onClose={() => setCartDrawerOpen(false)}
+                items={proposalCart}
+                onRemoveItem={(tempId) =>
+                  setProposalCart((prev) => prev.filter((item) => item.clientTempId !== tempId))
+                }
+                onClearCart={() => setProposalCart([])}
+                onOpenAddMaterial={openAddMaterial}
+                onOpenAddProduct={openAddProduct}
+                onSubmitted={async () => {
+                  invalidateCache("/api/dashboard");
+                  setPageTab("requests");
+                  await loadRequests();
+                }}
+              />
+            )}
+
+            {/* STICKY KERANJANG PENGAJUAN BAR */}
+            {portalMounted &&
+              !isAdmin &&
+              canCreate &&
+              proposalCart.length > 0 &&
+              createPortal(
+                <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 z-40 !m-0 flex justify-end pointer-events-none">
+                  <div className="pointer-events-auto w-full md:w-auto max-w-xl rounded-2xl bg-[#202531] text-white px-4 py-3 shadow-2xl border border-white/10 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-[#01DAD7] text-[#202531] flex items-center justify-center font-extrabold shrink-0">
+                        <ShoppingCartSimple size={20} weight="bold" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-extrabold text-white">
+                          Keranjang Pengajuan: {proposalCart.length} Item Siap Kirim
+                        </p>
+                        <p className="text-[11px] text-[#EBEBEB]/80 truncate max-w-[260px]">
+                          {proposalCart.map((c) => c.name).join(", ")}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setCartDrawerOpen(true)}
+                      className="px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 shrink-0 cursor-pointer"
+                    >
+                      Lihat Keranjang &amp; Kirim
+                    </button>
+                  </div>
+                </div>,
+                document.body
+              )}
 
             {/* MODAL KONFIRMASI HAPUS PRODUK / RESEP / BAHAN BAKU */}
             {portalMounted &&

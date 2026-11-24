@@ -321,6 +321,25 @@ export function KasirClient({
   return (
     <AppShell defaultCollapsed={true}>
       {(session) => {
+        if (!session.permissions.kasir?.canView) {
+          return (
+            <div className="max-w-lg mx-auto my-12 bg-white rounded-2xl border border-[#202531]/15 p-6 text-center space-y-3">
+              <h1 className="text-lg font-extrabold text-[#202531]">
+                Akses Kasir Tidak Tersedia
+              </h1>
+              <p className="text-xs text-[#525866] leading-relaxed">
+                Halaman Kasir tidak tersedia untuk peran Gudang. Gunakan akun Kasir atau Kasir + Gudang untuk mencatat penjualan.
+              </p>
+              <Link
+                href="/produk"
+                className="inline-flex items-center justify-center px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90"
+              >
+                Kembali ke Produk &amp; Bahan Baku
+              </Link>
+            </div>
+          );
+        }
+
         const q = search.trim().toLowerCase();
         const filteredProducts = products.filter((p) => {
           if (selectedCategory !== "ALL" && p.categoryId !== selectedCategory) return false;

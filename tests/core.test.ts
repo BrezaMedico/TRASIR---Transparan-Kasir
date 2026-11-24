@@ -31,6 +31,11 @@ import {
 import { recordAuditLog } from "../src/lib/audit";
 import { getGrossProfitReport } from "../src/lib/queries/profit";
 import {
+  groupProductRequestsIntoBatches,
+  parseProductRequestEnvelope,
+  serializeProductRequestEnvelope,
+} from "../src/lib/product-request-batch";
+import {
   buildAreaPath,
   buildMonotonePath,
   computeNiceScale,
@@ -105,8 +110,13 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
     expect(await checkUserPermission("KASIR_GUDANG", "kasir", "create")).toBe(true);
     expect(await checkUserPermission("KASIR_GUDANG", "pembelian", "create")).toBe(true);
     expect(await checkUserPermission("KASIR_GUDANG", "inventaris", "edit")).toBe(true);
-    expect(await checkUserPermission("KASIR", "produk", "create")).toBe(true);
+    expect(await checkUserPermission("KASIR_GUDANG", "produk", "create")).toBe(true);
+    expect(await checkUserPermission("KASIR", "produk", "create")).toBe(false);
+    expect(await checkUserPermission("KASIR", "produk", "edit")).toBe(false);
+    expect(await checkUserPermission("KASIR", "kasir", "create")).toBe(true);
     expect(await checkUserPermission("GUDANG", "produk", "create")).toBe(true);
+    expect(await checkUserPermission("GUDANG", "kasir", "view")).toBe(false);
+    expect(await checkUserPermission("GUDANG", "kasir", "create")).toBe(false);
   });
 
   it("enforces Pemilik account protection from Manajer and last-Pemilik anti-lockout guards", () => {
@@ -508,5 +518,75 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
     expect(monthReport.chartSeries[17].isFuture).toBe(false);
     expect(monthReport.chartSeries[18].isFuture).toBe(true);
     expect(monthReport.chartSeries[29].key).toBe("2026-11-30");
+  });
+
+  it("parses legacy & batch ProductRequest envelopes and groups items cleanly into batches", () => {
+    const legacy = parseProductRequestEnvelope(
+      JSON.stringify([{ name: "Reguler", sellPrice: 15000, ingredients: [] }])
+    );
+    expect(legacy.variants).toHaveLength(1);
+
+    const serialized = serializeProductRequestEnvelope({
+      batchId: "BATCH-001",
+      batchIndex: 0,
+      batchSize: 2,
+      batchTitle: "Belanja Pagi",
+      initialStock: 1000,
+      clientTempId: "tmp-susu",
+      receiptImageData: "data:image/png;base64,AAAA",
+      receiptSource: "FISIK",
+    });
+    expect(serialized).toBeTruthy();
+    const roundTrip = parseProductRequestEnvelope(serialized);
+    expect(roundTrip.batchId).toBe("BATCH-001");
+    expect(roundTrip.initialStock).toBe(1000);
+    expect(roundTrip.receiptSource).toBe("FISIK");
+
+    const batches = groupProductRequestsIntoBatches([
+      {
+        id: "r-2",
+        name: "Es Susu",
+        stockMethod: "RESEP",
+        isRawMaterial: false,
+        costPrice: 2000,
+        sellPrice: 12000,
+        status: "MENUNGGU_PERSETUJUAN",
+        variantsJson: serializeProductRequestEnvelope({ batchId: "BATCH-001", batchIndex: 1 }),
+        createdAt: "2026-11-24T10:00:00.000Z",
+        requestedBy: { id: "u1", name: "Budi", role: "GUDANG" },
+      },
+      {
+        id: "r-1",
+        name: "Susu Segar",
+        stockMethod: "PECAH",
+        isRawMaterial: true,
+        costPrice: 20,
+        sellPrice: 0,
+        status: "MENUNGGU_PERSETUJUAN",
+        variantsJson: serialized,
+        createdAt: "2026-11-24T10:00:00.000Z",
+        requestedBy: { id: "u1", name: "Budi", role: "GUDANG" },
+      },
+      {
+        id: "r-legacy",
+        name: "Roti Satuan",
+        stockMethod: "TETAP",
+        isRawMaterial: false,
+        costPrice: 5000,
+        sellPrice: 8000,
+        status: "DISETUJUI",
+        variantsJson: null,
+        createdAt: "2026-11-23T09:00:00.000Z",
+        requestedBy: { id: "u1", name: "Budi", role: "GUDANG" },
+      },
+    ]);
+
+    expect(batches).toHaveLength(2);
+    expect(batches[0].batchId).toBe("BATCH-001");
+    expect(batches[0].items.map((i) => i.id)).toEqual(["r-1", "r-2"]);
+    expect(batches[0].totalEstimatedCost).toBe(20000);
+    expect(batches[0].receiptSource).toBe("FISIK");
+    expect(batches[1].batchId).toBe("single-r-legacy");
+    expect(batches[1].status).toBe("DISETUJUI");
   });
 });

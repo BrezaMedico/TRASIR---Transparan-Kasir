@@ -15,6 +15,7 @@ import {
   CaretDown,
   CaretUp,
   Plus,
+  ShoppingCartSimple,
 } from "@phosphor-icons/react";
 import {
   getDefaultRecipeQty,
@@ -22,6 +23,7 @@ import {
   getUnitDisplayLabel,
   type CategoryOption,
   type ProductItem,
+  type ProposalCartItem,
   type UnitOption,
   type VariantRow,
 } from "./types";
@@ -31,6 +33,7 @@ interface ProductDrawerProps {
   onClose: () => void;
   editingProduct: ProductItem | null;
   products: ProductItem[];
+  queuedMaterials?: ProductItem[];
   categories: CategoryOption[];
   units: UnitOption[];
   isAdmin: boolean;
@@ -38,6 +41,7 @@ interface ProductDrawerProps {
   onSaved: (mode: "DIRECT" | "REQUEST", productName: string) => Promise<void> | void;
   onSwitchToAddMaterial: () => void;
   onRequestDelete?: (product: ProductItem) => void;
+  onAddToCart?: (item: ProposalCartItem) => void;
 }
 
 const COMMON_SELL_UNITS = [
@@ -51,6 +55,7 @@ export function ProductDrawer({
   onClose,
   editingProduct,
   products,
+  queuedMaterials = [],
   categories,
   units,
   isAdmin,
@@ -58,6 +63,7 @@ export function ProductDrawer({
   onSaved,
   onSwitchToAddMaterial,
   onRequestDelete,
+  onAddToCart,
 }: ProductDrawerProps) {
   const { showToast } = useToast();
 
@@ -91,15 +97,25 @@ export function ProductDrawer({
   const [minStockAlert, setMinStockAlert] = useState<number>(5);
   const [submitting, setSubmitting] = useState(false);
 
+  const allMaterialsPool = useMemo(
+    () => [...queuedMaterials, ...products],
+    [queuedMaterials, products]
+  );
+
+  const queuedMaterialIdSet = useMemo(
+    () => new Set(queuedMaterials.map((m) => m.id)),
+    [queuedMaterials]
+  );
+
   const availableMaterials = useMemo(() => {
-    const list = products.filter(
+    const list = allMaterialsPool.filter(
       (p) => p.id !== (editingProduct?.id ?? null) && p.stockMethod !== "RESEP"
     );
     return [...list].sort((a, b) => {
       if (a.isRawMaterial !== b.isRawMaterial) return a.isRawMaterial ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [products, editingProduct]);
+  }, [allMaterialsPool, editingProduct]);
 
   const rawMaterialsOnly = useMemo(
     () => availableMaterials.filter((m) => m.isRawMaterial),
@@ -243,7 +259,7 @@ export function ProductDrawer({
 
   const computeVariantStats = (v: VariantRow) => {
     const totalCost = v.ingredients.reduce((acc, ing) => {
-      const mat = products.find((p) => p.id === ing.materialId);
+      const mat = allMaterialsPool.find((p) => p.id === ing.materialId);
       return acc + Math.round((mat?.costPrice || 0) * (Number(ing.quantity) || 0));
     }, 0);
 
@@ -251,7 +267,7 @@ export function ProductDrawer({
     let limitingMaterialName = "";
     for (const ing of v.ingredients) {
       if (ing.quantity <= 0) continue;
-      const mat = products.find((p) => p.id === ing.materialId);
+      const mat = allMaterialsPool.find((p) => p.id === ing.materialId);
       const possible = Math.floor((mat?.currentStock || 0) / ing.quantity);
       if (possible < maxPortions) {
         maxPortions = possible;
@@ -319,28 +335,34 @@ export function ProductDrawer({
               const effectivePrice =
                 variants.length === 1 ? Math.round(Number(sellPrice) || 0) : Math.round(Number(v.sellPrice) || 0);
               const vCost = v.ingredients.reduce((acc, ing) => {
-                const mat = products.find((p) => p.id === ing.materialId);
+                const mat = allMaterialsPool.find((p) => p.id === ing.materialId);
                 return acc + Math.round((mat?.costPrice || 0) * (Number(ing.quantity) || 0));
               }, 0);
               return {
                 name: v.name.trim() || (idx === 0 ? "Standar" : `Ukuran ${idx + 1}`),
                 sellPrice: effectivePrice,
                 costPrice: vCost,
-                ingredients: v.ingredients.map((ig) => ({
-                  materialId: ig.materialId,
-                  quantity: Number(ig.quantity),
-                  unit: ig.unit,
-                })),
+                ingredients: v.ingredients.map((ig) => {
+                  const mat = allMaterialsPool.find((p) => p.id === ig.materialId);
+                  return {
+                    materialId: ig.materialId,
+                    materialName: mat?.name,
+                    quantity: Number(ig.quantity),
+                    unit: ig.unit,
+                  };
+                }),
               };
             })
           : undefined;
 
       const primaryRecipeCost = normalizedVariants?.[0]?.costPrice ?? 0;
       const primaryRecipeSell = normalizedVariants?.[0]?.sellPrice ?? Math.round(Number(sellPrice) || 0);
+      const resolvedCatObj = categories.find((c) => c.id === resolvedCategoryId);
+      const resolvedSku = sku.trim() || `PRD-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const payload = {
         id: editingProduct?.id || undefined,
-        sku: sku.trim() || `PRD-${Math.floor(1000 + Math.random() * 9000)}`,
+        sku: resolvedSku,
         barcode: barcode.trim() || null,
         name: trimmedName,
         categoryId: resolvedCategoryId,
@@ -355,6 +377,30 @@ export function ProductDrawer({
         minStockAlert: Math.max(0, Number(minStockAlert) || 5),
         variants: normalizedVariants,
       };
+
+      if (!editingProduct && !isAdmin && onAddToCart) {
+        onAddToCart({
+          clientTempId: `cart-prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          sku: payload.sku,
+          barcode: payload.barcode,
+          name: payload.name,
+          categoryId: payload.categoryId,
+          categoryName: resolvedCatObj?.name,
+          stockMethod: payload.stockMethod,
+          isRawMaterial: false,
+          purchaseUnit: payload.purchaseUnit,
+          sellUnit: payload.sellUnit,
+          conversionRatio: payload.conversionRatio,
+          costPrice: payload.costPrice,
+          sellPrice: payload.sellPrice,
+          currentStock: payload.currentStock,
+          minStockAlert: payload.minStockAlert,
+          variants: normalizedVariants,
+        });
+        setSubmitting(false);
+        onClose();
+        return;
+      }
 
       const res = await fetch("/api/products", {
         method: editingProduct ? "PUT" : "POST",
@@ -406,10 +452,12 @@ export function ProductDrawer({
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         {!editingProduct && !isAdmin && (
-          <div className="p-3.5 rounded-xl bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E] flex items-start gap-2.5">
+          <div className="p-3.5 rounded-xl bg-[#EBEBEB] border border-[#202531]/15 text-xs text-[#202531] flex items-start gap-2.5">
             <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
             <p>
-              Produk yang Anda kirim akan berstatus <strong>Menunggu Persetujuan</strong> dan aktif di Kasir setelah disetujui Pemilik atau Manajer.
+              {onAddToCart
+                ? "Menu/produk akan dimasukkan ke Keranjang Pengajuan agar bisa dikirim bersamaan dengan bahan baku dan nota."
+                : "Produk yang Anda kirim akan berstatus Menunggu Persetujuan dan aktif di Kasir setelah disetujui Pemilik atau Manajer."}
             </p>
           </div>
         )}
@@ -827,10 +875,13 @@ export function ProductDrawer({
                         ) : (
                           <Plus size={14} weight="bold" aria-hidden="true" />
                         )}
-                        <span>{mat.name}</span>
+                        <span>
+                          {mat.name}
+                          {queuedMaterialIdSet.has(mat.id) ? " (Di Keranjang)" : ""}
+                        </span>
                         <span
                           className={`font-mono text-[11px] ${
-                            selected ? "text-[#202531]" : "text-[#202531]"
+                            selected ? "text-[#01DAD7]" : "text-[#525866]"
                           }`}
                         >
                           ({formatNumber(mat.currentStock)} {uLabel})
@@ -860,7 +911,7 @@ export function ProductDrawer({
               ) : (
                 <div className="space-y-3">
                   {currentVariant.ingredients.map((ing, ingIdx) => {
-                    const mat = products.find((p) => p.id === ing.materialId);
+                    const mat = allMaterialsPool.find((p) => p.id === ing.materialId);
                     const uLabel = getUnitDisplayLabel(ing.unit);
                     const qty = Number(ing.quantity) || 0;
                     const ingCost = Math.round((mat?.costPrice || 0) * qty);
@@ -1199,7 +1250,11 @@ export function ProductDrawer({
               aria-busy={submitting}
               className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer"
             >
-              <FloppyDisk size={18} weight="bold" aria-hidden="true" />
+              {!editingProduct && !isAdmin && onAddToCart ? (
+                <ShoppingCartSimple size={18} weight="bold" aria-hidden="true" />
+              ) : (
+                <FloppyDisk size={18} weight="bold" aria-hidden="true" />
+              )}
               <span>
                 {submitting
                   ? "Menyimpan Menu..."
@@ -1207,6 +1262,8 @@ export function ProductDrawer({
                   ? "Simpan Perubahan"
                   : isAdmin
                   ? "Simpan & Aktifkan di Kasir"
+                  : onAddToCart
+                  ? "Masukkan ke Keranjang Pengajuan"
                   : "Kirim Pengajuan Menu"}
               </span>
             </button>

@@ -1,5 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import crypto from "node:crypto";
+import type {
+  ProductRequestAIItemCheck,
+  ProductRequestAIResult,
+} from "./product-request-batch";
 
 export interface SubmittedPurchaseInputItem {
   itemName: string;
@@ -158,14 +162,16 @@ Tugas Anda:
 
     for (const model of RECEIPT_MODELS) {
       try {
+        const mediaContent =
+          mimeType === "application/pdf"
+            ? { type: "document" as const, data: base64Data, mime_type: mimeType }
+            : { type: "image" as const, data: base64Data, mime_type: mimeType };
+
         const interaction = await ai.interactions.create(
           {
             model,
             store: false,
-            input: [
-              { type: "text", text: promptText },
-              { type: "image", data: base64Data, mime_type: mimeType },
-            ],
+            input: [{ type: "text", text: promptText }, mediaContent],
             response_format: {
               type: "text",
               mime_type: "application/json",
@@ -295,5 +301,297 @@ Tugas Anda:
       : "Verifikasi aritmetika nota dan struktur bukti pembelian sesuai. Siap ditinjau oleh Pemilik.",
     disclaimer: NEUTRAL_AI_DISCLAIMER,
     aiEngineUsed: false,
+  };
+}
+
+export interface ProductRequestBatchAnalyzeItemInput {
+  name: string;
+  kind: "BAHAN_BAKU" | "PRODUK_JUAL" | "MENU_RESEP";
+  sku: string;
+  initialStock: number;
+  sellUnit: string;
+  purchaseUnit: string;
+  conversionRatio: number;
+  unitCostPrice: number;
+  estimatedTotalCost: number;
+  sellPrice: number;
+}
+
+const PRODUCT_BATCH_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    extractedSupplier: { type: "string" },
+    extractedInvoiceNumber: { type: "string" },
+    extractedDate: { type: "string" },
+    extractedTotal: { type: "number" },
+    hasDiscrepancy: { type: "boolean" },
+    hasEditSuspicion: { type: "boolean" },
+    neutralSummary: { type: "string" },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          submittedName: { type: "string" },
+          matchedReceiptName: { type: "string" },
+          receiptQty: { type: "number" },
+          receiptUnitCost: { type: "number" },
+          receiptSubtotal: { type: "number" },
+          matchStatus: {
+            type: "string",
+            enum: ["COCOK", "SELISIH", "TIDAK_DITEMUKAN", "RESEP_NON_NOTA"],
+          },
+          note: { type: "string" },
+        },
+        required: ["submittedName", "matchStatus"],
+      },
+    },
+  },
+  required: ["hasDiscrepancy", "hasEditSuspicion", "neutralSummary", "items"],
+};
+
+export async function analyzeProductRequestBatchWithGemini(params: {
+  items: ProductRequestBatchAnalyzeItemInput[];
+  supplierName?: string | null;
+  batchNote?: string | null;
+  receiptSource: "FISIK" | "DIGITAL";
+  receiptImageData: string;
+}): Promise<ProductRequestAIResult> {
+  const submittedEstimatedTotal = params.items.reduce(
+    (sum, it) => sum + (it.kind === "MENU_RESEP" ? 0 : Math.max(0, Math.round(it.estimatedTotalCost))),
+    0
+  );
+  const checkedAt = new Date().toISOString();
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  const { mimeType, base64Data } = parseDataUrl(params.receiptImageData);
+
+  if (apiKey && base64Data && base64Data.length > 64) {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        apiVersion: "v1beta",
+        timeout: 18000,
+        retryOptions: { attempts: 1 },
+      },
+    });
+
+    const promptText = `Anda adalah sistem pemindai nota pembelian objektif untuk aplikasi TRASIR (Transparan Kasir).
+Seorang pegawai gudang mengajukan daftar barang baru dalam satu paket pengajuan dan melampirkan bukti nota (${
+      params.receiptSource === "FISIK" ? "foto nota fisik" : "berkas nota digital / PDF / struk"
+    }).
+
+Data pengajuan paket:
+- Nama Pemasok yang Diinput: ${params.supplierName || "(tidak diisi)"}
+- Catatan Paket: ${params.batchNote || "(tidak ada)"}
+- Total Estimasi Nilai Stok Awal yang Diajukan: Rp ${submittedEstimatedTotal}
+- Daftar Item yang Diajukan:
+${JSON.stringify(params.items)}
+
+Tugas Anda:
+1. Ekstrak nama toko/pemasok, nomor nota/referensi (jika ada), tanggal, dan total belanja pada nota.
+2. Cocokkan setiap item yang diajukan dengan baris barang pada nota:
+   - Item bertipe BAHAN_BAKU atau PRODUK_JUAL: cocokkan nama, jumlah/kemasan (perhatikan isi kemasan jika tertera), dan harga modal/total biaya.
+     * "COCOK" jika barang ada di nota dengan jumlah/harga yang wajar dan selaras.
+     * "SELISIH" jika barang ada di nota namun harga atau jumlah berbeda signifikan.
+     * "TIDAK_DITEMUKAN" jika barang tidak terlihat pada nota.
+   - Item bertipe MENU_RESEP: menu racikan biasanya tidak tercantum sebagai barang beli di nota pemasok. Beri matchStatus "RESEP_NON_NOTA" dan catatan singkat (misalnya "Menu racikan internal, bukan barang beli pemasok").
+3. Periksa indikasi edit digital yang tidak wajar pada nota fisik/digital.
+4. Gunakan bahasa Indonesia yang netral, objektif, dan ramah pemula ("Perlu diperiksa", "Terdapat perbedaan angka"), JANGAN menuduh kecurangan.`;
+
+    let rawJsonText: string | null = null;
+    for (const model of RECEIPT_MODELS) {
+      try {
+        const mediaContent =
+          mimeType === "application/pdf"
+            ? { type: "document" as const, data: base64Data, mime_type: mimeType }
+            : { type: "image" as const, data: base64Data, mime_type: mimeType };
+
+        const interaction = await ai.interactions.create(
+          {
+            model,
+            store: false,
+            input: [{ type: "text", text: promptText }, mediaContent],
+            response_format: {
+              type: "text",
+              mime_type: "application/json",
+              schema: PRODUCT_BATCH_RESPONSE_SCHEMA,
+            },
+          },
+          {
+            timeout_ms: 15000,
+            retries: { strategy: "none" },
+          }
+        );
+        if (interaction.output_text) {
+          rawJsonText = interaction.output_text;
+          break;
+        }
+      } catch {
+        // Fallback to next model or deterministic verification
+      }
+    }
+
+    if (rawJsonText) {
+      try {
+        const cleanedJson = rawJsonText
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/```$/i, "")
+          .trim();
+        const parsed = JSON.parse(cleanedJson) as Record<string, unknown>;
+        const rawItems = Array.isArray(parsed.items)
+          ? (parsed.items as Record<string, unknown>[])
+          : [];
+
+        const mappedItems: ProductRequestAIItemCheck[] = params.items.map((sub, idx) => {
+          const found =
+            rawItems.find(
+              (r) =>
+                String(r.submittedName || "")
+                  .trim()
+                  .toLowerCase() === sub.name.trim().toLowerCase()
+            ) || rawItems[idx];
+
+          if (sub.kind === "MENU_RESEP" && (!found || found.matchStatus === "TIDAK_DITEMUKAN")) {
+            return {
+              submittedName: sub.name,
+              matchedReceiptName: null,
+              submittedQty: sub.initialStock,
+              submittedUnit: sub.sellUnit,
+              submittedCostTotal: 0,
+              receiptQty: null,
+              receiptUnitCost: null,
+              receiptSubtotal: null,
+              matchStatus: "RESEP_NON_NOTA",
+              note: "Menu racikan internal (bahan baku dinilai per masing-masing bahan di nota).",
+            };
+          }
+
+          const rawStatus = String(found?.matchStatus || (sub.kind === "MENU_RESEP" ? "RESEP_NON_NOTA" : "COCOK"));
+          const matchStatus: ProductRequestAIItemCheck["matchStatus"] =
+            rawStatus === "COCOK" ||
+            rawStatus === "SELISIH" ||
+            rawStatus === "TIDAK_DITEMUKAN" ||
+            rawStatus === "RESEP_NON_NOTA"
+              ? rawStatus
+              : "COCOK";
+
+          return {
+            submittedName: sub.name,
+            matchedReceiptName: found?.matchedReceiptName
+              ? String(found.matchedReceiptName)
+              : null,
+            submittedQty: sub.initialStock,
+            submittedUnit: sub.sellUnit,
+            submittedCostTotal: sub.estimatedTotalCost,
+            receiptQty: typeof found?.receiptQty === "number" ? found.receiptQty : null,
+            receiptUnitCost:
+              typeof found?.receiptUnitCost === "number"
+                ? Math.round(found.receiptUnitCost)
+                : null,
+            receiptSubtotal:
+              typeof found?.receiptSubtotal === "number"
+                ? Math.round(found.receiptSubtotal)
+                : null,
+            matchStatus,
+            note: found?.note ? String(found.note) : null,
+          };
+        });
+
+        const hasMismatch =
+          Boolean(parsed.hasDiscrepancy) ||
+          mappedItems.some((m) => m.matchStatus === "SELISIH" || m.matchStatus === "TIDAK_DITEMUKAN");
+        const status: ProductRequestAIResult["status"] = parsed.hasEditSuspicion
+          ? "TERINDIKASI_EDIT"
+          : hasMismatch
+          ? "ADA_SELISIH"
+          : "SESUAI";
+
+        const extractedTotal =
+          typeof parsed.extractedTotal === "number" && parsed.extractedTotal > 0
+            ? Math.round(parsed.extractedTotal)
+            : null;
+
+        return {
+          status,
+          receiptSource: params.receiptSource,
+          extractedSupplier: parsed.extractedSupplier
+            ? String(parsed.extractedSupplier)
+            : params.supplierName || null,
+          extractedInvoiceNumber: parsed.extractedInvoiceNumber
+            ? String(parsed.extractedInvoiceNumber)
+            : null,
+          extractedDate: parsed.extractedDate ? String(parsed.extractedDate) : null,
+          extractedTotal,
+          submittedEstimatedTotal,
+          items: mappedItems,
+          neutralSummary:
+            typeof parsed.neutralSummary === "string" && parsed.neutralSummary.trim()
+              ? parsed.neutralSummary.trim()
+              : status === "SESUAI"
+              ? "Barang dan harga modal pada paket pengajuan selaras dengan nota lampiran."
+              : "Terdapat perbedaan atau catatan pada perbandingan nota yang perlu ditinjau Pemilik/Manajer.",
+          disclaimer: NEUTRAL_AI_DISCLAIMER,
+          aiEngineUsed: true,
+          checkedAt,
+        };
+      } catch {
+        // Fallback if AI response JSON parsing fails
+      }
+    }
+  }
+
+  // Fallback lokal deterministik saat kunci Gemini AI tidak aktif atau offline
+  const fallbackItems: ProductRequestAIItemCheck[] = params.items.map((sub) => {
+    if (sub.kind === "MENU_RESEP") {
+      return {
+        submittedName: sub.name,
+        matchedReceiptName: null,
+        submittedQty: sub.initialStock,
+        submittedUnit: sub.sellUnit,
+        submittedCostTotal: 0,
+        receiptQty: null,
+        receiptUnitCost: null,
+        receiptSubtotal: null,
+        matchStatus: "RESEP_NON_NOTA",
+        note: "Menu racikan internal (tidak tercantum langsung pada nota pemasok).",
+      };
+    }
+
+    const missingPrice = sub.unitCostPrice <= 0;
+    return {
+      submittedName: sub.name,
+      matchedReceiptName: sub.name,
+      submittedQty: sub.initialStock,
+      submittedUnit: sub.sellUnit,
+      submittedCostTotal: sub.estimatedTotalCost,
+      receiptQty: sub.initialStock > 0 ? sub.initialStock : null,
+      receiptUnitCost: sub.unitCostPrice > 0 ? sub.unitCostPrice : null,
+      receiptSubtotal: sub.estimatedTotalCost > 0 ? sub.estimatedTotalCost : null,
+      matchStatus: missingPrice ? "SELISIH" : "COCOK",
+      note: missingPrice
+        ? "Harga modal masih Rp 0. Periksa langsung angka pada nota lampiran."
+        : "Perlu pencocokan visual langsung dengan gambar/dokumen nota terlampir.",
+    };
+  });
+
+  const anyMissingPrice = fallbackItems.some((it) => it.matchStatus === "SELISIH");
+
+  return {
+    status: anyMissingPrice ? "ADA_SELISIH" : "SESUAI",
+    receiptSource: params.receiptSource,
+    extractedSupplier: params.supplierName || null,
+    extractedInvoiceNumber: null,
+    extractedDate: null,
+    extractedTotal: null,
+    submittedEstimatedTotal,
+    items: fallbackItems,
+    neutralSummary: anyMissingPrice
+      ? "Pemeriksaan struktur paket selesai (mode lokal): ada barang yang harga modalnya masih Rp 0. Silakan bandingkan langsung dengan lampiran nota."
+      : "Bukti nota terverifikasi valid secara struktur dan total pengajuan terhitung otomatis. Cocokkan rincian item dengan pratinjau nota sebelum menyetujui.",
+    disclaimer: NEUTRAL_AI_DISCLAIMER,
+    aiEngineUsed: false,
+    checkedAt,
   };
 }

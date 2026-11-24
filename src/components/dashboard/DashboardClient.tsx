@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
 import { fetchJsonCached, getCachedData, setCachedData } from "@/lib/client-cache";
 import { SalesLineChart } from "@/components/charts/SalesLineChart";
+import { groupProductRequestsIntoBatches } from "@/lib/product-request-batch";
 import type { GrossProfitReport } from "@/lib/queries/profit";
 import {
   ArrowUpRight,
@@ -34,8 +35,12 @@ interface DashboardPayload {
       id: string;
       sku: string;
       name: string;
+      stockMethod: string;
+      isRawMaterial: boolean;
+      status: string;
       sellPrice: number;
       costPrice: number;
+      variantsJson?: string | null;
       createdAt: string;
       category: { name: string; areaType: string };
       requestedBy: { id: string; name: string; role: string };
@@ -132,8 +137,9 @@ export function DashboardClient({
     <AppShell>
       {(session) => {
         const productReqs = data?.approvalQueue.productRequests || [];
+        const productBatches = groupProductRequestsIntoBatches(productReqs);
         const amendments = data?.approvalQueue.amendments || [];
-        const totalPendingQueue = productReqs.length + amendments.length;
+        const totalPendingQueue = productBatches.length + amendments.length;
         const profit = data?.profit;
 
         return (
@@ -469,7 +475,7 @@ export function DashboardClient({
                             : "text-[#525866] hover:text-[#202531]"
                         }`}
                       >
-                        Produk Baru ({productReqs.length})
+                        Produk Baru ({productBatches.length})
                       </button>
                       <button
                         type="button"
@@ -488,27 +494,31 @@ export function DashboardClient({
 
                     <div className="space-y-2 max-h-72 overflow-y-auto">
                       {queueTab === "productRequests" &&
-                        (productReqs.length === 0 ? (
+                        (productBatches.length === 0 ? (
                           <p className="py-6 text-center text-xs text-[#525866]">
                             Tidak ada usulan produk baru dari pegawai.
                           </p>
                         ) : (
-                          productReqs.map((pr) => (
+                          productBatches.map((batch) => (
                             <Link
-                              key={pr.id}
+                              key={batch.batchId}
                               href="/produk?tab=requests"
                               className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-[#202531]/10 hover:border-[#202531] transition-colors"
                             >
                               <div className="min-w-0">
                                 <p className="text-xs font-extrabold text-[#202531] truncate">
-                                  {pr.name}
+                                  {batch.batchTitle}
                                 </p>
-                                <p className="text-[11px] text-[#525866] mt-0.5">
-                                  Diajukan {pr.requestedBy.name} • {formatDateTimeJakarta(pr.createdAt)}
+                                <p className="text-[11px] text-[#525866] mt-0.5 truncate">
+                                  Diajukan {batch.requestedBy.name} • {batch.items.length} item
+                                  {batch.receiptImageData ? " • Ada Nota" : ""} •{" "}
+                                  {formatDateTimeJakarta(batch.createdAt)}
                                 </p>
                               </div>
                               <span className="font-mono text-xs font-extrabold text-[#202531] shrink-0">
-                                {formatRupiah(pr.sellPrice)}
+                                {batch.totalEstimatedCost > 0
+                                  ? formatRupiah(batch.totalEstimatedCost)
+                                  : `${batch.items.length} item`}
                               </span>
                             </Link>
                           ))

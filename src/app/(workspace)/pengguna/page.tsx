@@ -395,10 +395,10 @@ export default function TeamManagementPage() {
                     onChange={(e) => setInviteRole(e.target.value as InvitableRole)}
                     className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-900 focus:border-[#202531] focus:outline-none"
                   >
-                    <option value="KASIR">Kasir (POS, Riwayat Transaksi &amp; Tutup Shift)</option>
-                    <option value="GUDANG">Gudang (Pembelian, Produk &amp; Inventaris)</option>
+                    <option value="KASIR">Kasir (Khusus POS &amp; Riwayat Transaksi, tidak dapat tambah barang)</option>
+                    <option value="GUDANG">Gudang (Tambah Produk, Bahan Baku, Resep &amp; Stok, tanpa akses Kasir)</option>
                     <option value="KASIR_GUDANG">
-                      Kasir + Gudang (Gabungan Penuh Hak Akses Kasir &amp; Gudang)
+                      Kasir + Gudang (Akses penuh Kasir POS dan pengelolaan Gudang/Barang)
                     </option>
                     <option value="MANAJER">
                       Manajer (Operasional Penuh Setara Pemilik, Akun Pemilik Terlindungi)

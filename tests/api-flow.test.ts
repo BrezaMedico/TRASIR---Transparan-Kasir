@@ -21,8 +21,13 @@ import {
   GET as listProducts,
   DELETE as deleteProduct,
 } from "../src/app/api/products/route";
-import { GET as listProductRequests } from "../src/app/api/product-requests/route";
+import {
+  GET as listProductRequests,
+  POST as submitProductRequestBatch,
+} from "../src/app/api/product-requests/route";
 import { POST as reviewProductRequest } from "../src/app/api/product-requests/[id]/review/route";
+import { POST as reviewProductBatch } from "../src/app/api/product-requests/batch-review/route";
+import { POST as analyzeProductBatch } from "../src/app/api/product-requests/analyze/route";
 import { GET as listSales, POST as createSale } from "../src/app/api/sales/route";
 import { POST as handleSaleAmendment } from "../src/app/api/sales/amendments/route";
 import { GET as getShifts, POST as postShift } from "../src/app/api/shifts/route";
@@ -396,6 +401,14 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
         })
       )
     ).json();
+    const invGudang = await (
+      await createInvitation(
+        jsonReq("http://localhost/api/invitations", "POST", {
+          inviteType: "CODE",
+          assignedRole: "GUDANG",
+        })
+      )
+    ).json();
 
     const mgrRes = await registerUser(
       jsonReq("http://localhost/api/auth/register", "POST", {
@@ -418,6 +431,17 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
       })
     );
     const kasirToken = extractSessionToken(kasirRes)!;
+
+    const gudangRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "JOIN_ROOM",
+        name: "Gudang Toko",
+        username: "gudang_gp",
+        password: "PasswordAman123",
+        inviteCode: invGudang.inviteCode,
+      })
+    );
+    const gudangToken = extractSessionToken(gudangRes)!;
 
     const category = await prisma.category.findFirstOrThrow({ where: { roomId } });
 
@@ -462,8 +486,33 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     await prisma.product.update({ where: { id: productA.id }, data: { currentStock: 50 } });
     await prisma.product.update({ where: { id: productZeroCost.id }, data: { currentStock: 20 } });
 
-    // Skenario 12: Pegawai menambahkan produk -> masuk antrean MENUNGGU_PERSETUJUAN, tidak langsung aktif
+    // Pemisahan tugas ketat: Kasir dilarang tambah produk (403); Gudang dilarang transaksi kasir (403)
     activeSessionToken = kasirToken;
+    const kasirAddBlocked = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "KSR-BLK-01",
+        name: "Produk Ditolak Kasir",
+        categoryId: category.id,
+        stockMethod: "TETAP",
+        purchaseUnit: "pcs",
+        sellUnit: "pcs",
+        conversionRatio: 1,
+        costPrice: 5000,
+        sellPrice: 10000,
+      })
+    );
+    expect(kasirAddBlocked.status).toBe(403);
+
+    activeSessionToken = gudangToken;
+    const gudangSaleBlocked = await createSale(
+      jsonReq("http://localhost/api/sales", "POST", {
+        paymentMethod: "TUNAI",
+        items: [{ productId: productA.id, quantity: 1 }],
+      })
+    );
+    expect(gudangSaleBlocked.status).toBe(403);
+
+    // Skenario 12: Pegawai Gudang menambahkan produk -> masuk antrean MENUNGGU_PERSETUJUAN, tidak langsung aktif
     const tamperedProdRes = await createProduct(
       jsonReq("http://localhost/api/products", "POST", {
         sku: "HACK-01",
@@ -1026,5 +1075,278 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
 
     const activeList = await (await listProducts()).json();
     expect(activeList.products).toHaveLength(0);
+  });
+
+  it("Scenario 27: Strict Kasir vs Gudang separation, Kasir+Gudang union, Batch Proposal Cart, Optional AI Receipt Scan, & Batch Review", async () => {
+    const regOwner = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Pemilik Batch",
+        username: "owner_batch",
+        password: "PasswordAman123",
+        roomName: "Kopi Paket Batch",
+      })
+    );
+    expect(regOwner.status).toBe(201);
+    const ownerJson = await regOwner.json();
+    const ownerToken = extractSessionToken(regOwner)!;
+    const roomId = ownerJson.user.roomId as string;
+
+    activeSessionToken = ownerToken;
+    const invKasir = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+    const invGudang = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "GUDANG",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+    const invCombo = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR_GUDANG",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+
+    const kasirToken = extractSessionToken(
+      await registerUser(
+        jsonReq("http://localhost/api/auth/register", "POST", {
+          mode: "JOIN_ROOM",
+          name: "Kasir Murni",
+          username: "kasir_murni",
+          password: "PasswordAman123",
+          inviteCode: invKasir,
+        })
+      )
+    )!;
+    const gudangToken = extractSessionToken(
+      await registerUser(
+        jsonReq("http://localhost/api/auth/register", "POST", {
+          mode: "JOIN_ROOM",
+          name: "Staf Gudang",
+          username: "staf_gudang",
+          password: "PasswordAman123",
+          inviteCode: invGudang,
+        })
+      )
+    )!;
+    const comboToken = extractSessionToken(
+      await registerUser(
+        jsonReq("http://localhost/api/auth/register", "POST", {
+          mode: "JOIN_ROOM",
+          name: "Kasir Gudang Gabungan",
+          username: "combo_user",
+          password: "PasswordAman123",
+          inviteCode: invCombo,
+        })
+      )
+    )!;
+
+    const category = await prisma.category.findFirstOrThrow({ where: { roomId } });
+
+    // Kasir dilarang mengirim keranjang pengajuan barang (403)
+    activeSessionToken = kasirToken;
+    const kasirBatchBlocked = await submitProductRequestBatch(
+      jsonReq("http://localhost/api/product-requests", "POST", {
+        items: [
+          {
+            sku: "BLK-01",
+            name: "Tidak Boleh",
+            categoryId: category.id,
+            stockMethod: "TETAP",
+            purchaseUnit: "pcs",
+            sellUnit: "pcs",
+            conversionRatio: 1,
+            costPrice: 1000,
+            sellPrice: 2000,
+          },
+        ],
+      })
+    );
+    expect(kasirBatchBlocked.status).toBe(403);
+
+    // Gudang mengirim 1 paket berisi Bahan Baku + Produk Jual + Resep (memakai clientTempId bahan baku di keranjang) + Nota Fisik
+    activeSessionToken = gudangToken;
+    const sampleReceipt = "data:image/png;base64,iVBORw0KGgo=";
+
+    const batchSubmitRes = await submitProductRequestBatch(
+      jsonReq("http://localhost/api/product-requests", "POST", {
+        batchTitle: "Belanja Pagi Susu & Menu",
+        supplierName: "Agen Susu Nusantara",
+        batchNote: "Pembelian awal minggu",
+        receiptImageData: sampleReceipt,
+        receiptSource: "FISIK",
+        items: [
+          {
+            clientTempId: "cart-mat-susu",
+            sku: "BHN-SUSU-B1",
+            name: "Susu Ultra Milk Batch",
+            categoryId: category.id,
+            stockMethod: "PECAH",
+            isRawMaterial: true,
+            purchaseUnit: "kemasan",
+            sellUnit: "ml",
+            conversionRatio: 1000,
+            costPrice: 20,
+            sellPrice: 0,
+            currentStock: 1000,
+          },
+          {
+            sku: "PRD-AIR-B1",
+            name: "Air Mineral Batch",
+            categoryId: category.id,
+            stockMethod: "TETAP",
+            isRawMaterial: false,
+            purchaseUnit: "botol",
+            sellUnit: "botol",
+            conversionRatio: 1,
+            costPrice: 2000,
+            sellPrice: 5000,
+            currentStock: 24,
+          },
+          {
+            sku: "MNU-SUSU-B1",
+            name: "Es Susu Segar Batch",
+            categoryId: category.id,
+            stockMethod: "RESEP",
+            isRawMaterial: false,
+            purchaseUnit: "pcs",
+            sellUnit: "pcs",
+            conversionRatio: 1,
+            costPrice: 2000,
+            sellPrice: 15000,
+            variants: [
+              {
+                name: "Standar",
+                sellPrice: 15000,
+                costPrice: 2000,
+                ingredients: [
+                  {
+                    materialId: "cart-mat-susu",
+                    materialName: "Susu Ultra Milk Batch",
+                    quantity: 100,
+                    unit: "ml",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })
+    );
+    expect(batchSubmitRes.status).toBe(202);
+    const batchJson = await batchSubmitRes.json();
+    expect(batchJson.mode).toBe("REQUEST_BATCH");
+    expect(batchJson.requests).toHaveLength(3);
+    const batchId = batchJson.batchId as string;
+
+    // Gudang tidak boleh menjalankan AI scan atau batch review (403)
+    const gudangAnalyzeBlocked = await analyzeProductBatch(
+      jsonReq("http://localhost/api/product-requests/analyze", "POST", { batchId })
+    );
+    expect(gudangAnalyzeBlocked.status).toBe(403);
+
+    const gudangReviewBlocked = await reviewProductBatch(
+      jsonReq("http://localhost/api/product-requests/batch-review", "POST", {
+        batchId,
+        decision: "DISETUJUI",
+      })
+    );
+    expect(gudangReviewBlocked.status).toBe(403);
+
+    // Pemilik memindai nota secara opsional dengan AI lalu menyetujui seluruh paket 1 klik
+    activeSessionToken = ownerToken;
+    const analyzeRes = await analyzeProductBatch(
+      jsonReq("http://localhost/api/product-requests/analyze", "POST", { batchId })
+    );
+    expect(analyzeRes.status).toBe(200);
+    const analyzeJson = await analyzeRes.json();
+    expect(analyzeJson.analysis.items).toHaveLength(3);
+    expect(analyzeJson.analysis.items[2].matchStatus).toBe("RESEP_NON_NOTA");
+
+    const approveBatchRes = await reviewProductBatch(
+      jsonReq("http://localhost/api/product-requests/batch-review", "POST", {
+        batchId,
+        decision: "DISETUJUI",
+      })
+    );
+    expect(approveBatchRes.status).toBe(200);
+    const approveBatchJson = await approveBatchRes.json();
+    expect(approveBatchJson.processedCount).toBe(3);
+
+    // Pastikan bahan baku, produk jual, dan resep aktif dengan relasi materialId asli (bukan clientTempId)
+    const activeCatalog = await (await listProducts()).json();
+    const susuCreated = activeCatalog.products.find(
+      (p: { sku: string }) => p.sku === "BHN-SUSU-B1"
+    );
+    const airCreated = activeCatalog.products.find(
+      (p: { sku: string }) => p.sku === "PRD-AIR-B1"
+    );
+    const recipeCreated = activeCatalog.products.find(
+      (p: { sku: string }) => p.sku === "MNU-SUSU-B1"
+    );
+    expect(susuCreated.currentStock).toBe(1000);
+    expect(airCreated.currentStock).toBe(24);
+    expect(recipeCreated.costPrice).toBe(2000);
+    expect(recipeCreated.variants[0].ingredients[0].materialId).toBe(susuCreated.id);
+
+    // KASIR_GUDANG bisa melakukan penjualan di Kasir SEKALIGUS mengajukan paket barang (lalu ditolak Pemilik)
+    activeSessionToken = comboToken;
+    const comboSale = await createSale(
+      jsonReq("http://localhost/api/sales", "POST", {
+        paymentMethod: "TUNAI",
+        items: [{ productId: recipeCreated.id, quantity: 1 }],
+      })
+    );
+    expect(comboSale.status).toBe(200);
+
+    const comboBatch = await submitProductRequestBatch(
+      jsonReq("http://localhost/api/product-requests", "POST", {
+        batchTitle: "Paket Ditolak",
+        items: [
+          {
+            sku: "PRD-REJ-B2",
+            name: "Produk Akan Ditolak",
+            categoryId: category.id,
+            stockMethod: "TETAP",
+            purchaseUnit: "pcs",
+            sellUnit: "pcs",
+            conversionRatio: 1,
+            costPrice: 5000,
+            sellPrice: 9000,
+            currentStock: 5,
+          },
+        ],
+      })
+    );
+    expect(comboBatch.status).toBe(202);
+    const rejectBatchId = (await comboBatch.json()).batchId as string;
+
+    activeSessionToken = ownerToken;
+    const rejectBatchRes = await reviewProductBatch(
+      jsonReq("http://localhost/api/product-requests/batch-review", "POST", {
+        batchId: rejectBatchId,
+        decision: "DITOLAK",
+        rejectionReason: "Belum diperlukan minggu ini.",
+      })
+    );
+    expect(rejectBatchRes.status).toBe(200);
+    expect((await rejectBatchRes.json()).decision).toBe("DITOLAK");
   });
 });

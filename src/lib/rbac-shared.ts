@@ -229,12 +229,12 @@ export const DEFAULT_PERMISSIONS: PermissionRow[] = [
     canEdit: true,
     canApprove: true,
   })),
-  // KASIR: Kasir POS, Riwayat & Tutup Shift, Ajukan Produk Baru (menunggu persetujuan), Inventaris Opname, Aktivitas, Pengaturan Pribadi
+  // KASIR: Kasir POS, Riwayat & Tutup Shift, Lihat Katalog Produk (tanpa tambah/ubah barang), Inventaris Opname, Aktivitas, Pengaturan Pribadi
   { role: "KASIR", module: "dashboard", canView: false, canCreate: false, canEdit: false, canApprove: false },
   { role: "KASIR", module: "kasir", canView: true, canCreate: true, canEdit: true, canApprove: false },
   { role: "KASIR", module: "penjualan", canView: true, canCreate: true, canEdit: false, canApprove: false },
   { role: "KASIR", module: "pembelian", canView: false, canCreate: false, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "produk", canView: true, canCreate: true, canEdit: false, canApprove: false },
+  { role: "KASIR", module: "produk", canView: true, canCreate: false, canEdit: false, canApprove: false },
   { role: "KASIR", module: "inventaris", canView: true, canCreate: true, canEdit: false, canApprove: false },
   { role: "KASIR", module: "laporan", canView: false, canCreate: false, canEdit: false, canApprove: false },
   { role: "KASIR", module: "aktivitas", canView: true, canCreate: false, canEdit: false, canApprove: false },
