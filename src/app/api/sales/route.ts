@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
-import { checkUserPermission } from "@/lib/rbac";
+import { requireAssignedUser } from "@/lib/auth";
+import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
 import { deductStockForSaleItem } from "@/lib/inventory";
 import { recordAuditLog } from "@/lib/audit";
 import { z } from "zod";
@@ -14,6 +14,7 @@ const saleItemInputSchema = z.object({
 
 const createSaleSchema = z.object({
   paymentMethod: z.enum(["TUNAI", "QRIS", "TRANSFER", "KARTU"]),
+  discountAmount: z.number().int().min(0).optional(),
   cashReceived: z.number().int().min(0).optional(),
   notes: z.string().optional(),
   items: z.array(saleItemInputSchema).min(1, "Keranjang belanja tidak boleh kosong"),
@@ -21,31 +22,43 @@ const createSaleSchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const canViewSales =
       (await checkUserPermission(user.role, "penjualan", "view")) ||
       (await checkUserPermission(user.role, "kasir", "view"));
     if (!canViewSales) {
       return NextResponse.json(
-        { error: "Anda tidak memiliki izin mengakses riwayat penjualan." },
+        { error: "Anda tidak memiliki izin mengakses riwayat transaksi." },
         { status: 403 }
       );
     }
 
     const { searchParams } = new URL(request.url);
     const cashierFilter = searchParams.get("cashierId");
+    const statusFilter = searchParams.get("status");
+    const admin = isStoreAdmin(user.role);
 
-    // KASIR only sees their own sales & shift unless they have manager/owner role
-    const whereClause =
-      user.role === "KASIR"
-        ? { cashierId: user.id }
-        : cashierFilter
-        ? { cashierId: cashierFilter }
-        : {};
+    const whereClause: Record<string, unknown> = {
+      roomId: user.roomId,
+    };
+
+    if (!admin) {
+      whereClause.cashierId = user.id;
+    } else if (cashierFilter) {
+      whereClause.cashierId = cashierFilter;
+    }
+
+    if (
+      statusFilter &&
+      ["NORMAL", "MENUNGGU_PERSETUJUAN", "DIBATALKAN", "DIKEMBALIKAN", "DIUBAH"].includes(
+        statusFilter
+      )
+    ) {
+      whereClause.status = statusFilter;
+    }
 
     const [sales, amendments, shifts, cashiers] = await Promise.all([
       prisma.sale.findMany({
@@ -64,23 +77,40 @@ export async function GET(request: Request) {
         orderBy: { createdAt: "desc" },
       }),
       prisma.saleAmendment.findMany({
-        where: user.role === "KASIR" ? { requestedById: user.id } : {},
+        where: admin
+          ? { roomId: user.roomId }
+          : { roomId: user.roomId, requestedById: user.id },
         include: {
-          sale: { include: { items: true, cashier: { select: { id: true, name: true } } } },
+          sale: {
+            include: { items: true, cashier: { select: { id: true, name: true } } },
+          },
           requestedBy: { select: { id: true, name: true, role: true } },
           reviewedBy: { select: { id: true, name: true, role: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
+      // Hanya mengembalikan ringkasan tutup shift operasional tanpa informasi selisih hasil tutup shift
       prisma.shiftClosing.findMany({
-        where: user.role === "KASIR" ? { cashierId: user.id } : {},
-        include: {
+        where: admin ? { roomId: user.roomId } : { roomId: user.roomId, cashierId: user.id },
+        select: {
+          id: true,
+          shiftDate: true,
+          systemTxCount: true,
+          systemCashTotal: true,
+          systemQrisTotal: true,
+          systemTransferTotal: true,
+          systemCardTotal: true,
+          systemGrandTotal: true,
+          actualCashTotal: true,
+          actualDigitalTotal: true,
+          notes: true,
+          createdAt: true,
           cashier: { select: { id: true, name: true, role: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
       prisma.user.findMany({
-        where: { isActive: true },
+        where: { roomId: user.roomId, isActive: true, isAssigned: true },
         select: { id: true, name: true, role: true },
         orderBy: { name: "asc" },
       }),
@@ -88,17 +118,16 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ sales, amendments, shifts, cashiers });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat data penjualan.";
+    const message = err instanceof Error ? err.message : "Gagal memuat data transaksi.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const canCreateSale = await checkUserPermission(user.role, "kasir", "create");
     if (!canCreateSale) {
@@ -120,7 +149,7 @@ export async function POST(request: Request) {
     const data = parsed.data;
 
     const createdSale = await prisma.$transaction(async (tx) => {
-      let grandTotal = 0;
+      let grossSubtotal = 0;
       let grandCost = 0;
 
       const preparedItems: {
@@ -136,12 +165,12 @@ export async function POST(request: Request) {
       }[] = [];
 
       for (const reqItem of data.items) {
-        const product = await tx.product.findUnique({
-          where: { id: reqItem.productId },
+        const product = await tx.product.findFirst({
+          where: { id: reqItem.productId, roomId: user.roomId, isActive: true },
           include: { variants: true },
         });
         if (!product) {
-          throw new Error("Produk tidak ditemukan di database.");
+          throw new Error("Produk tidak ditemukan pada katalog ruangan ini.");
         }
 
         let unitPrice = product.sellPrice;
@@ -160,7 +189,7 @@ export async function POST(request: Request) {
           resolvedVariantId = variant.id;
         }
 
-        // Deduct stock atomically and get accurate HPP (unitCost & totalCost)
+        // Potong stok secara atomik dan ambil snapshot HPP historis saat transaksi terjadi
         const deduction = await deductStockForSaleItem(tx, {
           productId: product.id,
           variantId: resolvedVariantId,
@@ -168,7 +197,7 @@ export async function POST(request: Request) {
         });
 
         const subtotal = Math.round(unitPrice * reqItem.quantity);
-        grandTotal += subtotal;
+        grossSubtotal += subtotal;
         grandCost += deduction.totalCost;
 
         preparedItems.push({
@@ -184,6 +213,9 @@ export async function POST(request: Request) {
         });
       }
 
+      const discountAmount = Math.min(Math.max(0, data.discountAmount ?? 0), grossSubtotal);
+      const grandTotal = grossSubtotal - discountAmount;
+
       const cashReceived =
         data.paymentMethod === "TUNAI"
           ? Math.max(data.cashReceived ?? grandTotal, 0)
@@ -196,15 +228,18 @@ export async function POST(request: Request) {
       }
 
       const changeAmount = data.paymentMethod === "TUNAI" ? cashReceived - grandTotal : 0;
-      const receiptNumber = `TRX-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(
-        1000 + Math.random() * 9000
-      )}`;
+      const receiptNumber = `TRX-${new Date()
+        .toISOString()
+        .slice(0, 10)
+        .replace(/-/g, "")}-${Math.floor(100000 + Math.random() * 900000)}`;
 
       const sale = await tx.sale.create({
         data: {
+          roomId: user.roomId,
           receiptNumber,
           cashierId: user.id,
           paymentMethod: data.paymentMethod,
+          discountAmount,
           totalAmount: grandTotal,
           totalCost: grandCost,
           cashReceived,
@@ -223,6 +258,7 @@ export async function POST(request: Request) {
 
       await recordAuditLog(
         {
+          roomId: user.roomId,
           actorId: user.id,
           actorName: user.name,
           actorRole: user.role,
@@ -233,6 +269,7 @@ export async function POST(request: Request) {
           afterData: {
             receiptNumber: sale.receiptNumber,
             paymentMethod: sale.paymentMethod,
+            discountAmount: sale.discountAmount,
             totalAmount: sale.totalAmount,
             totalCost: sale.totalCost,
             itemCount: preparedItems.length,
@@ -252,4 +289,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
-

@@ -2,19 +2,28 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export interface AuditInput {
+  roomId?: string | null;
   actorId?: string | null;
   actorName: string;
   actorRole: string;
   actionType:
     | "LOGIN"
+    | "ROOM_CREATED"
     | "PEMBELIAN"
     | "PENJUALAN"
     | "PERUBAHAN_TRANSAKSI"
     | "PERUBAHAN_STOK"
     | "STOK_OPNAME"
     | "KATALOG"
+    | "PRODUCT_REQUEST"
     | "HAK_AKSES"
-    | "PENGATURAN";
+    | "PENGATURAN"
+    | "INVITATION_CREATED"
+    | "INVITATION_ACCEPTED"
+    | "INVITATION_DECLINED"
+    | "INVITATION_REVOKED"
+    | "USER_ROLE_CHANGED"
+    | "USER_ACCESS_REVOKED";
   actionSummary: string;
   entityType: string;
   entityId?: string | null;
@@ -30,6 +39,7 @@ export async function recordAuditLog(
 ) {
   return tx.auditLog.create({
     data: {
+      roomId: input.roomId ?? null,
       actorId: input.actorId ?? null,
       actorName: input.actorName,
       actorRole: input.actorRole,
@@ -46,10 +56,18 @@ export async function recordAuditLog(
 }
 
 export interface NotificationInput {
+  roomId?: string | null;
   title: string;
   message: string;
   severity?: "INFO" | "WARNING" | "CRITICAL";
-  category: "PEMBELIAN" | "PENJUALAN" | "STOK_OPNAME" | "PERUBAHAN_STOK" | "SHIFT" | "SISTEM";
+  category:
+    | "PEMBELIAN"
+    | "PENJUALAN"
+    | "STOK_OPNAME"
+    | "PERUBAHAN_STOK"
+    | "SHIFT"
+    | "KATALOG"
+    | "SISTEM";
   targetRole?: string | null;
   userId?: string | null;
   linkUrl: string;
@@ -61,6 +79,7 @@ export async function createNotification(
 ) {
   return tx.notification.create({
     data: {
+      roomId: input.roomId ?? null,
       title: input.title,
       message: input.message,
       severity: input.severity ?? "INFO",
@@ -71,4 +90,3 @@ export async function createNotification(
     },
   });
 }
-

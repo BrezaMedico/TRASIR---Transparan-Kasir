@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
-import { checkUserPermission } from "@/lib/rbac";
+import { requireAssignedUser } from "@/lib/auth";
+import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
 
 export async function GET(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const canView = await checkUserPermission(user.role, "aktivitas", "view");
     if (!canView) {
@@ -22,9 +21,9 @@ export async function GET(request: Request) {
     const actionType = searchParams.get("actionType");
     const roleFilter = searchParams.get("role");
 
-    const isRestrictedStaff = user.role === "KASIR" || user.role === "GUDANG";
+    const isRestrictedStaff = !isStoreAdmin(user.role);
 
-    const auditWhere: Record<string, unknown> = {};
+    const auditWhere: Record<string, unknown> = { roomId: user.roomId };
     if (isRestrictedStaff) {
       auditWhere.actorId = user.id;
     } else {
@@ -36,10 +35,18 @@ export async function GET(request: Request) {
 
     const notifWhere = isRestrictedStaff
       ? {
-          OR: [{ userId: user.id }, { targetRole: user.role }],
+          roomId: user.roomId,
+          OR: [{ userId: user.id }, { userId: null, targetRole: user.role }],
         }
       : {
-          OR: [{ userId: user.id }, { userId: null }],
+          roomId: user.roomId,
+          OR: [
+            { userId: user.id },
+            {
+              userId: null,
+              OR: [{ targetRole: null }, { targetRole: "PEMILIK" }, { targetRole: "MANAJER" }],
+            },
+          ],
         };
 
     const [auditLogs, notifications, users] = await Promise.all([
@@ -56,6 +63,7 @@ export async function GET(request: Request) {
       isRestrictedStaff
         ? Promise.resolve([])
         : prisma.user.findMany({
+            where: { roomId: user.roomId, isAssigned: true },
             select: { id: true, name: true, role: true },
             orderBy: { name: "asc" },
           }),
@@ -75,15 +83,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const body = await request.json();
     if (body.action === "MARK_READ" && body.notificationId) {
-      await prisma.notification.update({
-        where: { id: String(body.notificationId) },
+      await prisma.notification.updateMany({
+        where: { id: String(body.notificationId), roomId: user.roomId },
         data: { isRead: true },
       });
       return NextResponse.json({ success: true });
@@ -92,7 +99,10 @@ export async function POST(request: Request) {
     if (body.action === "MARK_ALL_READ") {
       await prisma.notification.updateMany({
         where: {
-          OR: [{ userId: user.id }, { targetRole: user.role }, { userId: null }],
+          roomId: user.roomId,
+          OR: isStoreAdmin(user.role)
+            ? [{ userId: user.id }, { userId: null }]
+            : [{ userId: user.id }, { targetRole: user.role }],
         },
         data: { isRead: true },
       });
@@ -105,4 +115,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

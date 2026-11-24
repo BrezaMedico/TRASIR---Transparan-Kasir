@@ -2,54 +2,127 @@
 
 import React, { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { HeroDiorama3D } from "./diorama/HeroDiorama3D";
+import { getDefaultRedirectForRole, isStoreAdmin } from "@/lib/rbac-shared";
 
 interface LandingPageProps {
-  ctaHref: string;
-  ctaLabel: string;
-  closingCtaLabel: string;
+  isAuthenticated?: boolean;
+  navCtaHref?: string;
+  navCtaLabel?: string;
+  heroCtaHref?: string;
+  heroCtaLabel?: string;
+  finalCtaHref?: string;
+  finalCtaLabel?: string;
 }
 
-type ScenarioKey = "valid" | "anomaly";
-
-interface ScenarioSpec {
-  title: string;
-  badgeText: string;
-  badgeClasses: string;
-  dotClasses: string;
-  pos: string;
-  receipt: string;
-  iconWrapClasses: string;
-  findingHeading: string;
-  findingCopy: string;
+interface AuthCtaState {
+  isAuthenticated: boolean;
+  navCtaHref: string;
+  navCtaLabel: string;
+  heroCtaHref: string;
+  heroCtaLabel: string;
+  finalCtaHref: string;
+  finalCtaLabel: string;
 }
 
-const SCENARIOS: Record<ScenarioKey, ScenarioSpec> = {
-  valid: {
-    title: "Nota #NP-108 Terverifikasi",
-    badgeText: "Sesuai Sistem",
-    badgeClasses: "border-[#99F6E4] bg-[#F0FDFA] text-[#0F766E]",
-    dotClasses: "bg-[#0F766E]",
-    pos: "Rp 4.820.000",
-    receipt: "Rp 640.000",
-    iconWrapClasses: "bg-[#F0FDFA] text-[#0F766E]",
-    findingHeading: "Stok Masuk & Rincian Cocok",
-    findingCopy: "Nominal struk sama dengan penjumlahan item dan stok bertambah 24 unit.",
-  },
-  anomaly: {
-    title: "Nota #NP-112 Terindikasi Selisih",
-    badgeText: "Perlu Audit Pemilik",
-    badgeClasses: "border-[#FBCFE8] bg-[#FDF2F8] text-[#9D174D]",
-    dotClasses: "bg-[#FC5086]",
-    pos: "Rp 4.820.000",
-    receipt: "Rp 515.000",
-    iconWrapClasses: "bg-[#FDF2F8] text-[#9D174D]",
-    findingHeading: "Selisih Rp 50.000 & Foto Berulang",
-    findingCopy: "Total struk tidak cocok dengan jumlah item Rp 465.000 dan terindikasi nota ganda.",
-  },
-};
+const AUTH_CTA_STORAGE_KEY = "trasir_auth_cta_hint";
 
-export function LandingPage({ ctaHref, ctaLabel, closingCtaLabel }: LandingPageProps) {
+type StockMethodKey = "tetap" | "pecah" | "resep";
+
+interface StockMethodSpec {
+  id: StockMethodKey;
+  label: string;
+  summary: string;
+  buyLabel: string;
+  buyValue: string;
+  sellLabel: string;
+  sellValue: string;
+  remainLabel: string;
+  remainValue: string;
+  example: string;
+}
+
+const STOCK_METHODS: StockMethodSpec[] = [
+  {
+    id: "tetap",
+    label: "Satuan Tetap (1:1)",
+    summary: "Cocok untuk barang ritel yang dibeli dan dijual dalam satuan yang sama.",
+    buyLabel: "Beli dari Pemasok",
+    buyValue: "10 pcs",
+    sellLabel: "Terjual di Kasir",
+    sellValue: "3 pcs",
+    remainLabel: "Sisa Stok Sistem",
+    remainValue: "7 pcs",
+    example: "Contoh: Kursi lipat, botol tumbler, atau kemasan utuh dengan potongan 1 banding 1.",
+  },
+  {
+    id: "pecah",
+    label: "Pecah Satuan",
+    summary: "Beli grosir dalam dus atau karung, lalu jual eceran per botol atau bungkus secara otomatis.",
+    buyLabel: "Beli Grosir",
+    buyValue: "1 dus (24 botol)",
+    sellLabel: "Jual Eceran",
+    sellValue: "5 botol",
+    remainLabel: "Sisa Stok Sistem",
+    remainValue: "19 botol",
+    example: "Contoh: Air mineral 600 ml yang dibeli per dus isi 24 dan dijual satuan di kasir.",
+  },
+  {
+    id: "resep",
+    label: "Resep & Varian",
+    summary: "Setiap menu F&B otomatis memotong takaran bahan baku sesuai ukuran varian yang dipesan.",
+    buyLabel: "Stok Bahan Baku",
+    buyValue: "1.000 ml susu",
+    sellLabel: "Jual 2 Cup Large",
+    sellValue: "-60 ml susu",
+    remainLabel: "Sisa Bahan Sistem",
+    remainValue: "940 ml",
+    example: "Contoh: Es Kopi Susu Regular (20 ml) dan Large (30 ml) dengan HPP terhitung otomatis.",
+  },
+];
+
+const WORKFLOW_STEPS = [
+  {
+    num: "01",
+    title: "Foto Nota, AI Periksa Otomatis",
+    copy: "Unggah foto nota belanja pemasok. Sistem mencocokkan rincian item dan menandai nota ganda sebelum stok disetujui.",
+    previewLabel: "Nota #NP-108",
+    previewDetail: "Total item cocok Rp 640.000",
+    previewStatus: "Sesuai",
+    previewStatusClass: "border-[#BBF7D0] bg-[#F0FDF4] text-[#166534]",
+  },
+  {
+    num: "02",
+    title: "Kasir Cepat, Stok Langsung Terpotong",
+    copy: "Setiap struk penjualan langsung mengurangi stok barang atau bahan baku secara tepat sesuai resep dan satuan jual.",
+    previewLabel: "2x Es Kopi Large",
+    previewDetail: "-60 ml susu, -16 g kopi",
+    previewStatus: "Stok Terpotong",
+    previewStatusClass: "border-[#99F6E4] bg-[#F0FDFA] text-[#0F766E]",
+  },
+  {
+    num: "03",
+    title: "Cocokkan Uang Shift Tanpa Tebakan",
+    copy: "Kasir menghitung uang laci di akhir shift, lalu sistem membandingkan langsung dengan catatan transaksi hari itu.",
+    previewLabel: "Tutup Shift Sore",
+    previewDetail: "Sistem Rp 2.450.000 = Fisik Rp 2.450.000",
+    previewStatus: "Selisih Rp 0",
+    previewStatusClass: "border-[#BBF7D0] bg-[#F0FDF4] text-[#166534]",
+  },
+];
+
+export function LandingPage({
+  isAuthenticated: initialAuthenticated = false,
+  navCtaHref: initialNavCtaHref = "/login?redirect=/dashboard",
+  navCtaLabel: initialNavCtaLabel = "Masuk",
+  heroCtaHref: initialHeroCtaHref = "/login?redirect=/dashboard",
+  heroCtaLabel: initialHeroCtaLabel = "Mulai Kelola Toko",
+  finalCtaHref: initialFinalCtaHref = "/register?redirect=/dashboard",
+  finalCtaLabel: initialFinalCtaLabel = "Buat Akun Gratis",
+}: LandingPageProps) {
   const menuId = useId().replace(/:/g, "");
+  const tabBaseId = useId().replace(/:/g, "");
   const headerRef = useRef<HTMLElement>(null);
   const headerInnerRef = useRef<HTMLDivElement>(null);
   const brandRef = useRef<HTMLAnchorElement>(null);
@@ -57,15 +130,137 @@ export function LandingPage({ ctaHref, ctaLabel, closingCtaLabel }: LandingPageP
   const ctaRef = useRef<HTMLAnchorElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const siteMenuRef = useRef<HTMLUListElement>(null);
+  const tabButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  const [scenario, setScenario] = useState<ScenarioKey>("valid");
+  const [ctaState, setCtaState] = useState<AuthCtaState>({
+    isAuthenticated: initialAuthenticated,
+    navCtaHref: initialNavCtaHref,
+    navCtaLabel: initialNavCtaLabel,
+    heroCtaHref: initialHeroCtaHref,
+    heroCtaLabel: initialHeroCtaLabel,
+    finalCtaHref: initialFinalCtaHref,
+    finalCtaLabel: initialFinalCtaLabel,
+  });
 
-  const currentScenario = SCENARIOS[scenario];
+  const [navigatingTarget, setNavigatingTarget] = useState<string | null>(null);
+  const navResetTimerRef = useRef<number | null>(null);
+  const authAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (navResetTimerRef.current !== null) {
+        window.clearTimeout(navResetTimerRef.current);
+      }
+      authAbortRef.current?.abort();
+    };
+  }, []);
+
+  const handleCtaClick = (targetId: string) => {
+    authAbortRef.current?.abort();
+    setNavigatingTarget(targetId);
+    if (navResetTimerRef.current !== null) {
+      window.clearTimeout(navResetTimerRef.current);
+    }
+    navResetTimerRef.current = window.setTimeout(() => {
+      setNavigatingTarget(null);
+    }, 8000);
+  };
+
+  const {
+    isAuthenticated,
+    navCtaHref,
+    navCtaLabel,
+    heroCtaHref,
+    heroCtaLabel,
+    finalCtaHref,
+    finalCtaLabel,
+  } = ctaState;
+
+  const [activeMethod, setActiveMethod] = useState<StockMethodKey>("tetap");
+  const currentMethod =
+    STOCK_METHODS.find((item) => item.id === activeMethod) ?? STOCK_METHODS[0];
+
+  // Hydrasi Smart Auth CTA di latar belakang (non-blocking) agar halaman statis tampil instan 0ms
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    authAbortRef.current = controller;
+
+    try {
+      const cached = window.sessionStorage.getItem(AUTH_CTA_STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as AuthCtaState;
+        if (parsed && typeof parsed.navCtaHref === "string") {
+          setCtaState(parsed);
+        }
+      }
+    } catch {
+      // ignore storage error
+    }
+
+    fetch("/api/auth/me", { cache: "no-store", signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        let nextState: AuthCtaState = {
+          isAuthenticated: false,
+          navCtaHref: "/login?redirect=/dashboard",
+          navCtaLabel: "Masuk",
+          heroCtaHref: "/login?redirect=/dashboard",
+          heroCtaLabel: "Mulai Kelola Toko",
+          finalCtaHref: "/register?redirect=/dashboard",
+          finalCtaLabel: "Buat Akun Gratis",
+        };
+        if (data.authenticated && data.user) {
+          if (!data.user.isAssigned) {
+            const waitingHref =
+              isStoreAdmin(data.user.role) && data.needsInitialSetup
+                ? "/setup"
+                : "/menunggu-undangan";
+            const waitingLabel =
+              isStoreAdmin(data.user.role) && data.needsInitialSetup
+                ? "Lanjutkan Setup"
+                : "Cek Undangan";
+            nextState = {
+              isAuthenticated: true,
+              navCtaHref: waitingHref,
+              navCtaLabel: waitingLabel,
+              heroCtaHref: waitingHref,
+              heroCtaLabel: waitingLabel,
+              finalCtaHref: waitingHref,
+              finalCtaLabel: waitingLabel,
+            };
+          } else {
+            const appHref = getDefaultRedirectForRole(data.user.role, true);
+            nextState = {
+              isAuthenticated: true,
+              navCtaHref: appHref,
+              navCtaLabel: "Buka Dashboard",
+              heroCtaHref: appHref,
+              heroCtaLabel: "Buka Dashboard",
+              finalCtaHref: appHref,
+              finalCtaLabel: "Masuk ke Dashboard",
+            };
+          }
+        }
+        setCtaState(nextState);
+        try {
+          window.sessionStorage.setItem(AUTH_CTA_STORAGE_KEY, JSON.stringify(nextState));
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // Muat polyfill popover hanya jika dukungan native browser belum tersedia
     if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
       const script = document.createElement("script");
       script.type = "module";
@@ -142,25 +337,48 @@ export function LandingPage({ ctaHref, ctaLabel, closingCtaLabel }: LandingPageP
   const closeNarrowMenu = () => {
     const header = headerRef.current;
     const siteMenu = siteMenuRef.current;
-    if (header && siteMenu && !header.classList.contains("is-wide") && typeof siteMenu.hidePopover === "function") {
+    if (
+      header &&
+      siteMenu &&
+      !header.classList.contains("is-wide") &&
+      typeof siteMenu.hidePopover === "function"
+    ) {
       try {
         siteMenu.hidePopover();
       } catch {
-        // Ignore if popover already closed
+        // Ignore if already closed
       }
     }
   };
 
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex = index;
+    if (event.key === "ArrowRight") {
+      nextIndex = (index + 1) % STOCK_METHODS.length;
+    } else if (event.key === "ArrowLeft") {
+      nextIndex = (index - 1 + STOCK_METHODS.length) % STOCK_METHODS.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = STOCK_METHODS.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    setActiveMethod(STOCK_METHODS[nextIndex].id);
+    tabButtonRefs.current[nextIndex]?.focus();
+  };
+
   return (
-    <div className="landing-root min-h-screen bg-[#F8FAFC] text-[#0F172A] selection:bg-[#38BDF8]/30 selection:text-[#0F172A]">
+    <div id="top" className="landing-root min-h-screen bg-white text-[#0F172A] selection:bg-[#3DC2CA]/25 selection:text-[#0F172A]">
       <a href="#konten-utama" className="landing-skip-link">
         Lewati ke konten utama
       </a>
 
-      {/* Centered 3-Zone Reference Navbar */}
+      {/* Section 1A: Sticky 3-Zone White Navbar */}
       <header
         ref={headerRef}
-        className="landing-header sticky top-0 z-40 border-b border-slate-200/75 bg-white"
+        className="landing-header sticky top-0 z-40 border-b border-slate-200/80 bg-white"
       >
         <div
           ref={headerInnerRef}
@@ -232,38 +450,50 @@ export function LandingPage({ ctaHref, ctaLabel, closingCtaLabel }: LandingPageP
             >
               <li>
                 <a
-                  href="#fitur"
+                  href="#cara-kerja"
                   onClick={closeNarrowMenu}
                   className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
                 >
-                  Fitur Utama
+                  Cara Kerja
                 </a>
               </li>
               <li>
                 <a
-                  href="#simulasi"
+                  href="#metode-stok"
                   onClick={closeNarrowMenu}
                   className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
                 >
-                  Simulasi Audit
+                  Metode Stok
                 </a>
               </li>
               <li>
                 <a
-                  href="#mulai"
+                  href="#audit-adil"
                   onClick={closeNarrowMenu}
                   className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
                 >
-                  Akses Sistem
+                  Audit Adil
                 </a>
               </li>
-              <li className="landing-menu-mobile-cta pt-1.5">
+              <li className="landing-menu-mobile-cta pt-2 border-t border-slate-100">
                 <Link
-                  href={ctaHref}
-                  onClick={closeNarrowMenu}
-                  className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full bg-[#2563EB] px-6 text-[15px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(37,99,235,0.5)] transition duration-150 hover:bg-[#1D4ED8] active:scale-[0.985] cursor-pointer"
+                  href={navCtaHref}
+                  onClick={() => {
+                    closeNarrowMenu();
+                    handleCtaClick("nav-mobile");
+                  }}
+                  className={`flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-5 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] ${
+                    navigatingTarget === "nav-mobile" ? "opacity-90 pointer-events-none" : ""
+                  }`}
                 >
-                  {ctaLabel}
+                  {navigatingTarget === "nav-mobile" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      <span>Membuka...</span>
+                    </>
+                  ) : (
+                    navCtaLabel
+                  )}
                 </Link>
               </li>
             </ul>
@@ -271,399 +501,449 @@ export function LandingPage({ ctaHref, ctaLabel, closingCtaLabel }: LandingPageP
 
           <Link
             ref={ctaRef}
-            href={ctaHref}
-            className="landing-header-cta min-h-[44px] items-center justify-center rounded-full bg-[#2563EB] px-7 py-2.5 text-[15px] font-medium text-white shadow-[0_8px_20px_-8px_rgba(37,99,235,0.5)] transition duration-150 hover:-translate-y-[1px] hover:bg-[#1D4ED8] active:scale-[0.985] cursor-pointer whitespace-nowrap"
+            href={navCtaHref}
+            onClick={() => handleCtaClick("nav-desktop")}
+            className={`landing-header-cta min-h-[44px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-6 text-[15px] font-semibold text-white shadow-[0_10px_24px_-12px_rgba(37,99,235,0.7)] transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] whitespace-nowrap ${
+              navigatingTarget === "nav-desktop" ? "opacity-90 pointer-events-none" : ""
+            }`}
           >
-            {ctaLabel}
+            {navigatingTarget === "nav-desktop" ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                <span>Membuka...</span>
+              </>
+            ) : (
+              navCtaLabel
+            )}
           </Link>
         </div>
       </header>
 
-      <main id="top">
-        {/* Hero Section with Architectural Blueprint Grid & Layered Translucent Glass Depth */}
-        <section className="relative overflow-hidden pb-16 pt-10 sm:pb-24 sm:pt-14 lg:flex lg:min-h-[min(calc(100svh-4.6rem),52rem)] lg:items-center lg:py-20">
-          <div className="landing-arch-grid pointer-events-none absolute inset-0 [mask-image:radial-gradient(ellipse_90%_85%_at_50%_35%,#000_50%,transparent_100%)]" aria-hidden="true" />
-          <div className="landing-hero-glow pointer-events-none absolute inset-0" aria-hidden="true" />
+      <main id="konten-utama">
+        {/* Section 1B: Hero (Above the Fold, Z-Pattern) */}
+        <section className="overflow-x-clip border-b border-slate-200/80 bg-white">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-8 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-12 lg:gap-6 lg:px-8 lg:py-16">
+            <div className="landing-enter-copy space-y-6 lg:col-span-5">
 
-          <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-8">
-              {/* Hero Copy Left */}
-              <div className="landing-enter-copy lg:col-span-5">
-                <p className="mb-4 text-xs font-bold uppercase tracking-[0.14em] text-[#475569]">
-                  Sistem Transparansi Operasional Toko
-                </p>
+              <h1 className="landing-hero-title font-extrabold text-[#0F172A]">
+                Awasi Setiap Transaksi, Kendalikan Bisnis Sepenuhnya.
+              </h1>
 
-                <h1 id="konten-utama" tabIndex={-1} className="landing-hero-title font-extrabold text-[#0F172A]">
-                  Pantau Kasir, Stok,{" "}
-                  <span className="font-bold text-[#64748B]">dan Nota </span>
-                  <span className="text-[#2563EB]">Tanpa Celah</span>
-                </h1>
-
-                <p className="landing-pretty-copy mt-5 max-w-[46ch] text-base text-[#475569] sm:text-lg">
-                  TRASIR menghubungkan kasir harian, validasi nota AI, dan stok gudang dalam satu catatan audit transparan.
-                </p>
-
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3.5">
-                  <Link
-                    href={ctaHref}
-                    className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white shadow-[0_12px_28px_-10px_rgba(37,99,235,0.55)] transition duration-150 hover:-translate-y-[1px] hover:bg-[#1D4ED8] active:scale-[0.985] cursor-pointer sm:w-auto sm:text-base"
-                  >
-                    <span>Mulai Audit Toko</span>
-                    <svg
-                      width="17"
-                      height="17"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M5 12h14" />
-                      <path d="m13 5 7 7-7 7" />
-                    </svg>
-                  </Link>
-
-                  <a
-                    href="#simulasi"
-                    className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-5 py-3 text-sm font-semibold text-[#0F172A] shadow-sm transition duration-150 hover:-translate-y-[1px] hover:border-slate-300 hover:bg-white active:scale-[0.985] cursor-pointer sm:w-auto sm:text-base"
-                  >
-                    <svg
-                      width="17"
-                      height="17"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#2563EB"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="12" cy="12" r="9" />
-                      <polygon points="10 8.5 16 12 10 15.5 10 8.5" fill="#2563EB" stroke="none" />
-                    </svg>
-                    <span>Lihat Simulasi</span>
-                  </a>
-                </div>
-
-                {/* Honest factual capability row replacing generic social proof avatars */}
-                <div className="mt-10 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-200/80 pt-5 text-xs font-medium text-[#475569]">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#2563EB]" aria-hidden="true" />
-                    Akun Individu &amp; RBAC
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#3DC2CA]" aria-hidden="true" />
-                    Audit Tanpa Hapus
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#0F766E]" aria-hidden="true" />
-                    Validasi Nota AI
-                  </span>
-                </div>
-              </div>
-
-              {/* Center Editorial Micro-Callout from Reference */}
-              <div className="hidden xl:col-span-1 xl:flex xl:flex-col xl:items-start xl:self-start xl:pt-20" aria-hidden="true">
-                <div className="border-l border-slate-300/80 pl-3 text-[11px] font-medium leading-relaxed text-[#475569]">
-                  <p className="whitespace-nowrap">Kasir POS</p>
-                  <p className="whitespace-nowrap">Nota AI</p>
-                  <p className="whitespace-nowrap">Stok Toko</p>
-                </div>
-                <div className="mt-2 h-px w-8 bg-slate-300/80" />
-              </div>
-
-              {/* Hero Right Focal Visual: Layered Translucent Glass Depth + Live TRASIR Audit Card */}
-              <div id="simulasi" className="landing-enter-visual relative scroll-mt-24 lg:col-span-7 xl:col-span-6">
-                <div className="relative sm:pr-10 sm:pt-10">
-                  {/* Layered Frosted Translucent Glass Planes echoing the reference visual stack */}
-                  <div
-                    className="pointer-events-none absolute right-0 top-0 hidden h-[calc(100%-2.75rem)] w-[calc(100%-2.75rem)] rounded-3xl border border-white/85 bg-gradient-to-br from-[#7DD3FC]/45 via-[#3B82F6]/25 to-[#E0F2FE]/60 shadow-[0_20px_48px_-22px_rgba(37,99,235,0.35)] sm:block"
-                    aria-hidden="true"
-                  >
-                    <div className="landing-dot-matrix h-full w-full rounded-3xl opacity-80" />
-                  </div>
-                  <div
-                    className="pointer-events-none absolute right-5 top-5 hidden h-[calc(100%-2.75rem)] w-[calc(100%-2.75rem)] rounded-3xl border border-white/90 bg-gradient-to-br from-white/85 via-[#EFF6FF]/70 to-[#DBEAFE]/50 backdrop-blur-md shadow-[0_20px_46px_-22px_rgba(37,99,235,0.28)] sm:block"
-                    aria-hidden="true"
-                  />
-
-                  {/* Crisp Foreground Interactive TRASIR Shift Audit Card */}
-                  <div className="landing-surface-card relative z-10 overflow-hidden rounded-2xl border border-white/95 bg-white/95 backdrop-blur-xl shadow-[0_28px_64px_-22px_rgba(37,99,235,0.26),0_4px_16px_-4px_rgba(15,23,42,0.06)]">
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-slate-50/85 px-5 py-4">
-                      <div className="flex items-center gap-2.5">
-                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#3DC2CA]" aria-hidden="true" />
-                        <span className="text-sm font-bold text-[#0F172A]">Pemeriksaan Shift #S-042</span>
-                      </div>
-
-                      <div
-                        className="inline-flex rounded-xl border border-slate-200 bg-white p-1"
-                        role="group"
-                        aria-label="Simulasi status audit nota"
-                      >
-                        <button
-                          type="button"
-                          data-scenario="valid"
-                          aria-pressed={scenario === "valid"}
-                          onClick={() => setScenario("valid")}
-                          className={
-                            scenario === "valid"
-                              ? "min-h-[44px] rounded-lg px-3.5 text-xs font-semibold transition-colors duration-150 cursor-pointer bg-[#2563EB] text-white"
-                              : "min-h-[44px] rounded-lg px-3.5 text-xs font-semibold transition-colors duration-150 cursor-pointer text-[#475569] hover:text-[#0F172A]"
-                          }
-                        >
-                          Data Sesuai
-                        </button>
-                        <button
-                          type="button"
-                          data-scenario="anomaly"
-                          aria-pressed={scenario === "anomaly"}
-                          onClick={() => setScenario("anomaly")}
-                          className={
-                            scenario === "anomaly"
-                              ? "min-h-[44px] rounded-lg px-3.5 text-xs font-semibold transition-colors duration-150 cursor-pointer bg-[#2563EB] text-white"
-                              : "min-h-[44px] rounded-lg px-3.5 text-xs font-semibold transition-colors duration-150 cursor-pointer text-[#475569] hover:text-[#0F172A]"
-                          }
-                        >
-                          Anomali Nota
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-5 p-6" aria-live="polite">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-wider text-[#475569]">Ringkasan Kas &amp; Stok</p>
-                          <p className="mt-1 text-lg font-bold text-[#0F172A]">{currentScenario.title}</p>
-                        </div>
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${currentScenario.badgeClasses}`}
-                        >
-                          <span className={`h-2 w-2 rounded-full ${currentScenario.dotClasses}`} aria-hidden="true" />
-                          <span>{currentScenario.badgeText}</span>
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl border border-slate-200/80 bg-[#F8FAFC] p-4">
-                          <p className="text-xs font-medium text-[#475569]">Omzet Kasir POS</p>
-                          <p className="tabular-nums mt-1 text-xl font-extrabold text-[#0F172A]">{currentScenario.pos}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-200/80 bg-[#F8FAFC] p-4">
-                          <p className="text-xs font-medium text-[#475569]">Total Nota Supplier</p>
-                          <p className="tabular-nums mt-1 text-xl font-extrabold text-[#0F172A]">{currentScenario.receipt}</p>
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl border border-slate-200/80 bg-white p-4">
-                        <div className="flex items-start gap-3">
-                          <span
-                            className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${currentScenario.iconWrapClasses}`}
-                            aria-hidden="true"
-                          >
-                            {scenario === "valid" ? (
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.25"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <path d="M20 6 9 17l-5-5" />
-                              </svg>
-                            ) : (
-                              <svg
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="#FC5086"
-                                strokeWidth="2.25"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <circle cx="12" cy="12" r="9" />
-                                <path d="M12 8v4" />
-                                <path d="M12 16h.01" />
-                              </svg>
-                            )}
-                          </span>
-                          <div>
-                            <p className="text-sm font-bold text-[#0F172A]">{currentScenario.findingHeading}</p>
-                            <p className="landing-pretty-copy mt-1 text-sm text-[#475569]">
-                              {currentScenario.findingCopy}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Subtle Reference-style Side Note on Desktop */}
-                <div className="mt-4 hidden justify-end pr-1 lg:flex" aria-hidden="true">
-                  <div className="border-l border-slate-300/80 pl-3 text-[11px] font-medium leading-relaxed text-[#475569]">
-                    <p>Dari transaksi</p>
-                    <p>ke bukti audit.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Key Highlights / Fitur Utama */}
-        <section id="fitur" className="scroll-mt-20 border-t border-slate-200/80 bg-white py-20 md:py-28">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-            <div className="max-w-2xl">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#2563EB]">Fitur Utama</p>
-              <h2 className="landing-section-title mt-3 font-extrabold text-[#0F172A]">
-                Satu Arsitektur Data <span className="text-[#64748B]">untuk Pengawasan Nyata</span>
-              </h2>
-              <p className="landing-pretty-copy mt-4 max-w-[56ch] text-base text-[#475569]">
-                Setiap transaksi langsung terhubung ke stok dan catatan audit agar pemilik melihat fakta operasional tanpa celah.
+              <p className="landing-pretty-copy max-w-xl text-base leading-relaxed text-[#475569] sm:text-lg">
+                Sistem kasir dan inventaris web untuk ritel hingga F&amp;B. Setiap nota, transaksi, dan selisih stok tercatat rapi dengan bukti objektif.
               </p>
+
+              <div className="flex flex-wrap items-center gap-4 pt-2">
+                <Link
+                  href={heroCtaHref}
+                  onClick={() => handleCtaClick("hero")}
+                  className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-7 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] sm:text-base ${
+                    navigatingTarget === "hero" ? "opacity-90 pointer-events-none" : ""
+                  }`}
+                >
+                  {navigatingTarget === "hero" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      <span>Membuka...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{heroCtaLabel}</span>
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </>
+                  )}
+                </Link>
+                <a
+                  href="#cara-kerja"
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-full px-4 text-sm font-semibold text-[#334E6B] transition-colors duration-150 hover:bg-slate-100 hover:text-[#0F172A] sm:text-base"
+                >
+                  Lihat cara kerjanya ↓
+                </a>
+              </div>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2 lg:gap-8">
-              <article className="landing-surface-card rounded-2xl border border-slate-200/90 bg-[#F8FAFC]/80 p-7 transition duration-150 hover:-translate-y-0.5 hover:border-[#93C5FD] hover:bg-white hover:shadow-[0_20px_44px_-24px_rgba(37,99,235,0.22)]">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-[#2563EB] ring-1 ring-blue-100" aria-hidden="true">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
-                    <path d="M8 7h8" />
-                    <path d="M8 11h8" />
-                    <path d="M8 15h4" />
-                  </svg>
-                </div>
-                <h3 className="mt-5 text-lg font-bold text-[#0F172A]">Kasir Tanpa Hapus</h3>
-                <p className="landing-pretty-copy mt-2.5 max-w-[46ch] text-sm text-[#475569]">
-                  Penjualan dan pembatalan tercatat atas akun kasir bertugas. Riwayat kas tersimpan permanen tanpa opsi hapus.
-                </p>
-              </article>
-
-              <article className="landing-surface-card rounded-2xl border border-slate-200/90 bg-[#F8FAFC]/80 p-7 transition duration-150 hover:-translate-y-0.5 hover:border-[#93C5FD] hover:bg-white hover:shadow-[0_20px_44px_-24px_rgba(37,99,235,0.22)]">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#FDF2F8] text-[#9D174D] ring-1 ring-pink-100" aria-hidden="true">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FC5086" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2" />
-                    <path d="M17 3h2a2 2 0 0 1 2 2v2" />
-                    <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
-                    <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-                    <path d="M7 12h10" />
-                  </svg>
-                </div>
-                <h3 className="mt-5 text-lg font-bold text-[#0F172A]">Validasi Nota AI</h3>
-                <p className="landing-pretty-copy mt-2.5 max-w-[46ch] text-sm text-[#475569]">
-                  AI mencocokkan foto struk dengan rincian item dan riwayat lama. Selisih atau nota ganda langsung ditandai.
-                </p>
-              </article>
-
-              <article className="landing-surface-card rounded-2xl border border-slate-200/90 bg-[#F8FAFC]/80 p-7 transition duration-150 hover:-translate-y-0.5 hover:border-[#93C5FD] hover:bg-white hover:shadow-[0_20px_44px_-24px_rgba(37,99,235,0.22)]">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#F0FDFA] text-[#0D747A] ring-1 ring-teal-100" aria-hidden="true">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-                    <path d="m3.3 7 8.7 5 8.7-5" />
-                    <path d="M12 22V12" />
-                  </svg>
-                </div>
-                <h3 className="mt-5 text-lg font-bold text-[#0F172A]">Stok Sinkron Otomatis</h3>
-                <p className="landing-pretty-copy mt-2.5 max-w-[46ch] text-sm text-[#475569]">
-                  Pembelian dan transaksi kasir langsung memperbarui saldo gudang. Selisih opname terlihat sebelum tutup shift.
-                </p>
-              </article>
-
-              <article className="landing-surface-card rounded-2xl border border-slate-200/90 bg-[#F8FAFC]/80 p-7 transition duration-150 hover:-translate-y-0.5 hover:border-[#93C5FD] hover:bg-white hover:shadow-[0_20px_44px_-24px_rgba(37,99,235,0.22)]">
-                <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-[#334E6B] ring-1 ring-slate-200" aria-hidden="true">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-                    <path d="m9 12 2 2 4-4" />
-                  </svg>
-                </div>
-                <h3 className="mt-5 text-lg font-bold text-[#0F172A]">Hak Akses Terpisah</h3>
-                <p className="landing-pretty-copy mt-2.5 max-w-[46ch] text-sm text-[#475569]">
-                  Menu dan aksi menyesuaikan peran tiap akun pengguna. Persetujuan selisih dan audit penuh dipegang pemilik.
-                </p>
-              </article>
+            {/* 3D Miniatur Diorama Interaktif */}
+            <div className="landing-enter-visual lg:col-span-7">
+              <HeroDiorama3D paused={Boolean(navigatingTarget)} />
             </div>
           </div>
         </section>
 
-        {/* Focused Closing CTA */}
-        <section id="mulai" className="scroll-mt-24 bg-white pb-20 pt-4 md:pb-28">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-            <div className="relative overflow-hidden rounded-3xl bg-[#0F172A] px-6 py-12 text-center shadow-[0_28px_60px_-24px_rgba(15,23,42,0.4)] sm:px-12 md:py-16">
-              <div className="landing-closing-glow pointer-events-none absolute inset-0" aria-hidden="true" />
-              <div className="relative z-10">
-                <h2 className="landing-section-title mx-auto max-w-2xl font-extrabold text-white">
-                  Tutup Shift Harian dengan Catatan yang Jelas
-                </h2>
-                <p className="landing-pretty-copy mx-auto mt-4 max-w-[50ch] text-base text-slate-200">
-                  Satukan transaksi kasir, pemeriksaan nota pembelian, dan saldo stok toko dalam satu sistem yang mudah diaudit.
+        {/* Section 2: Ketegangan Emosional -> Bukti Data */}
+        <section className="border-b border-slate-200/80 bg-[#F5F5F5]">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+            <div className="max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+                Transparansi Dua Arah
+              </p>
+              <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
+                Bukan sekadar kasir. Ini sistem saling percaya berbasis data.
+              </h2>
+            </div>
+
+            <div className="landing-surface-card mt-10 grid grid-cols-1 divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white md:grid-cols-2 md:divide-x md:divide-y-0">
+              <div className="p-7 sm:p-10 space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+                  Sisi Pemilik &amp; Manajer
                 </p>
-                <div className="mt-8 flex justify-center">
-                  <Link
-                    href={ctaHref}
-                    className="landing-on-dark inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-7 py-3 text-base font-semibold text-white shadow-[0_12px_28px_-10px_rgba(37,99,235,0.65)] transition duration-150 hover:-translate-y-[1px] hover:bg-[#1D4ED8] active:scale-[0.985] cursor-pointer"
-                  >
-                    <span>{closingCtaLabel}</span>
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
+                <h3 className="text-lg font-bold text-[#0F172A]">
+                  Kendali penuh tanpa harus menunggu di toko.
+                </h3>
+                <p className="landing-pretty-copy text-sm leading-relaxed text-[#475569] sm:text-base">
+                  Nota belanja diperiksa otomatis untuk mendeteksi selisih hitung atau foto ganda. Setiap perubahan transaksi dan penyesuaian stok melewati persetujuan yang tercatat rapi.
+                </p>
+              </div>
+
+              <div className="p-7 sm:p-10 space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-[#0F766E]">
+                  Sisi Pegawai Jujur
+                </p>
+                <h3 className="text-lg font-bold text-[#0F172A]">
+                  Kerja tenang dengan bukti kerja yang objektif.
+                </h3>
+                <p className="landing-pretty-copy text-sm leading-relaxed text-[#475569] sm:text-base">
+                  Setiap shift kasir dan hitung stok tersimpan atas nama akun masing-masing. Saat terjadi selisih di area etalase pelanggan, pegawai terlindungi dari tuduhan tanpa bukti.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 3: Alur Operasional 3 Langkah */}
+        <section id="cara-kerja" className="scroll-mt-24 border-b border-slate-200/80 bg-white">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+            <div className="max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+                Alur Operasional Harian
+              </p>
+              <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
+                Tiga langkah untuk menutup celah selisih harian.
+              </h2>
+            </div>
+
+            <ol className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
+              {WORKFLOW_STEPS.map((step) => (
+                <li
+                  key={step.num}
+                  className="landing-surface-card flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6"
+                >
+                  <div>
+                    <span className="font-mono text-3xl font-extrabold tracking-tight text-[#334E6B] tabular-nums">
+                      {step.num}
+                    </span>
+                    <h3 className="mt-4 text-lg font-bold text-[#0F172A]">{step.title}</h3>
+                    <p className="landing-pretty-copy mt-2 text-sm leading-relaxed text-[#475569]">
+                      {step.copy}
+                    </p>
+                  </div>
+
+                  <div className="mt-6 rounded-xl border border-slate-200 bg-[#F5F5F5] p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-[#0F172A]">
+                        {step.previewLabel}
+                      </span>
+                      <span
+                        className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${step.previewStatusClass}`}
+                      >
+                        {step.previewStatus}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 font-mono text-xs text-[#475569] tabular-nums">
+                      {step.previewDetail}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* Section 4: Tiga Metode Stok (Accessible Interactive Tab Switcher) */}
+        <section id="metode-stok" className="scroll-mt-24 border-b border-slate-200/80 bg-[#F5F5F5]">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+            <div className="max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+                Fleksibel Untuk Ritel &amp; F&amp;B
+              </p>
+              <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
+                Satu sistem, cocok untuk semua cara jualan Anda.
+              </h2>
+            </div>
+
+            <div className="mt-8">
+              <div
+                role="tablist"
+                aria-label="Pilih metode pengurangan stok"
+                className="inline-flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-1.5"
+              >
+                {STOCK_METHODS.map((method, index) => {
+                  const selected = method.id === activeMethod;
+                  return (
+                    <button
+                      key={method.id}
+                      ref={(el) => {
+                        tabButtonRefs.current[index] = el;
+                      }}
+                      id={`${tabBaseId}-tab-${method.id}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      aria-controls={`${tabBaseId}-panel-${method.id}`}
+                      tabIndex={selected ? 0 : -1}
+                      onClick={() => setActiveMethod(method.id)}
+                      onKeyDown={(e) => handleTabKeyDown(e, index)}
+                      className={`min-h-[44px] rounded-xl px-4 py-2 text-sm font-semibold transition-colors duration-150 cursor-pointer ${
+                        selected
+                          ? "bg-[#334E6B] text-white shadow-sm"
+                          : "text-[#475569] hover:bg-slate-100 hover:text-[#0F172A]"
+                      }`}
                     >
-                      <path d="M5 12h14" />
-                      <path d="m13 5 7 7-7 7" />
-                    </svg>
-                  </Link>
+                      {method.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div
+                id={`${tabBaseId}-panel-${currentMethod.id}`}
+                role="tabpanel"
+                aria-labelledby={`${tabBaseId}-tab-${currentMethod.id}`}
+                tabIndex={0}
+                className="landing-surface-card mt-5 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8"
+              >
+                <p className="landing-pretty-copy max-w-2xl text-base font-medium text-[#0F172A]">
+                  {currentMethod.summary}
+                </p>
+
+                <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-slate-200 bg-[#F5F5F5] p-4">
+                    <p className="text-xs font-semibold text-[#475569]">
+                      1. {currentMethod.buyLabel}
+                    </p>
+                    <p className="mt-1 font-mono text-lg font-extrabold text-[#334E6B] tabular-nums">
+                      {currentMethod.buyValue}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-[#F5F5F5] p-4">
+                    <p className="text-xs font-semibold text-[#475569]">
+                      2. {currentMethod.sellLabel}
+                    </p>
+                    <p className="mt-1 font-mono text-lg font-extrabold text-[#2563EB] tabular-nums">
+                      {currentMethod.sellValue}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-[#99F6E4] bg-[#F0FDFA] p-4">
+                    <p className="text-xs font-semibold text-[#0F766E]">
+                      3. {currentMethod.remainLabel}
+                    </p>
+                    <p className="mt-1 font-mono text-lg font-extrabold text-[#0F766E] tabular-nums">
+                      {currentMethod.remainValue}
+                    </p>
+                  </div>
                 </div>
+
+                <p className="mt-5 text-sm text-[#475569]">{currentMethod.example}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 5: Audit Adil & Laba Kotor Nyata */}
+        <section id="audit-adil" className="scroll-mt-24 border-b border-slate-200/80 bg-white">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+            <div className="max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+                Keadilan Audit &amp; Kejelasan Laba
+              </p>
+              <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
+                Audit stok yang adil, laporan laba yang jujur.
+              </h2>
+            </div>
+
+            <div className="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              {/* Block A: Area Terbuka vs Area Tertutup + Tolerance */}
+              <div className="landing-surface-card rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 flex flex-col justify-between gap-6">
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-[#0F172A]">
+                    Klasifikasi Area Opname &amp; Batas Toleransi
+                  </h3>
+                  <p className="landing-pretty-copy text-sm leading-relaxed text-[#475569]">
+                    Selisih stok dipisahkan antara area akses pelanggan dan area khusus pegawai agar evaluasi tetap adil.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#FDE68A] bg-[#FFFBEB] px-4 py-3">
+                    <span className="text-xs font-bold text-[#B45309]">Area Terbuka</span>
+                    <span className="text-xs font-medium text-[#B45309]">
+                      Etalase pelanggan, evaluasi risiko bersama
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] px-4 py-3">
+                    <span className="text-xs font-bold text-[#9F1239]">Area Tertutup</span>
+                    <span className="text-xs font-medium text-[#9F1239]">
+                      Gudang &amp; dapur pegawai, audit internal langsung
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-[#F5F5F5] px-4 py-3">
+                    <span className="text-xs font-semibold text-[#475569]">
+                      Batas Toleransi Default
+                    </span>
+                    <span className="font-mono text-sm font-extrabold text-[#334E6B] tabular-nums">
+                      Rp 50.000
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Block B: Laba Kotor Berbasis HPP */}
+              <div className="landing-surface-card rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 flex flex-col justify-between gap-6">
+                <div className="space-y-2">
+                  <h3 className="text-lg font-bold text-[#0F172A]">
+                    Laba Kotor Otomatis Berbasis HPP
+                  </h3>
+                  <p className="landing-pretty-copy text-sm leading-relaxed text-[#475569]">
+                    Lihat selisih penjualan dan modal pokok aktual setiap hari tanpa rekap manual di akhir bulan.
+                  </p>
+                </div>
+
+                <div className="space-y-4 rounded-xl border border-slate-200 bg-[#F5F5F5] p-5">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#475569]">
+                    Ilustrasi Perhitungan Harian
+                  </p>
+
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-xs font-semibold text-[#0F172A]">
+                        <span>Penjualan Kotor</span>
+                        <span className="font-mono tabular-nums">Rp 5.000.000</span>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                        <div className="h-full w-full rounded-full bg-[#334E6B]" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-xs font-semibold text-[#475569]">
+                        <span>HPP (Modal Pokok Terjual)</span>
+                        <span className="font-mono tabular-nums">Rp 3.150.000</span>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                        <div className="h-full w-[63%] rounded-full bg-slate-500" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-xs font-bold text-[#0F766E]">
+                        <span>Laba Kotor Nyata</span>
+                        <span className="font-mono tabular-nums">Rp 1.850.000</span>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                        <div className="h-full w-[37%] rounded-full bg-[#3DC2CA]" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 6: Final CTA & Multi-Role Onboarding */}
+        <section className="bg-[#F5F5F5]">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+            <div className="landing-surface-card mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm sm:px-12 sm:py-16">
+              <h2 className="landing-section-title font-extrabold text-[#0F172A]">
+                Siap jalankan toko yang transparan hari ini?
+              </h2>
+              <p className="landing-pretty-copy mx-auto mt-4 max-w-xl text-sm leading-relaxed text-[#475569] sm:text-base">
+                Daftar sebagai Pemilik/Manajer untuk menyiapkan toko, atau sebagai Kasir/Gudang untuk bergabung lewat username.
+              </p>
+
+              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-5">
+                <Link
+                  href={finalCtaHref}
+                  onClick={() => handleCtaClick("final")}
+                  className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-8 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] sm:text-base ${
+                    navigatingTarget === "final" ? "opacity-90 pointer-events-none" : ""
+                  }`}
+                >
+                  {navigatingTarget === "final" ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      <span>Membuka...</span>
+                    </>
+                  ) : (
+                    finalCtaLabel
+                  )}
+                </Link>
+
+                {!isAuthenticated && (
+                  <Link
+                    href="/login?redirect=/dashboard"
+                    onClick={() => handleCtaClick("final-login")}
+                    className={`inline-flex min-h-[44px] items-center justify-center gap-2 px-3 text-sm font-semibold text-[#334E6B] transition-all duration-150 hover:text-[#2563EB] hover:underline active:scale-[0.98] ${
+                      navigatingTarget === "final-login" ? "opacity-80 pointer-events-none" : ""
+                    }`}
+                  >
+                    {navigatingTarget === "final-login" ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        <span>Membuka halaman masuk...</span>
+                      </>
+                    ) : (
+                      "Sudah punya akun? Masuk"
+                    )}
+                  </Link>
+                )}
               </div>
             </div>
           </div>
         </section>
       </main>
 
-      {/* Clean Footer */}
-      <footer className="border-t border-slate-200/80 bg-[#F8FAFC]">
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-4 py-8 sm:flex-row sm:items-center sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <span
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#60A5FA]/20 to-[#2563EB]/15 ring-1 ring-[#2563EB]/20"
-              aria-hidden="true"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <rect x="3.5" y="3.5" width="7.5" height="7.5" rx="2" fill="#60A5FA" />
-                <rect x="13" y="3.5" width="7.5" height="7.5" rx="2" fill="#2563EB" />
-                <rect x="3.5" y="13" width="7.5" height="7.5" rx="2" fill="#2563EB" />
-                <rect x="13" y="13" width="7.5" height="7.5" rx="2" fill="#3DC2CA" />
-              </svg>
-            </span>
-            <div>
-              <span className="text-base font-extrabold tracking-tight text-[#0F172A]">TRASIR</span>
-              <p className="mt-0.5 text-sm text-[#475569]">Pengawasan kasir, validasi nota AI, dan inventaris toko.</p>
-            </div>
+      {/* Clean 1-Row Footer */}
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-6 text-xs text-[#475569] sm:flex-row sm:px-6 lg:px-8">
+          <div className="flex items-center gap-2 font-semibold text-[#0F172A]">
+            <span>TRASIR</span>
+            <span className="text-slate-300" aria-hidden="true">|</span>
+            <span className="font-normal text-[#475569]">Transparan Kasir</span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-6 text-sm text-[#475569]">
-            <a href="#fitur" className="inline-flex min-h-[44px] items-center hover:text-[#0F172A] cursor-pointer">
-              Fitur
+          <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-5">
+            <a href="#cara-kerja" className="hover:text-[#2563EB] transition-colors">
+              Cara Kerja
             </a>
-            <a href="#simulasi" className="inline-flex min-h-[44px] items-center hover:text-[#0F172A] cursor-pointer">
-              Simulasi
+            <a href="#metode-stok" className="hover:text-[#2563EB] transition-colors">
+              Metode Stok
             </a>
-            <Link href={ctaHref} className="inline-flex min-h-[44px] items-center hover:text-[#0F172A] cursor-pointer">
-              Masuk
+            <a href="#audit-adil" className="hover:text-[#2563EB] transition-colors">
+              Audit Adil
+            </a>
+            <Link
+              href={navCtaHref}
+              onClick={() => handleCtaClick("footer")}
+              className={`inline-flex items-center gap-1.5 font-semibold text-[#334E6B] hover:text-[#2563EB] active:scale-[0.98] transition-all ${
+                navigatingTarget === "footer" ? "opacity-80 pointer-events-none" : ""
+              }`}
+            >
+              {navigatingTarget === "footer" ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                  <span>Membuka...</span>
+                </>
+              ) : (
+                navCtaLabel
+              )}
             </Link>
-            <span className="text-xs text-[#475569]">&copy; 2026 TRASIR</span>
-          </div>
+          </nav>
+
+          <p>© 2026 TRASIR</p>
         </div>
       </footer>
     </div>

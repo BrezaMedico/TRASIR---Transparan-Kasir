@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
-import { checkUserPermission } from "@/lib/rbac";
+import { requireAssignedUser } from "@/lib/auth";
+import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
 import { z } from "zod";
 
@@ -55,10 +55,9 @@ const evaluateOpnameItemSchema = z.object({
 
 export async function GET() {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const canView = await checkUserPermission(user.role, "inventaris", "view");
     if (!canView) {
@@ -68,17 +67,18 @@ export async function GET() {
       );
     }
 
-    const [products, warehouses, adjustments, opnameSessions, settings] = await Promise.all([
+    const [products, warehouses, adjustments, opnameSessions, room] = await Promise.all([
       prisma.product.findMany({
-        where: { isActive: true },
+        where: { roomId: user.roomId, isActive: true },
         include: {
           category: true,
           warehouseStocks: { include: { warehouse: true } },
         },
         orderBy: { name: "asc" },
       }),
-      prisma.warehouse.findMany({ orderBy: { name: "asc" } }),
+      prisma.warehouse.findMany({ where: { roomId: user.roomId }, orderBy: { name: "asc" } }),
       prisma.stockAdjustment.findMany({
+        where: { roomId: user.roomId },
         include: {
           product: { include: { category: true } },
           fromWarehouse: true,
@@ -89,22 +89,18 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
       }),
       prisma.stockOpnameSession.findMany({
+        where: { roomId: user.roomId },
         include: {
           warehouse: true,
           createdBy: { select: { id: true, name: true, role: true } },
           reviewedBy: { select: { id: true, name: true, role: true } },
-          items: {
-            include: {
-              product: { include: { category: true } },
-            },
-          },
+          items: { include: { product: { include: { category: true } } } },
         },
         orderBy: { createdAt: "desc" },
       }),
-      prisma.systemSetting.findUnique({ where: { id: "default" } }),
+      prisma.room.findUnique({ where: { id: user.roomId } }),
     ]);
 
-    // For Blind Count mode: provide a stripped list of products without exposing system stock if user is doing an active count
     const blindCountProducts = products
       .filter((p) => p.stockMethod !== "RESEP")
       .map((p) => ({
@@ -122,8 +118,8 @@ export async function GET() {
       warehouses,
       adjustments,
       opnameSessions,
-      toleranceThresholdRp: settings?.toleranceThresholdRp ?? 50000,
-      opnameSchedule: settings?.opnameSchedule ?? "MINGGUAN",
+      toleranceThresholdRp: room?.toleranceThresholdRp ?? 50000,
+      opnameSchedule: room?.opnameSchedule ?? "MINGGUAN",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal memuat data inventaris.";
@@ -133,14 +129,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const body = await request.json();
 
-    // 1. REQUEST STOCK ADJUSTMENT (Rusak, Kedaluwarsa, Hilang, Dikembalikan, Pindah Antar-Gudang)
     if (body.action === "REQUEST_ADJUSTMENT") {
       const canCreate = await checkUserPermission(user.role, "inventaris", "create");
       if (!canCreate) {
@@ -159,14 +153,20 @@ export async function POST(request: Request) {
       }
 
       const data = parsed.data;
-      const product = await prisma.product.findUnique({ where: { id: data.productId } });
+      const product = await prisma.product.findFirst({
+        where: { id: data.productId, roomId: user.roomId },
+      });
       if (!product) {
-        return NextResponse.json({ error: "Produk tidak ditemukan." }, { status: 404 });
+        return NextResponse.json(
+          { error: "Produk tidak ditemukan pada ruangan ini." },
+          { status: 404 }
+        );
       }
 
       const adjustment = await prisma.$transaction(async (tx) => {
         const created = await tx.stockAdjustment.create({
           data: {
+            roomId: user.roomId,
             productId: product.id,
             adjustmentType: data.adjustmentType,
             quantity: data.quantity,
@@ -182,6 +182,7 @@ export async function POST(request: Request) {
 
         await recordAuditLog(
           {
+            roomId: user.roomId,
             actorId: user.id,
             actorName: user.name,
             actorRole: user.role,
@@ -204,11 +205,12 @@ export async function POST(request: Request) {
 
         await createNotification(
           {
+            roomId: user.roomId,
             title: `Pengajuan Perubahan Stok (${data.adjustmentType}): ${product.name}`,
             message: `${user.name} mengajukan perubahan stok ${data.adjustmentType} sebanyak ${data.quantity} ${product.sellUnit}. Alasan: ${data.reason.trim()}`,
             severity: "WARNING",
             category: "PERUBAHAN_STOK",
-            targetRole: "PEMILIK",
+            targetRole: null,
             linkUrl: "/inventaris",
           },
           tx
@@ -220,12 +222,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ adjustment });
     }
 
-    // 2. REVIEW STOCK ADJUSTMENT (Owner Approval Gate)
     if (body.action === "REVIEW_ADJUSTMENT") {
-      const canApprove = await checkUserPermission(user.role, "inventaris", "approve");
-      if (!canApprove) {
+      if (!isStoreAdmin(user.role)) {
         return NextResponse.json(
-          { error: "Hanya Pemilik (atau pejabat berwenang) yang dapat menyetujui perubahan stok." },
+          { error: "Hanya Pemilik atau Manajer yang dapat menyetujui perubahan stok." },
           { status: 403 }
         );
       }
@@ -239,24 +239,20 @@ export async function POST(request: Request) {
       }
 
       const { adjustmentId, decision, reviewNotes } = parsed.data;
-      const adj = await prisma.stockAdjustment.findUnique({
-        where: { id: adjustmentId },
+      const adj = await prisma.stockAdjustment.findFirst({
+        where: { id: adjustmentId, roomId: user.roomId },
         include: { product: true },
       });
 
       if (!adj) {
-        return NextResponse.json({ error: "Data pengajuan tidak ditemukan." }, { status: 404 });
+        return NextResponse.json(
+          { error: "Data pengajuan tidak ditemukan pada ruangan ini." },
+          { status: 404 }
+        );
       }
 
       if (adj.status !== "MENUNGGU_PERSETUJUAN") {
         return NextResponse.json({ error: "Pengajuan ini sudah diproses." }, { status: 400 });
-      }
-
-      if (user.role !== "PEMILIK" && adj.requestedById === user.id) {
-        return NextResponse.json(
-          { error: "Pemisahan Wewenang: Anda tidak dapat menyetujui pengajuan perubahan stok Anda sendiri." },
-          { status: 403 }
-        );
       }
 
       const updated = await prisma.$transaction(async (tx) => {
@@ -267,12 +263,19 @@ export async function POST(request: Request) {
             adj.adjustmentType === "HILANG" ||
             adj.adjustmentType === "DIKEMBALIKAN"
           ) {
-            const newStock = Math.max(0, Number((adj.product.currentStock - adj.quantity).toFixed(4)));
+            const newStock = Math.max(
+              0,
+              Number((adj.product.currentStock - adj.quantity).toFixed(4))
+            );
             await tx.product.update({
               where: { id: adj.productId },
               data: { currentStock: newStock },
             });
-          } else if (adj.adjustmentType === "PINDAH_GUDANG" && adj.fromWarehouseId && adj.toWarehouseId) {
+          } else if (
+            adj.adjustmentType === "PINDAH_GUDANG" &&
+            adj.fromWarehouseId &&
+            adj.toWarehouseId
+          ) {
             await tx.productStock.upsert({
               where: {
                 productId_warehouseId: {
@@ -318,20 +321,16 @@ export async function POST(request: Request) {
 
         await recordAuditLog(
           {
+            roomId: user.roomId,
             actorId: user.id,
             actorName: user.name,
             actorRole: user.role,
             actionType: "PERUBAHAN_STOK",
-            actionSummary: `${decision === "DISETUJUI" ? "Menyetujui" : "Menolak"} pengajuan perubahan stok (${
-              adj.adjustmentType
-            }) "${adj.product.name}"`,
+            actionSummary: `${decision === "DISETUJUI" ? "Menyetujui" : "Menolak"} pengajuan perubahan stok (${adj.adjustmentType}) "${adj.product.name}"`,
             entityType: "StockAdjustment",
             entityId: adj.id,
             beforeData: { stockBefore: adj.product.currentStock, status: "MENUNGGU_PERSETUJUAN" },
-            afterData: {
-              decision,
-              stockUpdated: decision === "DISETUJUI",
-            },
+            afterData: { decision, stockUpdated: decision === "DISETUJUI" },
             approvalState: decision,
             linkUrl: "/inventaris",
           },
@@ -344,7 +343,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ adjustment: updated });
     }
 
-    // 3. SUBMIT BLIND COUNT STOCK OPNAME
     if (body.action === "SUBMIT_OPNAME") {
       const canCreate = await checkUserPermission(user.role, "inventaris", "create");
       if (!canCreate) {
@@ -363,8 +361,8 @@ export async function POST(request: Request) {
       }
 
       const data = parsed.data;
-      const settings = await prisma.systemSetting.findUnique({ where: { id: "default" } });
-      const toleranceRp = settings?.toleranceThresholdRp ?? 50000;
+      const room = await prisma.room.findUnique({ where: { id: user.roomId } });
+      const toleranceRp = room?.toleranceThresholdRp ?? 50000;
 
       const session = await prisma.$transaction(async (tx) => {
         const preparedItems: {
@@ -382,8 +380,8 @@ export async function POST(request: Request) {
         let anomalyCount = 0;
 
         for (const c of data.counts) {
-          const prod = await tx.product.findUnique({
-            where: { id: c.productId },
+          const prod = await tx.product.findFirst({
+            where: { id: c.productId, roomId: user.roomId },
             include: { category: true },
           });
           if (!prod) continue;
@@ -420,6 +418,7 @@ export async function POST(request: Request) {
 
         const createdSession = await tx.stockOpnameSession.create({
           data: {
+            roomId: user.roomId,
             title: data.title.trim(),
             scheduleType: data.scheduleType,
             warehouseId: data.warehouseId || null,
@@ -427,9 +426,7 @@ export async function POST(request: Request) {
             status: anomalyCount > 0 ? "SUBMITTED" : "EVALUATED",
             createdById: user.id,
             submittedAt: new Date(),
-            items: {
-              create: preparedItems,
-            },
+            items: { create: preparedItems },
           },
           include: {
             items: { include: { product: { include: { category: true } } } },
@@ -438,6 +435,7 @@ export async function POST(request: Request) {
 
         await recordAuditLog(
           {
+            roomId: user.roomId,
             actorId: user.id,
             actorName: user.name,
             actorRole: user.role,
@@ -460,11 +458,12 @@ export async function POST(request: Request) {
         if (anomalyCount > 0) {
           await createNotification(
             {
+              roomId: user.roomId,
               title: `Temuan Stok Opname: ${anomalyCount} Item Melewati Toleransi`,
-              message: `Stok Opname "${createdSession.title}" oleh ${user.name} mencatat ${anomalyCount} barang dengan nilai selisih melewati batas toleransi Rp ${toleranceRp}. Perlu diperiksa dan dilengkapi penjelasan.`,
+              message: `Stok Opname "${createdSession.title}" oleh ${user.name} mencatat ${anomalyCount} barang dengan nilai selisih melewati batas toleransi Rp ${toleranceRp}.`,
               severity: "WARNING",
               category: "STOK_OPNAME",
-              targetRole: "PEMILIK",
+              targetRole: null,
               linkUrl: "/inventaris",
             },
             tx
@@ -477,7 +476,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ session });
     }
 
-    // 4. EMPLOYEE EXPLANATION FOR ANOMALY ITEM
     if (body.action === "EXPLAIN_OPNAME_ITEM") {
       const parsed = explainOpnameItemSchema.safeParse(body);
       if (!parsed.success) {
@@ -488,8 +486,8 @@ export async function POST(request: Request) {
       }
 
       const { opnameItemId, employeeExplanation, proofImageData } = parsed.data;
-      const item = await prisma.stockOpnameItem.findUnique({
-        where: { id: opnameItemId },
+      const item = await prisma.stockOpnameItem.findFirst({
+        where: { id: opnameItemId, session: { roomId: user.roomId } },
         include: { product: true },
       });
 
@@ -509,6 +507,7 @@ export async function POST(request: Request) {
 
         await recordAuditLog(
           {
+            roomId: user.roomId,
             actorId: user.id,
             actorName: user.name,
             actorRole: user.role,
@@ -532,12 +531,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ item: updated });
     }
 
-    // 5. OWNER EVALUATION FOR ANOMALY ITEM
     if (body.action === "EVALUATE_OPNAME_ITEM") {
-      const canApprove = await checkUserPermission(user.role, "inventaris", "approve");
-      if (!canApprove) {
+      if (!isStoreAdmin(user.role)) {
         return NextResponse.json(
-          { error: "Hanya Pemilik yang dapat memberikan keputusan evaluasi selisih stok opname." },
+          {
+            error:
+              "Hanya Pemilik atau Manajer yang dapat memberikan keputusan evaluasi selisih stok opname.",
+          },
           { status: 403 }
         );
       }
@@ -551,8 +551,8 @@ export async function POST(request: Request) {
       }
 
       const { opnameItemId, ownerDecision, ownerNotes, syncPhysicalToSystem } = parsed.data;
-      const item = await prisma.stockOpnameItem.findUnique({
-        where: { id: opnameItemId },
+      const item = await prisma.stockOpnameItem.findFirst({
+        where: { id: opnameItemId, session: { roomId: user.roomId } },
         include: { product: true, session: true },
       });
 
@@ -579,11 +579,12 @@ export async function POST(request: Request) {
 
         await recordAuditLog(
           {
+            roomId: user.roomId,
             actorId: user.id,
             actorName: user.name,
             actorRole: user.role,
             actionType: "STOK_OPNAME",
-            actionSummary: `Evaluasi Pemilik (${ownerDecision}) atas selisih stok "${item.product.name}"`,
+            actionSummary: `Evaluasi (${ownerDecision}) atas selisih stok "${item.product.name}"`,
             entityType: "StockOpnameItem",
             entityId: item.id,
             beforeData: { systemStock: item.systemStock, physicalStock: item.physicalStock },
@@ -615,4 +616,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

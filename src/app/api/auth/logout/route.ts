@@ -5,17 +5,22 @@ import { recordAuditLog } from "@/lib/audit";
 export async function POST() {
   const user = await getCurrentSessionUser();
   if (user) {
-    await recordAuditLog({
-      actorId: user.id,
-      actorName: user.name,
-      actorRole: user.role,
-      actionType: "LOGIN",
-      actionSummary: `${user.name} (${user.role}) keluar (logout) dari sistem`,
-      entityType: "Session",
-      entityId: user.id,
-      approvalState: "TERCATAT",
-      linkUrl: "/aktivitas",
-    });
+    try {
+      await recordAuditLog({
+        roomId: user.roomId,
+        actorId: user.id,
+        actorName: user.name,
+        actorRole: user.role,
+        actionType: "LOGIN",
+        actionSummary: `${user.name} (${user.role}) keluar (logout) dari sistem`,
+        entityType: "Session",
+        entityId: user.id,
+        approvalState: "TERCATAT",
+        linkUrl: "/aktivitas",
+      });
+    } catch {
+      // Abaikan kegagalan log audit sementara agar proses keluar tetap tuntas
+    }
   }
 
   const res = NextResponse.json({ success: true });

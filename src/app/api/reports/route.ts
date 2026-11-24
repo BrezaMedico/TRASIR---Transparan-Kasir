@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
-import { checkUserPermission } from "@/lib/rbac";
+import { requireAssignedUser } from "@/lib/auth";
+import { canViewFinancials } from "@/lib/rbac";
+import { getJakartaDateKey, getJakartaPeriodBounds } from "@/lib/date-jakarta";
 
 export async function GET(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
-    const canView = await checkUserPermission(user.role, "laporan", "view");
-    if (!canView) {
+    // Informasi keuangan hanya dapat diakses Pemilik & Manajer
+    if (!canViewFinancials(user.role)) {
       return NextResponse.json(
         { error: "Anda tidak memiliki izin mengakses Laporan Keuangan." },
         { status: 403 }
@@ -19,30 +19,34 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const period = searchParams.get("period") || "monthly"; // daily | monthly | custom
+    const period = searchParams.get("period") || "monthly"; // daily | weekly | monthly | custom
     const startParam = searchParams.get("startDate");
     const endParam = searchParams.get("endDate");
 
-    const now = new Date();
-    let startDate = new Date(now);
-    let endDate = new Date(now);
-    endDate.setHours(23, 59, 59, 999);
+    let startDate: Date;
+    let endDate = new Date();
 
     if (period === "daily") {
-      startDate.setHours(0, 0, 0, 0);
+      const b = getJakartaPeriodBounds("today");
+      startDate = b.startDate;
+      endDate = b.endDate;
+    } else if (period === "weekly") {
+      const b = getJakartaPeriodBounds("week");
+      startDate = b.startDate;
+      endDate = b.endDate;
     } else if (period === "custom" && startParam && endParam) {
-      startDate = new Date(startParam);
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(endParam);
-      endDate.setHours(23, 59, 59, 999);
+      startDate = new Date(`${startParam}T00:00:00+07:00`);
+      endDate = new Date(`${endParam}T23:59:59.999+07:00`);
     } else {
-      startDate.setDate(startDate.getDate() - 30);
-      startDate.setHours(0, 0, 0, 0);
+      const b = getJakartaPeriodBounds("month");
+      startDate = b.startDate;
+      endDate = b.endDate;
     }
 
     const [validSales, approvedPurchases, opnameDiscrepancies] = await Promise.all([
       prisma.sale.findMany({
         where: {
+          roomId: user.roomId,
           createdAt: { gte: startDate, lte: endDate },
           status: { notIn: ["DIBATALKAN", "DIKEMBALIKAN"] },
         },
@@ -54,6 +58,7 @@ export async function GET(request: Request) {
       }),
       prisma.purchase.findMany({
         where: {
+          roomId: user.roomId,
           createdAt: { gte: startDate, lte: endDate },
           approvalStatus: "DISETUJUI",
         },
@@ -64,6 +69,7 @@ export async function GET(request: Request) {
       }),
       prisma.stockOpnameItem.findMany({
         where: {
+          session: { roomId: user.roomId },
           differenceUnit: { not: 0 },
         },
         include: {
@@ -73,38 +79,67 @@ export async function GET(request: Request) {
       }),
     ]);
 
-    // Mandatory Formula from Blueprint & PDF Section 9:
-    // Keuntungan Kotor = Total Penjualan - Harga Pokok Penjualan (HPP Barang Terjual)
     const totalRevenue = validSales.reduce((acc, s) => acc + s.totalAmount, 0);
-    const totalCogs = validSales.reduce((acc, s) => acc + s.totalCost, 0);
+    const totalCogs = validSales.reduce((acc, s) => {
+      if (s.items.length > 0) {
+        return (
+          acc +
+          s.items.reduce(
+            (sum, it) =>
+              sum + (it.totalCost > 0 ? it.totalCost : Math.round((it.unitCost || 0) * it.quantity)),
+            0
+          )
+        );
+      }
+      return acc + s.totalCost;
+    }, 0);
     const grossProfit = totalRevenue - totalCogs;
     const totalPurchases = approvedPurchases.reduce((acc, p) => acc + p.totalAmount, 0);
 
-    // Chart 1 & Chart 2 time series
     const timeMap = new Map<
       string,
       { date: string; revenue: number; cogs: number; grossProfit: number; purchases: number }
     >();
 
     for (const s of validSales) {
-      const key = s.createdAt.toISOString().slice(0, 10);
-      const row = timeMap.get(key) || { date: key, revenue: 0, cogs: 0, grossProfit: 0, purchases: 0 };
+      const key = getJakartaDateKey(s.createdAt);
+      const saleCogs =
+        s.items.length > 0
+          ? s.items.reduce(
+              (sum, it) =>
+                sum +
+                (it.totalCost > 0 ? it.totalCost : Math.round((it.unitCost || 0) * it.quantity)),
+              0
+            )
+          : s.totalCost;
+      const row = timeMap.get(key) || {
+        date: key,
+        revenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+        purchases: 0,
+      };
       row.revenue += s.totalAmount;
-      row.cogs += s.totalCost;
-      row.grossProfit += s.totalAmount - s.totalCost;
+      row.cogs += saleCogs;
+      row.grossProfit += s.totalAmount - saleCogs;
       timeMap.set(key, row);
     }
 
     for (const p of approvedPurchases) {
-      const key = p.createdAt.toISOString().slice(0, 10);
-      const row = timeMap.get(key) || { date: key, revenue: 0, cogs: 0, grossProfit: 0, purchases: 0 };
+      const key = getJakartaDateKey(p.createdAt);
+      const row = timeMap.get(key) || {
+        date: key,
+        revenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+        purchases: 0,
+      };
       row.purchases += p.totalAmount;
       timeMap.set(key, row);
     }
 
     const chartSeries = Array.from(timeMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Most Profitable Products aggregation
     const productProfitMap = new Map<
       string,
       {
@@ -130,10 +165,12 @@ export async function GET(request: Request) {
           grossProfit: 0,
           marginPercent: 0,
         };
+        const itemCost =
+          item.totalCost > 0 ? item.totalCost : Math.round((item.unitCost || 0) * item.quantity);
         curr.qtySold += item.quantity;
         curr.totalRevenue += item.subtotal;
-        curr.totalCogs += item.totalCost;
-        curr.grossProfit += item.subtotal - item.totalCost;
+        curr.totalCogs += itemCost;
+        curr.grossProfit += item.subtotal - itemCost;
         curr.marginPercent =
           curr.totalRevenue > 0 ? Math.round((curr.grossProfit / curr.totalRevenue) * 100) : 0;
         productProfitMap.set(key, curr);
@@ -144,7 +181,6 @@ export async function GET(request: Request) {
       (a, b) => b.grossProfit - a.grossProfit
     );
 
-    // Problematic Products aggregation (highest frequency of stock discrepancy)
     const problemMap = new Map<
       string,
       {
@@ -199,4 +235,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

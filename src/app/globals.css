@@ -9,15 +9,16 @@
     --color-canvas: #F5F5F5;
     --color-surface: #FFFFFF;
     --color-rose: #FC5086;
+    --color-cta-blue: #2563EB;
   }
 
   html {
     background-color: #F5F5F5;
     color: #0F172A;
+    scroll-behavior: smooth;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  /* Enforce cursor: pointer on all enabled interactive elements (antislop R-39) */
   a[href],
   button:not(:disabled),
   summary,
@@ -38,9 +39,8 @@
     cursor: not-allowed;
   }
 
-  /* Visible high-contrast focus indicator (antislop R-32) */
   :focus-visible {
-    outline: 2px solid #334E6B;
+    outline: 2px solid #2563EB;
     outline-offset: 2px;
   }
 }
@@ -60,52 +60,22 @@
   }
 }
 
-/* Public Landing Page Utilities & Scoped Architectural Motion */
+/* Public Landing Page Layout & Centered 3-Zone Responsive Header */
 .landing-root {
   overflow-wrap: break-word;
-  background-color: #F8FAFC;
-}
-
-.landing-arch-grid {
-  background-image:
-    linear-gradient(to right, rgba(51, 78, 107, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(51, 78, 107, 0.05) 1px, transparent 1px);
-  background-size: 64px 64px;
-}
-
-.landing-dot-matrix {
-  background-image: radial-gradient(rgba(37, 99, 235, 0.22) 1px, transparent 1px);
-  background-size: 10px 10px;
-}
-
-.landing-hero-glow {
-  background: radial-gradient(
-    ellipse 70% 64% at 62% 48%,
-    rgba(56, 189, 248, 0.22) 0%,
-    rgba(37, 99, 235, 0.14) 44%,
-    rgba(248, 250, 252, 0) 76%
-  );
-}
-
-.landing-closing-glow {
-  background: radial-gradient(
-    ellipse 65% 70% at 82% 18%,
-    rgba(56, 189, 248, 0.22) 0%,
-    rgba(37, 99, 235, 0.16) 40%,
-    rgba(15, 23, 42, 0) 74%
-  );
+  background-color: #FFFFFF;
 }
 
 .landing-hero-title {
-  font-size: clamp(2.15rem, 1.35rem + 2.9vw, 3.65rem);
-  line-height: 1.08;
+  font-size: clamp(2rem, 1.35rem + 2.4vw, 3.15rem);
+  line-height: 1.12;
   letter-spacing: -0.03em;
   text-wrap: balance;
 }
 
 .landing-section-title {
-  font-size: clamp(1.65rem, 1.25rem + 1.6vw, 2.35rem);
-  line-height: 1.18;
+  font-size: clamp(1.5rem, 1.18rem + 1.35vw, 2.15rem);
+  line-height: 1.2;
   letter-spacing: -0.02em;
   text-wrap: balance;
 }
@@ -132,11 +102,6 @@
   inset-block-start: 1rem;
 }
 
-.landing-on-dark:focus-visible {
-  outline: 3px solid #FFFFFF;
-  outline-offset: 3px;
-}
-
 .landing-header-inner > * {
   flex-shrink: 0;
 }
@@ -157,7 +122,7 @@
   border-radius: 1rem;
   border: 1px solid #E2E8F0;
   background-color: #FFFFFF;
-  box-shadow: 0 20px 48px -18px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 20px 40px -18px rgba(15, 23, 42, 0.18);
 }
 
 .landing-menu[popover]:is(:popover-open, .\:popover-open) {
@@ -244,11 +209,10 @@
   transition: none !important;
 }
 
-/* Hero load entrance only (no scroll fade-in on cards/sections), opt-in on motion preference */
 @keyframes trasirHeroRise {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -259,21 +223,21 @@
 @keyframes trasirStageSettle {
   from {
     opacity: 0;
-    transform: scale(0.985) translateY(8px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateY(0);
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .landing-enter-copy {
-    animation: trasirHeroRise 580ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: trasirHeroRise 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .landing-enter-visual {
-    animation: trasirStageSettle 700ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+    animation: trasirStageSettle 560ms cubic-bezier(0.22, 1, 0.36, 1) 70ms both;
   }
 
   @starting-style {
@@ -299,4 +263,3 @@
     border: 1px solid CanvasText;
   }
 }
-

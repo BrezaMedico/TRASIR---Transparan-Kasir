@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import {
-  createSessionToken,
-  SESSION_COOKIE_NAME,
-  verifyPassword,
-} from "@/lib/auth";
+import { attachSessionCookie, createSessionToken, verifyPassword } from "@/lib/auth";
 import {
   ensureSystemBaseline,
   getDefaultRedirectForRole,
@@ -47,7 +43,7 @@ export async function POST(request: Request) {
 
     if (!user.isActive) {
       return NextResponse.json(
-        { error: "Akun Anda sedang dinonaktifkan oleh Pemilik." },
+        { error: "Akun Anda sedang dinonaktifkan oleh Pemilik atau Manajer ruangan." },
         { status: 403 }
       );
     }
@@ -60,35 +56,41 @@ export async function POST(request: Request) {
       );
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
-    await recordAuditLog({
-      actorId: user.id,
-      actorName: user.name,
-      actorRole: user.role,
-      actionType: "LOGIN",
-      actionSummary: `${user.name} (${user.role}) berhasil masuk ke sistem TRASIR`,
-      entityType: "Session",
-      entityId: user.id,
-      approvalState: "TERCATAT",
-      linkUrl: "/aktivitas",
-    });
+    await Promise.all([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      }),
+      recordAuditLog({
+        roomId: user.roomId,
+        actorId: user.id,
+        actorName: user.name,
+        actorRole: user.role,
+        actionType: "LOGIN",
+        actionSummary: `${user.name} (${user.role}) berhasil masuk ke sistem TRASIR`,
+        entityType: "Session",
+        entityId: user.id,
+        approvalState: "TERCATAT",
+        linkUrl: "/aktivitas",
+      }),
+    ]);
 
     const role = user.role as UserRole;
+    const isAssigned = Boolean(user.isAssigned && user.roomId);
     const sessionUser = {
       id: user.id,
       username: user.username,
       email: user.email,
       name: user.name,
       role,
+      isAssigned,
+      roomId: user.roomId,
+      tokenVersion: user.tokenVersion,
     };
 
     const token = await createSessionToken(sessionUser);
-    const permissions = await getRolePermissionsMap(role);
-    const redirectTo = getDefaultRedirectForRole(role);
+    const permissions = isAssigned ? await getRolePermissionsMap(role) : null;
+    const redirectTo = getDefaultRedirectForRole(role, isAssigned);
 
     const res = NextResponse.json({
       user: sessionUser,
@@ -96,17 +98,10 @@ export async function POST(request: Request) {
       redirectTo,
     });
 
-    res.cookies.set(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24,
-    });
-
+    attachSessionCookie(res, token);
     return res;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal memproses autentikasi.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

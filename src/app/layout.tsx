@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ToastProvider } from "@/components/layout/AppShell";
+import { NavigationProgress } from "@/components/ui/NavigationProgress";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -29,7 +30,10 @@ export default function RootLayout({
   return (
     <html lang="id" className={`${jakarta.variable} ${jetbrains.variable}`}>
       <body className="font-sans antialiased bg-[#F5F5F5] text-slate-900 min-h-screen">
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          <NavigationProgress />
+          {children}
+        </ToastProvider>
       </body>
     </html>
   );

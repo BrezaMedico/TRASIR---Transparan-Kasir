@@ -1,8 +1,9 @@
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import { prisma } from "./prisma";
-import { UserRole } from "./rbac";
+import { NextResponse } from "next/server";
+import { prisma, withDbRetry } from "./prisma";
+import { ensureSystemBaseline, UserRole } from "./rbac";
 
 export const SESSION_COOKIE_NAME = "trasir_session";
 
@@ -17,6 +18,14 @@ export interface SessionUser {
   email: string;
   name: string;
   role: UserRole;
+  isAssigned: boolean;
+  roomId: string | null;
+  tokenVersion?: number;
+}
+
+export interface AssignedSessionUser extends SessionUser {
+  isAssigned: true;
+  roomId: string;
 }
 
 export async function hashPassword(plain: string): Promise<string> {
@@ -34,6 +43,9 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
     email: user.email,
     name: user.name,
     role: user.role,
+    isAssigned: user.isAssigned,
+    roomId: user.roomId ?? null,
+    tokenVersion: user.tokenVersion ?? 1,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -51,6 +63,9 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
       email: String(payload.email),
       name: String(payload.name),
       role: payload.role as UserRole,
+      isAssigned: payload.isAssigned !== false,
+      roomId: typeof payload.roomId === "string" ? payload.roomId : null,
+      tokenVersion: typeof payload.tokenVersion === "number" ? payload.tokenVersion : 1,
     };
   } catch {
     return null;
@@ -65,11 +80,25 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
     const session = await verifySessionToken(token);
     if (!session) return null;
 
-    // Verify user is still active in database
-    const dbUser = await prisma.user.findUnique({
-      where: { id: session.id },
-      select: { id: true, username: true, email: true, name: true, role: true, isActive: true },
-    });
+    await withDbRetry(() => ensureSystemBaseline());
+
+    // Selalu baca status, role, dan keanggotaan ruangan terbaru langsung dari database
+    const dbUser = await withDbRetry(() =>
+      prisma.user.findUnique({
+        where: { id: session.id },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          name: true,
+          role: true,
+          isActive: true,
+          isAssigned: true,
+          roomId: true,
+          tokenVersion: true,
+        },
+      })
+    );
     if (!dbUser || !dbUser.isActive) return null;
 
     return {
@@ -78,9 +107,49 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
       email: dbUser.email,
       name: dbUser.name,
       role: dbUser.role as UserRole,
+      isAssigned: Boolean(dbUser.isAssigned && dbUser.roomId),
+      roomId: dbUser.roomId,
+      tokenVersion: dbUser.tokenVersion,
     };
   } catch {
     return null;
   }
 }
 
+export async function requireAssignedUser(): Promise<
+  { user: AssignedSessionUser; errorResponse: null } | { user: null; errorResponse: NextResponse }
+> {
+  const user = await getCurrentSessionUser();
+  if (!user) {
+    return {
+      user: null,
+      errorResponse: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    };
+  }
+  if (!user.isAssigned || !user.roomId) {
+    return {
+      user: null,
+      errorResponse: NextResponse.json(
+        {
+          error:
+            "Akun Anda belum tergabung ke ruangan kerja. Silakan bergabung menggunakan kode undangan atau buat ruangan baru terlebih dahulu.",
+          code: "UNASSIGNED",
+        },
+        { status: 403 }
+      ),
+    };
+  }
+  return {
+    user: { ...user, isAssigned: true, roomId: user.roomId },
+    errorResponse: null,
+  };
+}
+
+export function attachSessionCookie(res: NextResponse, token: string): void {
+  res.cookies.set(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24,
+  });
+}

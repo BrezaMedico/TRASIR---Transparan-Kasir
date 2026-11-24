@@ -1,38 +1,26 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
+import { requireAssignedUser } from "@/lib/auth";
+import { isStoreAdmin } from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
 
 export async function GET() {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user || user.role !== "PEMILIK") {
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
+    if (!isStoreAdmin(user.role)) {
       return NextResponse.json(
-        { error: "Hanya Pemilik yang dapat mengunduh cadangan penuh database toko." },
+        { error: "Hanya Pemilik atau Manajer yang dapat mengunduh cadangan database ruangan." },
         { status: 403 }
       );
     }
 
-    const [
-      settings,
-      users,
-      rolePermissions,
-      units,
-      categories,
-      warehouses,
-      products,
-      variants,
-      ingredients,
-      purchases,
-      sales,
-      amendments,
-      shiftClosings,
-      stockAdjustments,
-      opnameSessions,
-      auditLogs,
-    ] = await Promise.all([
-      prisma.systemSetting.findMany(),
+    // Batching bertahap (maks 4 query per gelombang) agar aman terhadap pool koneksi PgBouncer
+    const [room, users, rolePermissions, units] = await Promise.all([
+      prisma.room.findUnique({ where: { id: user.roomId } }),
       prisma.user.findMany({
+        where: { roomId: user.roomId, isAssigned: true },
         select: {
           id: true,
           username: true,
@@ -45,51 +33,92 @@ export async function GET() {
       }),
       prisma.rolePermission.findMany(),
       prisma.unit.findMany(),
-      prisma.category.findMany(),
-      prisma.warehouse.findMany(),
-      prisma.product.findMany(),
-      prisma.productVariant.findMany(),
-      prisma.recipeIngredient.findMany(),
-      prisma.purchase.findMany({ include: { items: true } }),
-      prisma.sale.findMany({ include: { items: true } }),
-      prisma.saleAmendment.findMany(),
-      prisma.shiftClosing.findMany(),
-      prisma.stockAdjustment.findMany(),
-      prisma.stockOpnameSession.findMany({ include: { items: true } }),
-      prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 500 }),
+    ]);
+
+    const [categories, warehouses, products, productRequests] = await Promise.all([
+      prisma.category.findMany({ where: { roomId: user.roomId } }),
+      prisma.warehouse.findMany({ where: { roomId: user.roomId } }),
+      prisma.product.findMany({
+        where: { roomId: user.roomId },
+        include: { variants: { include: { ingredients: true } } },
+      }),
+      prisma.productRequest.findMany({ where: { roomId: user.roomId } }),
+    ]);
+
+    const [purchases, sales, amendments, shiftClosings] = await Promise.all([
+      prisma.purchase.findMany({
+        where: { roomId: user.roomId },
+        include: { items: true },
+      }),
+      prisma.sale.findMany({
+        where: { roomId: user.roomId },
+        include: { items: true },
+      }),
+      prisma.saleAmendment.findMany({ where: { roomId: user.roomId } }),
+      prisma.shiftClosing.findMany({
+        where: { roomId: user.roomId },
+        select: {
+          id: true,
+          cashierId: true,
+          shiftDate: true,
+          systemTxCount: true,
+          systemCashTotal: true,
+          systemQrisTotal: true,
+          systemTransferTotal: true,
+          systemCardTotal: true,
+          systemGrandTotal: true,
+          actualCashTotal: true,
+          actualDigitalTotal: true,
+          notes: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const [stockAdjustments, opnameSessions, auditLogs] = await Promise.all([
+      prisma.stockAdjustment.findMany({ where: { roomId: user.roomId } }),
+      prisma.stockOpnameSession.findMany({
+        where: { roomId: user.roomId },
+        include: { items: true },
+      }),
+      prisma.auditLog.findMany({
+        where: { roomId: user.roomId },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      }),
     ]);
 
     const now = new Date();
-    await prisma.systemSetting.updateMany({
-      where: { id: "default" },
+    await prisma.room.update({
+      where: { id: user.roomId },
       data: { lastBackupAt: now },
     });
 
     await recordAuditLog({
+      roomId: user.roomId,
       actorId: user.id,
       actorName: user.name,
       actorRole: user.role,
       actionType: "PENGATURAN",
-      actionSummary: "Melakukan pencadangan data manual (Manual Data Backup)",
+      actionSummary: "Melakukan pencadangan data ruangan manual (Manual Data Backup)",
       entityType: "Backup",
       approvalState: "TERCATAT",
       linkUrl: "/pengaturan",
     });
 
     return NextResponse.json({
-      backupVersion: "1.0.0",
+      backupVersion: "2.0.0",
       exportedAt: now.toISOString(),
       exportedBy: { id: user.id, name: user.name, role: user.role },
+      room,
       data: {
-        settings,
         users,
         rolePermissions,
         units,
         categories,
         warehouses,
         products,
-        variants,
-        ingredients,
+        productRequests,
         purchases,
         sales,
         amendments,
@@ -104,4 +133,3 @@ export async function GET() {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

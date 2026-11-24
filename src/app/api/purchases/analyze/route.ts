@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
+import { requireAssignedUser } from "@/lib/auth";
 import {
   analyzePurchaseReceiptWithGemini,
   computeReceiptHash,
@@ -8,10 +8,8 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
 
     const body = await request.json();
     const invoiceNumber = String(body.invoiceNumber || "DRAFT-NOTA").trim();
@@ -31,6 +29,7 @@ export async function POST(request: Request) {
     const receiptHash = computeReceiptHash(receiptImageData);
     const duplicate = await prisma.purchase.findFirst({
       where: {
+        roomId: auth.user.roomId,
         id: body.purchaseId ? { not: String(body.purchaseId) } : undefined,
         OR: [{ invoiceNumber }, { receiptHash }],
       },

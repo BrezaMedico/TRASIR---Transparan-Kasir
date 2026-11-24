@@ -7,12 +7,9 @@ import {
   SquaresFour,
   Storefront,
   Receipt,
-  FileText,
   Package,
-  ClipboardText,
   ChartBar,
   BellRinging,
-  GearSix,
   SignOut,
   List,
   X,
@@ -23,8 +20,10 @@ import {
   CheckCircle,
   WarningCircle,
   ShieldCheck,
+  UsersThree,
 } from "@phosphor-icons/react";
-import type { ModuleKey, PermissionRow, UserRole } from "@/lib/rbac";
+import { isStoreAdmin, type ModuleKey, type PermissionRow, type UserRole } from "@/lib/rbac-shared";
+import { clearAllClientCache } from "@/lib/client-cache";
 
 interface ToastMessage {
   id: string;
@@ -93,6 +92,8 @@ export interface SessionState {
     email: string;
     name: string;
     role: UserRole;
+    isAssigned: boolean;
+    roomId?: string | null;
   };
   permissions: Record<ModuleKey, PermissionRow>;
   unreadNotifications: number;
@@ -100,118 +101,94 @@ export interface SessionState {
   toleranceThresholdRp: number;
 }
 
-const NAV_ITEMS: {
-  key: ModuleKey;
+interface WorkspaceContextValue {
+  session: SessionState;
+  refreshSession: () => Promise<void>;
+}
+
+const WorkspaceSessionContext = createContext<WorkspaceContextValue | null>(null);
+
+export function useWorkspaceSession() {
+  return useContext(WorkspaceSessionContext);
+}
+
+interface NavEntry {
+  key: ModuleKey | "pengguna";
   label: string;
   shortLabel: string;
   href: string;
+  adminOnly?: boolean;
   icon: React.ComponentType<{ size?: number; weight?: "regular" | "duotone" | "fill" | "bold" }>;
-}[] = [
-  { key: "dashboard", label: "Dashboard", shortLabel: "Dashboard", href: "/dashboard", icon: SquaresFour },
+}
+
+const NAV_ITEMS: NavEntry[] = [
+  { key: "dashboard", label: "Dashboard & Keuntungan", shortLabel: "Dashboard", href: "/dashboard", icon: SquaresFour },
   { key: "kasir", label: "Kasir (POS)", shortLabel: "Kasir", href: "/kasir", icon: Storefront },
-  { key: "penjualan", label: "Penjualan & Tutup Shift", shortLabel: "Penjualan", href: "/penjualan", icon: Receipt },
-  { key: "pembelian", label: "Pembelian & Validasi Nota AI", shortLabel: "Pembelian", href: "/pembelian", icon: FileText },
-  { key: "produk", label: "Produk & Resep", shortLabel: "Produk", href: "/produk", icon: Package },
-  { key: "inventaris", label: "Inventaris & Audit Stok", shortLabel: "Inventaris", href: "/inventaris", icon: ClipboardText },
+  { key: "produk", label: "Produk & Stok", shortLabel: "Produk", href: "/produk", icon: Package },
+  { key: "penjualan", label: "Riwayat Transaksi", shortLabel: "Transaksi", href: "/penjualan", icon: Receipt },
   { key: "laporan", label: "Laporan Keuangan", shortLabel: "Laporan", href: "/laporan", icon: ChartBar },
-  { key: "aktivitas", label: "Notifikasi & Log Aktivitas", shortLabel: "Aktivitas", href: "/aktivitas", icon: BellRinging },
-  { key: "pengaturan", label: "Pengaturan Sistem", shortLabel: "Pengaturan", href: "/pengaturan", icon: GearSix },
+  { key: "pengguna", label: "Tim & Undangan", shortLabel: "Tim", href: "/pengguna", adminOnly: true, icon: UsersThree },
+  { key: "aktivitas", label: "Notifikasi & Aktivitas", shortLabel: "Aktivitas", href: "/aktivitas", icon: BellRinging },
 ];
 
-export function AppShell({
+const ROLE_BADGE_LABEL: Record<UserRole, string> = {
+  PEMILIK: "Pemilik Ruangan",
+  MANAJER: "Manajer",
+  KASIR: "Kasir",
+  GUDANG: "Bagian Gudang",
+  KASIR_GUDANG: "Kasir + Gudang",
+};
+
+function ShellFrame({
+  session,
+  collapsed,
+  setCollapsed,
+  mobileMenuOpen,
+  setMobileMenuOpen,
+  isOnline,
+  handleLogout,
   children,
-  defaultCollapsed = false,
 }: {
-  children: (session: SessionState, refreshSession: () => Promise<void>) => React.ReactNode;
-  defaultCollapsed?: boolean;
+  session: SessionState;
+  collapsed: boolean;
+  setCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
+  mobileMenuOpen: boolean;
+  setMobileMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  isOnline: boolean;
+  handleLogout: () => Promise<void>;
+  children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { showToast } = useToast();
-
-  const [session, setSession] = useState<SessionState | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
-
-  const fetchSession = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/me", { cache: "no-store" });
-      const data = await res.json();
-      if (!data.authenticated) {
-        router.replace("/login");
-        return;
-      }
-      setSession({
-        user: data.user,
-        permissions: data.permissions,
-        unreadNotifications: data.unreadNotifications ?? 0,
-        storeName: data.storeName ?? "TRASIR Toko Utama",
-        toleranceThresholdRp: data.toleranceThresholdRp ?? 50000,
-      });
-    } catch {
-      setIsOnline(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
-    fetchSession();
-  }, [fetchSession]);
-
-  useEffect(() => {
-    if (pathname === "/kasir" || pathname?.startsWith("/pembelian/")) {
-      setCollapsed(true);
-    }
+    setPendingHref(null);
   }, [pathname]);
 
-  useEffect(() => {
-    setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    return () => {
-      window.removeEventListener("online", onOnline);
-      window.removeEventListener("offline", onOffline);
-    };
-  }, []);
-
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    showToast("Anda telah keluar dari sesi TRASIR.", "info");
-    router.replace("/login");
+  const onLogoutClick = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await handleLogout();
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#F5F5F5] flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 max-w-sm w-full text-center space-y-3 shadow-sm">
-          <div className="w-12 h-12 rounded-2xl bg-[#334E6B] text-white flex items-center justify-center mx-auto font-bold text-lg">
-            TR
-          </div>
-          <p className="text-sm font-bold text-slate-900">Memuat Ruang Kerja TRASIR...</p>
-          <p className="text-xs text-slate-600">Memverifikasi sesi dan matriks hak akses (RBAC)</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!session) return null;
+  const handleNavClick = (href: string) => {
+    if (href && href !== pathname) {
+      setPendingHref(href);
+    }
+  };
 
   const visibleNavItems = NAV_ITEMS.filter((item) => {
-    const perm = session.permissions[item.key];
+    if (item.adminOnly) {
+      return isStoreAdmin(session.user.role);
+    }
+    const perm = session.permissions[item.key as ModuleKey];
     return perm?.canView;
   });
-
-  const roleBadgeLabel: Record<UserRole, string> = {
-    PEMILIK: "Pemilik Toko",
-    MANAJER: "Manajer / Pengawas",
-    KASIR: "Kasir",
-    GUDANG: "Bagian Gudang",
-  };
 
   return (
     <div className="min-h-screen bg-[#F5F5F5] text-slate-900 flex flex-col">
@@ -228,7 +205,7 @@ export function AppShell({
       )}
 
       <div className="flex-1 flex">
-        {/* Desktop & Tablet Collapsible Sidebar */}
+        {/* Desktop & Tablet Collapsible Sidebar (tetap terpasang saat berpindah halaman) */}
         <aside
           aria-label="Navigasi Utama"
           className={`hidden md:flex flex-col bg-white border-r border-slate-200 transition-all duration-200 shrink-0 sticky top-0 h-screen ${
@@ -238,6 +215,8 @@ export function AppShell({
           <div className="h-16 px-4 border-b border-slate-200 flex items-center justify-between">
             <Link
               href={visibleNavItems[0]?.href || "/dashboard"}
+              prefetch={false}
+              onClick={() => handleNavClick(visibleNavItems[0]?.href || "/dashboard")}
               className="flex items-center gap-3 overflow-hidden"
             >
               <div className="w-10 h-10 rounded-xl bg-[#334E6B] text-white flex items-center justify-center shrink-0 font-extrabold text-sm tracking-tight shadow-sm">
@@ -281,25 +260,33 @@ export function AppShell({
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname?.startsWith(item.href));
+              const isPending = pendingHref === item.href && !isActive;
 
               return (
                 <Link
                   key={item.key}
                   href={item.href}
+                  prefetch={false}
+                  onClick={() => handleNavClick(item.href)}
                   title={collapsed ? item.label : undefined}
                   aria-current={isActive ? "page" : undefined}
-                  className={`relative flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold transition-colors ${
+                  className={`relative flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ${
                     isActive
                       ? "bg-[#334E6B] text-white shadow-sm"
+                      : isPending
+                      ? "bg-slate-100 text-[#334E6B]"
                       : "text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                   } ${collapsed ? "justify-center" : ""}`}
                 >
-                  <Icon
-                    size={20}
-                    weight={isActive ? "fill" : "duotone"}
-                  />
+                  <Icon size={20} weight={isActive ? "fill" : "duotone"} />
                   {!collapsed && <span className="truncate flex-1">{item.label}</span>}
-                  {item.key === "aktivitas" && session.unreadNotifications > 0 && (
+                  {isPending && (
+                    <span
+                      className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-[#334E6B]/25 border-t-[#2563EB] animate-spin"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {!isPending && item.key === "aktivitas" && session.unreadNotifications > 0 && (
                     <span
                       className={`px-1.5 py-0.5 text-[11px] font-bold rounded-full ${
                         isActive
@@ -320,20 +307,28 @@ export function AppShell({
               <div className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
                 <p className="text-xs font-bold text-slate-900 truncate">{session.user.name}</p>
                 <p className="text-[11px] font-semibold text-[#334E6B] mt-0.5">
-                  {roleBadgeLabel[session.user.role]}
+                  {ROLE_BADGE_LABEL[session.user.role]}
                 </p>
               </div>
             )}
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={onLogoutClick}
+              disabled={loggingOut}
               title={collapsed ? "Keluar (Logout)" : undefined}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold text-[#9F1239] hover:bg-[#FFF1F2] transition-colors cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold text-[#9F1239] hover:bg-[#FFF1F2] disabled:opacity-60 transition-colors cursor-pointer ${
                 collapsed ? "justify-center" : ""
               }`}
             >
-              <SignOut size={20} weight="bold" aria-hidden="true" />
-              {!collapsed && <span>Keluar Sesi</span>}
+              {loggingOut ? (
+                <span
+                  className="inline-block h-4 w-4 rounded-full border-2 border-[#9F1239]/25 border-t-[#9F1239] animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <SignOut size={20} weight="bold" aria-hidden="true" />
+              )}
+              {!collapsed && <span>{loggingOut ? "Keluar..." : "Keluar Sesi"}</span>}
             </button>
           </div>
         </aside>
@@ -362,7 +357,6 @@ export function AppShell({
             </div>
 
             <div className="flex items-center gap-2.5 md:gap-3">
-              {/* Real-Time Online Connection Indicator */}
               <div
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border ${
                   isOnline
@@ -383,9 +377,9 @@ export function AppShell({
                 )}
               </div>
 
-              {/* Notification Bell */}
               <Link
                 href="/aktivitas"
+                prefetch={false}
                 aria-label={`Notifikasi (${session.unreadNotifications} belum dibaca)`}
                 className="relative min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
               >
@@ -397,9 +391,9 @@ export function AppShell({
                 )}
               </Link>
 
-              {/* Active User Profile Badge */}
               <Link
                 href="/pengaturan"
+                prefetch={false}
                 className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 min-h-[44px] rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
               >
                 <div className="w-8 h-8 rounded-lg bg-[#334E6B] text-white flex items-center justify-center text-xs font-bold">
@@ -410,7 +404,7 @@ export function AppShell({
                     {session.user.name}
                   </p>
                   <p className="text-[11px] font-semibold text-[#334E6B] mt-0.5">
-                    {roleBadgeLabel[session.user.role]}
+                    {ROLE_BADGE_LABEL[session.user.role]}
                   </p>
                 </div>
               </Link>
@@ -419,7 +413,7 @@ export function AppShell({
 
           {/* Main Workspace Area */}
           <main className="flex-1 p-4 md:p-6 max-w-[1600px] w-full mx-auto">
-            {children(session, fetchSession)}
+            {children}
           </main>
         </div>
       </div>
@@ -440,7 +434,7 @@ export function AppShell({
                 </div>
                 <div>
                   <p className="text-sm font-extrabold text-[#334E6B]">TRASIR</p>
-                  <p className="text-xs text-slate-600">{roleBadgeLabel[session.user.role]}</p>
+                  <p className="text-xs text-slate-600">{ROLE_BADGE_LABEL[session.user.role]}</p>
                 </div>
               </div>
               <button
@@ -456,19 +450,32 @@ export function AppShell({
               {visibleNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href;
+                const isPending = pendingHref === item.href && !isActive;
                 return (
                   <Link
                     key={item.key}
                     href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center gap-3 px-3.5 py-3 min-h-[44px] rounded-xl text-sm font-semibold ${
+                    prefetch={false}
+                    onClick={() => {
+                      handleNavClick(item.href);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`flex items-center gap-3 px-3.5 py-3 min-h-[44px] rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ${
                       isActive
                         ? "bg-[#334E6B] text-white"
+                        : isPending
+                        ? "bg-slate-100 text-[#334E6B]"
                         : "text-slate-700 hover:bg-slate-100"
                     }`}
                   >
                     <Icon size={20} weight={isActive ? "fill" : "duotone"} />
                     <span className="flex-1">{item.label}</span>
+                    {isPending && (
+                      <span
+                        className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-[#334E6B]/25 border-t-[#2563EB] animate-spin"
+                        aria-hidden="true"
+                      />
+                    )}
                   </Link>
                 );
               })}
@@ -476,11 +483,19 @@ export function AppShell({
             <div className="p-3 border-t border-slate-200">
               <button
                 type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#FFF1F2] text-[#9F1239] text-sm font-bold cursor-pointer"
+                onClick={onLogoutClick}
+                disabled={loggingOut}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#FFF1F2] text-[#9F1239] text-sm font-bold disabled:opacity-60 cursor-pointer"
               >
-                <SignOut size={18} weight="bold" aria-hidden="true" />
-                <span>Keluar Sesi</span>
+                {loggingOut ? (
+                  <span
+                    className="inline-block h-4 w-4 rounded-full border-2 border-[#9F1239]/25 border-t-[#9F1239] animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <SignOut size={18} weight="bold" aria-hidden="true" />
+                )}
+                <span>{loggingOut ? "Keluar..." : "Keluar Sesi"}</span>
               </button>
             </div>
           </div>
@@ -496,12 +511,19 @@ export function AppShell({
         {visibleNavItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;
+          const isPending = pendingHref === item.href && !isActive;
           return (
             <Link
               key={item.key}
               href={item.href}
-              className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] px-2 py-1 rounded-xl text-[11px] font-semibold ${
-                isActive ? "text-[#334E6B] font-bold" : "text-slate-600"
+              prefetch={false}
+              onClick={() => handleNavClick(item.href)}
+              className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] px-2 py-1 rounded-xl text-[11px] font-semibold transition-all active:scale-95 ${
+                isActive
+                  ? "text-[#334E6B] font-bold"
+                  : isPending
+                  ? "text-[#2563EB] bg-blue-50/70"
+                  : "text-slate-600"
               }`}
             >
               <Icon size={20} weight={isActive ? "fill" : "duotone"} />
@@ -514,3 +536,226 @@ export function AppShell({
   );
 }
 
+/**
+ * Shell persisten untuk seluruh rute di dalam (workspace)/layout.tsx.
+ * Menerima sesi langsung dari SSR (0ms loading saat refresh) dan tetap hidup saat berpindah halaman.
+ */
+export function WorkspaceChrome({
+  initialSession,
+  children,
+}: {
+  initialSession: SessionState;
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { showToast } = useToast();
+
+  const [session, setSession] = useState<SessionState>(initialSession);
+  const [collapsed, setCollapsed] = useState<boolean>(
+    pathname === "/kasir" || Boolean(pathname?.startsWith("/pembelian/"))
+  );
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    setSession(initialSession);
+  }, [initialSession]);
+
+  useEffect(() => {
+    if (pathname === "/kasir" || pathname?.startsWith("/pembelian/")) {
+      setCollapsed(true);
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/me", { cache: "no-store" });
+      const data = await res.json();
+      if (!data.authenticated) {
+        clearAllClientCache();
+        router.replace(`/login?redirect=${encodeURIComponent(pathname || "/dashboard")}`);
+        return;
+      }
+      if (data.user && data.user.isAssigned === false) {
+        clearAllClientCache();
+        if (isStoreAdmin(data.user.role) && data.needsInitialSetup) {
+          router.replace("/setup");
+        } else {
+          router.replace("/menunggu-undangan");
+        }
+        return;
+      }
+      setSession({
+        user: data.user,
+        permissions: data.permissions,
+        unreadNotifications: data.unreadNotifications ?? 0,
+        storeName: data.storeName ?? "TRASIR Toko Utama",
+        toleranceThresholdRp: data.toleranceThresholdRp ?? 50000,
+      });
+    } catch {
+      setIsOnline(false);
+    }
+  }, [router, pathname]);
+
+  const handleLogout = useCallback(async () => {
+    clearAllClientCache();
+    await fetch("/api/auth/logout", { method: "POST" });
+    showToast("Anda telah keluar dari sesi TRASIR.", "info");
+    router.replace("/login");
+  }, [router, showToast]);
+
+  return (
+    <WorkspaceSessionContext.Provider value={{ session, refreshSession }}>
+      <ShellFrame
+        session={session}
+        collapsed={collapsed}
+        setCollapsed={setCollapsed}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        isOnline={isOnline}
+        handleLogout={handleLogout}
+      >
+        {children}
+      </ShellFrame>
+    </WorkspaceSessionContext.Provider>
+  );
+}
+
+/**
+ * Wrapper kompatibel untuk halaman operasional.
+ * Saat berada di dalam WorkspaceChrome (layout SSR), langsung merender isi halaman 0ms tanpa loading screen.
+ */
+export function AppShell({
+  children,
+  defaultCollapsed = false,
+}: {
+  children: (session: SessionState, refreshSession: () => Promise<void>) => React.ReactNode;
+  defaultCollapsed?: boolean;
+}) {
+  const workspaceCtx = useContext(WorkspaceSessionContext);
+  if (workspaceCtx) {
+    return <>{children(workspaceCtx.session, workspaceCtx.refreshSession)}</>;
+  }
+
+  return <StandaloneAppShell defaultCollapsed={defaultCollapsed}>{children}</StandaloneAppShell>;
+}
+
+function StandaloneAppShell({
+  children,
+  defaultCollapsed = false,
+}: {
+  children: (session: SessionState, refreshSession: () => Promise<void>) => React.ReactNode;
+  defaultCollapsed?: boolean;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { showToast } = useToast();
+
+  const [session, setSession] = useState<SessionState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/me", { cache: "no-store" });
+      const data = await res.json();
+      if (!data.authenticated) {
+        router.replace(`/login?redirect=${encodeURIComponent(pathname || "/dashboard")}`);
+        return;
+      }
+      if (data.user && data.user.isAssigned === false) {
+        if (isStoreAdmin(data.user.role) && data.needsInitialSetup) {
+          router.replace("/setup");
+        } else {
+          router.replace("/menunggu-undangan");
+        }
+        return;
+      }
+      setSession({
+        user: data.user,
+        permissions: data.permissions,
+        unreadNotifications: data.unreadNotifications ?? 0,
+        storeName: data.storeName ?? "TRASIR Toko Utama",
+        toleranceThresholdRp: data.toleranceThresholdRp ?? 50000,
+      });
+    } catch {
+      setIsOnline(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [router, pathname]);
+
+  useEffect(() => {
+    fetchSession();
+  }, [fetchSession]);
+
+  useEffect(() => {
+    if (pathname === "/kasir" || pathname?.startsWith("/pembelian/")) {
+      setCollapsed(true);
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    setIsOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    clearAllClientCache();
+    await fetch("/api/auth/logout", { method: "POST" });
+    showToast("Anda telah keluar dari sesi TRASIR.", "info");
+    router.replace("/login");
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F5F5F5] flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 max-w-sm w-full text-center space-y-3 shadow-sm">
+          <div className="w-12 h-12 rounded-2xl bg-[#334E6B] text-white flex items-center justify-center mx-auto font-bold text-lg">
+            TR
+          </div>
+          <p className="text-sm font-bold text-slate-900">Memuat Ruang Kerja TRASIR...</p>
+          <p className="text-xs text-slate-600">Memverifikasi sesi dan matriks hak akses (RBAC)</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!session) return null;
+
+  return (
+    <ShellFrame
+      session={session}
+      collapsed={collapsed}
+      setCollapsed={setCollapsed}
+      mobileMenuOpen={mobileMenuOpen}
+      setMobileMenuOpen={setMobileMenuOpen}
+      isOnline={isOnline}
+      handleLogout={handleLogout}
+    >
+      {children(session, fetchSession)}
+    </ShellFrame>
+  );
+}

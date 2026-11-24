@@ -72,6 +72,8 @@ export function formatStatusLabel(status: string): string {
     RESEP: "Resep & Varian",
     DANA_TOKO: "Dana Kas Toko",
     BELANJA_PEMILIK: "Belanja Langsung Pemilik",
+    TERCATAT: "Tercatat",
+    KASIR_GUDANG: "Kasir + Gudang",
   };
   return map[status] || status.replace(/_/g, " ");
 }

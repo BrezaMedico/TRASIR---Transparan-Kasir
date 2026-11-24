@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
-import { checkUserPermission } from "@/lib/rbac";
+import { requireAssignedUser } from "@/lib/auth";
+import { isStoreAdmin } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
 import { z } from "zod";
 
@@ -13,15 +13,13 @@ const reviewSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
-    const canApprove = await checkUserPermission(user.role, "pembelian", "approve");
-    if (!canApprove) {
+    if (!isStoreAdmin(user.role)) {
       return NextResponse.json(
-        { error: "Hanya Pemilik (atau pejabat dengan izin persetujuan aktif) yang dapat memutuskan pengajuan pembelian." },
+        { error: "Hanya Pemilik atau Manajer yang dapat memutuskan pengajuan pembelian." },
         { status: 403 }
       );
     }
@@ -37,20 +35,26 @@ export async function POST(request: Request) {
 
     const { purchaseId, decision, ownerNotes } = parsed.data;
 
-    if ((decision === "PERLU_PERBAIKAN" || decision === "DITOLAK") && (!ownerNotes || !ownerNotes.trim())) {
+    if (
+      (decision === "PERLU_PERBAIKAN" || decision === "DITOLAK") &&
+      (!ownerNotes || !ownerNotes.trim())
+    ) {
       return NextResponse.json(
         { error: "Catatan perbaikan atau alasan penolakan wajib diisi." },
         { status: 400 }
       );
     }
 
-    const existing = await prisma.purchase.findUnique({
-      where: { id: purchaseId },
+    const existing = await prisma.purchase.findFirst({
+      where: { id: purchaseId, roomId: user.roomId },
       include: { items: true, submittedBy: true },
     });
 
     if (!existing) {
-      return NextResponse.json({ error: "Pengajuan pembelian tidak ditemukan." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Pengajuan pembelian tidak ditemukan pada ruangan ini." },
+        { status: 404 }
+      );
     }
 
     if (existing.approvalStatus === "DISETUJUI") {
@@ -60,28 +64,23 @@ export async function POST(request: Request) {
       );
     }
 
-    // Segregation of duties: non-owner cannot approve their own purchase
-    if (user.role !== "PEMILIK" && existing.submittedById === user.id) {
-      return NextResponse.json(
-        { error: "Pemisahan Wewenang: Anda tidak dapat menyetujui pengajuan pembelian yang Anda buat sendiri." },
-        { status: 403 }
-      );
-    }
-
     const updated = await prisma.$transaction(async (tx) => {
-      // Only when decision === "DISETUJUI", stock increases in Inventory (Page 7), new products register in Catalog (Page 6), and expense counts in Financial Report (Page 8)
       if (decision === "DISETUJUI") {
-        let defaultCategory = await tx.category.findFirst({ where: { areaType: "TERBUKA" } });
+        let defaultCategory = await tx.category.findFirst({
+          where: { roomId: user.roomId, areaType: "TERBUKA" },
+        });
         if (!defaultCategory) {
           defaultCategory = await tx.category.create({
-            data: { name: "Umum", areaType: "TERBUKA" },
+            data: { roomId: user.roomId, name: "Umum", areaType: "TERBUKA" },
           });
         }
 
-        let defaultWarehouse = await tx.warehouse.findFirst({ where: { isDefault: true } });
+        let defaultWarehouse = await tx.warehouse.findFirst({
+          where: { roomId: user.roomId, isDefault: true },
+        });
         if (!defaultWarehouse) {
           defaultWarehouse = await tx.warehouse.create({
-            data: { name: "Gudang Utama", isDefault: true },
+            data: { roomId: user.roomId, name: "Gudang Utama", isDefault: true },
           });
         }
 
@@ -91,7 +90,9 @@ export async function POST(request: Request) {
           const costPerSellUnit = Math.max(1, Math.round(item.unitCost / ratio));
 
           if (item.productId) {
-            const prod = await tx.product.findUnique({ where: { id: item.productId } });
+            const prod = await tx.product.findFirst({
+              where: { id: item.productId, roomId: user.roomId },
+            });
             if (prod) {
               await tx.product.update({
                 where: { id: prod.id },
@@ -119,10 +120,12 @@ export async function POST(request: Request) {
             }
           }
 
-          // New product added inline during purchase entry -> automatically register to Page 6 Catalog upon Owner approval
-          const skuCode = `PRD-${Date.now().toString().slice(-5)}-${Math.floor(Math.random() * 90 + 10)}`;
+          const skuCode = `PRD-${Date.now().toString().slice(-5)}-${Math.floor(
+            Math.random() * 90 + 10
+          )}`;
           const newProd = await tx.product.create({
             data: {
+              roomId: user.roomId,
               sku: skuCode,
               name: item.itemName,
               categoryId: defaultCategory.id,
@@ -171,6 +174,7 @@ export async function POST(request: Request) {
 
       await recordAuditLog(
         {
+          roomId: user.roomId,
           actorId: user.id,
           actorName: user.name,
           actorRole: user.role,
@@ -192,6 +196,7 @@ export async function POST(request: Request) {
 
       await createNotification(
         {
+          roomId: user.roomId,
           title: `Keputusan Pembelian #${existing.invoiceNumber}: ${decision.replace("_", " ")}`,
           message:
             decision === "DISETUJUI"
@@ -214,4 +219,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

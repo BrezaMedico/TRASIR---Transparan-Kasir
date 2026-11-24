@@ -1,211 +1,306 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
+import {
+  canViewFinancials,
+  composePermissionsMap,
+  DEFAULT_PERMISSIONS,
+  DEFAULT_ROOM_ID,
+  DEFAULT_UNITS,
+  isStoreAdmin,
+  type ModuleKey,
+  type PermissionAction,
+  type PermissionRow,
+  type UserRole,
+} from "./rbac-shared";
 
-export type UserRole = "PEMILIK" | "MANAJER" | "KASIR" | "GUDANG";
-export type ModuleKey =
-  | "dashboard"
-  | "kasir"
-  | "penjualan"
-  | "pembelian"
-  | "produk"
-  | "inventaris"
-  | "laporan"
-  | "aktivitas"
-  | "pengaturan";
-export type PermissionAction = "view" | "create" | "edit" | "approve";
+export * from "./rbac-shared";
 
-export interface PermissionRow {
-  role: UserRole;
-  module: ModuleKey;
-  canView: boolean;
-  canCreate: boolean;
-  canEdit: boolean;
-  canApprove: boolean;
+const globalForRbac = globalThis as unknown as {
+  __trasirBaselineDone?: boolean;
+  __trasirBaselinePromise?: Promise<void> | null;
+  __trasirSeededRooms?: Set<string>;
+};
+
+function getSeededRoomsSet(): Set<string> {
+  if (!globalForRbac.__trasirSeededRooms) {
+    globalForRbac.__trasirSeededRooms = new Set<string>();
+  }
+  return globalForRbac.__trasirSeededRooms;
 }
 
-export const ALL_ROLES: UserRole[] = ["PEMILIK", "MANAJER", "KASIR", "GUDANG"];
-export const ALL_MODULES: { key: ModuleKey; label: string; path: string }[] = [
-  { key: "dashboard", label: "Dashboard", path: "/dashboard" },
-  { key: "kasir", label: "Kasir (POS)", path: "/kasir" },
-  { key: "penjualan", label: "Penjualan & Tutup Shift", path: "/penjualan" },
-  { key: "pembelian", label: "Pembelian & Validasi Nota AI", path: "/pembelian" },
-  { key: "produk", label: "Produk & Resep", path: "/produk" },
-  { key: "inventaris", label: "Inventaris & Audit Stok", path: "/inventaris" },
-  { key: "laporan", label: "Laporan Keuangan", path: "/laporan" },
-  { key: "aktivitas", label: "Notifikasi & Log Aktivitas", path: "/aktivitas" },
-  { key: "pengaturan", label: "Pengaturan Sistem", path: "/pengaturan" },
-];
+/**
+ * Mengisi kategori dan gudang bawaan untuk sebuah ruangan baru agar langsung siap beroperasi.
+ */
+export async function seedRoomDefaults(
+  tx: Prisma.TransactionClient | typeof prisma,
+  roomId: string
+): Promise<void> {
+  const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const seededRooms = getSeededRoomsSet();
+  if (!isTestEnv && tx === prisma && seededRooms.has(roomId)) {
+    return;
+  }
 
-export const DEFAULT_PERMISSIONS: PermissionRow[] = [
-  // PEMILIK: Penuh di seluruh modul
-  ...ALL_MODULES.map((m) => ({
-    role: "PEMILIK" as UserRole,
-    module: m.key,
-    canView: true,
-    canCreate: true,
-    canEdit: true,
-    canApprove: true,
-  })),
-  // MANAJER: Pengawasan sesuai izin, namun canApprove = false secara default (sesuai catatan kewenangan PDF & blueprint)
-  { role: "MANAJER", module: "dashboard", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  { role: "MANAJER", module: "kasir", canView: true, canCreate: true, canEdit: false, canApprove: false },
-  { role: "MANAJER", module: "penjualan", canView: true, canCreate: true, canEdit: true, canApprove: false },
-  { role: "MANAJER", module: "pembelian", canView: true, canCreate: true, canEdit: true, canApprove: false },
-  { role: "MANAJER", module: "produk", canView: true, canCreate: true, canEdit: true, canApprove: false },
-  { role: "MANAJER", module: "inventaris", canView: true, canCreate: true, canEdit: true, canApprove: false },
-  { role: "MANAJER", module: "laporan", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  { role: "MANAJER", module: "aktivitas", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  { role: "MANAJER", module: "pengaturan", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  // KASIR: Kasir POS Penuh, Riwayat & Shift Sendiri, Lihat Katalog, Stok Opname (Izin), Notifikasi & Profil Pribadi
-  { role: "KASIR", module: "dashboard", canView: false, canCreate: false, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "kasir", canView: true, canCreate: true, canEdit: true, canApprove: false },
-  { role: "KASIR", module: "penjualan", canView: true, canCreate: true, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "pembelian", canView: false, canCreate: false, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "produk", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "inventaris", canView: true, canCreate: true, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "laporan", canView: false, canCreate: false, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "aktivitas", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  { role: "KASIR", module: "pengaturan", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  // GUDANG: Ringkasan Stok di Dashboard, Input & Perbaikan Pembelian, Lihat & Tambah Produk, Inventaris Penuh (Ajukan & Opname), Notifikasi & Profil Pribadi
-  { role: "GUDANG", module: "dashboard", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  { role: "GUDANG", module: "kasir", canView: false, canCreate: false, canEdit: false, canApprove: false },
-  { role: "GUDANG", module: "penjualan", canView: false, canCreate: false, canEdit: false, canApprove: false },
-  { role: "GUDANG", module: "pembelian", canView: true, canCreate: true, canEdit: true, canApprove: false },
-  { role: "GUDANG", module: "produk", canView: true, canCreate: true, canEdit: false, canApprove: false },
-  { role: "GUDANG", module: "inventaris", canView: true, canCreate: true, canEdit: true, canApprove: false },
-  { role: "GUDANG", module: "laporan", canView: false, canCreate: false, canEdit: false, canApprove: false },
-  { role: "GUDANG", module: "aktivitas", canView: true, canCreate: false, canEdit: false, canApprove: false },
-  { role: "GUDANG", module: "pengaturan", canView: true, canCreate: false, canEdit: false, canApprove: false },
-];
-
-export const DEFAULT_UNITS = [
-  // Berat
-  { name: "kg", label: "Kilogram (kg)", group: "BERAT" },
-  { name: "g", label: "Gram (g)", group: "BERAT" },
-  { name: "mg", label: "Miligram (mg)", group: "BERAT" },
-  { name: "ton", label: "Ton", group: "BERAT" },
-  // Volume
-  { name: "liter", label: "Liter (l)", group: "VOLUME" },
-  { name: "ml", label: "Mililiter (ml)", group: "VOLUME" },
-  // Panjang
-  { name: "meter", label: "Meter (m)", group: "PANJANG" },
-  { name: "cm", label: "Sentimeter (cm)", group: "PANJANG" },
-  // Hitungan
-  { name: "pcs", label: "Pcs / Buah", group: "HITUNGAN" },
-  { name: "dus", label: "Dus / Karton", group: "HITUNGAN" },
-  { name: "pak", label: "Pak / Pack", group: "HITUNGAN" },
-  { name: "botol", label: "Botol", group: "HITUNGAN" },
-  { name: "bungkus", label: "Bungkus", group: "HITUNGAN" },
-  { name: "sachet", label: "Sachet", group: "HITUNGAN" },
-  { name: "butir", label: "Butir", group: "HITUNGAN" },
-  { name: "ikat", label: "Ikat", group: "HITUNGAN" },
-  { name: "renteng", label: "Renteng", group: "HITUNGAN" },
-  { name: "lusin", label: "Lusin", group: "HITUNGAN" },
-  { name: "kotak", label: "Kotak", group: "HITUNGAN" },
-  { name: "kemasan", label: "Kemasan", group: "HITUNGAN" },
-  { name: "karung", label: "Karung", group: "HITUNGAN" },
-];
-
-export async function ensureSystemBaseline(): Promise<void> {
-  const [permCount, unitCount, whCount, catCount, existingSetting] = await Promise.all([
-    prisma.rolePermission.count(),
-    prisma.unit.count(),
-    prisma.warehouse.count(),
-    prisma.category.count(),
-    prisma.systemSetting.findUnique({ where: { id: "default" } }),
+  const [existingWh, existingCat] = await Promise.all([
+    tx.warehouse.findFirst({ where: { roomId }, select: { id: true } }),
+    tx.category.findFirst({ where: { roomId }, select: { id: true } }),
   ]);
 
-  const tasks: Promise<unknown>[] = [];
-
-  if (permCount === 0) {
-    tasks.push(
-      prisma.rolePermission.createMany({ data: DEFAULT_PERMISSIONS }).catch(() => undefined)
-    );
+  if (!existingWh) {
+    await tx.warehouse
+      .create({
+        data: {
+          roomId,
+          name: "Gudang & Etalase Utama",
+          location: "Area Utama",
+          isDefault: true,
+        },
+      })
+      .catch(() => undefined);
   }
 
-  if (unitCount === 0) {
-    tasks.push(
-      prisma.unit.createMany({ data: DEFAULT_UNITS }).catch(() => undefined)
-    );
-  }
-
-  if (whCount === 0) {
-    tasks.push(
-      prisma.warehouse
-        .create({
-          data: {
-            name: "Gudang & Etalase Utama",
-            location: "Toko Utama",
-            isDefault: true,
+  if (!existingCat) {
+    await tx.category
+      .createMany({
+        data: [
+          {
+            roomId,
+            name: "Area Etalase Pelanggan",
+            areaType: "TERBUKA",
+            description: "Barang yang dapat diakses langsung oleh pelanggan.",
           },
-        })
-        .catch(() => undefined)
-    );
-  }
-
-  if (catCount === 0) {
-    tasks.push(
-      prisma.category
-        .createMany({
-          data: [
-            {
-              name: "Area Etalase Pelanggan",
-              areaType: "TERBUKA",
-              description: "Barang yang dapat diakses langsung oleh pelanggan.",
-            },
-            {
-              name: "Gudang & Bahan Baku Dapur",
-              areaType: "TERTUTUP",
-              description: "Barang dan bahan baku yang hanya dapat diakses oleh pegawai.",
-            },
-          ],
-        })
-        .catch(() => undefined)
-    );
-  }
-
-  if (!existingSetting) {
-    tasks.push(
-      prisma.systemSetting
-        .upsert({
-          where: { id: "default" },
-          update: {},
-          create: {
-            id: "default",
-            storeName: "TRASIR Toko Utama",
-            storeAddress: "Indonesia",
-            toleranceThresholdRp: 50000,
-            opnameSchedule: "MINGGUAN",
+          {
+            roomId,
+            name: "Gudang & Bahan Baku Dapur",
+            areaType: "TERTUTUP",
+            description: "Barang dan bahan baku yang hanya dapat diakses oleh pegawai.",
           },
-        })
-        .catch(() => undefined)
-    );
+        ],
+      })
+      .catch(() => undefined);
   }
 
-  if (tasks.length > 0) {
-    await Promise.all(tasks);
+  if (!isTestEnv && tx === prisma) {
+    seededRooms.add(roomId);
   }
 }
 
-export async function getRolePermissionsMap(role: UserRole): Promise<Record<ModuleKey, PermissionRow>> {
+export function resetBaselineCache(): void {
+  globalForRbac.__trasirBaselineDone = false;
+  globalForRbac.__trasirBaselinePromise = null;
+  globalForRbac.__trasirSeededRooms?.clear();
+}
+
+export async function ensureSystemBaseline(): Promise<void> {
+  const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  if (!isTestEnv && globalForRbac.__trasirBaselineDone) {
+    return;
+  }
+  if (!isTestEnv && globalForRbac.__trasirBaselinePromise) {
+    return globalForRbac.__trasirBaselinePromise;
+  }
+
+  const run = async () => {
+    // Batch ringan (maks 2 query paralel) agar aman terhadap pool koneksi PgBouncer
+    const [permRows, existingRoom] = await Promise.all([
+      prisma.rolePermission.findMany({
+        select: {
+          role: true,
+          module: true,
+          canView: true,
+          canCreate: true,
+          canEdit: true,
+          canApprove: true,
+        },
+      }),
+      prisma.room.findFirst({ select: { id: true } }),
+    ]);
+
+    const [existingUnit, existingSetting] = await Promise.all([
+      prisma.unit.findFirst({ select: { id: true } }),
+      prisma.systemSetting.findUnique({ where: { id: "default" } }),
+    ]);
+
+    const [legacyAssignedUser, legacyProduct, legacyCategory] = await Promise.all([
+      prisma.user.findFirst({ where: { isAssigned: true, roomId: null }, select: { id: true } }),
+      prisma.product.findFirst({ where: { roomId: null }, select: { id: true } }),
+      prisma.category.findFirst({ where: { roomId: null }, select: { id: true } }),
+    ]);
+
+    const existingKeys = new Set(permRows.map((p) => `${p.role}::${p.module}`));
+    const missingPerms = DEFAULT_PERMISSIONS.filter(
+      (d) => !existingKeys.has(`${d.role}::${d.module}`)
+    );
+    const managerNeedsSync = permRows.some(
+      (p) =>
+        p.role === "MANAJER" &&
+        (!p.canView || !p.canCreate || !p.canEdit || !p.canApprove)
+    );
+    const kasirProductRow = permRows.find(
+      (p) => p.role === "KASIR" && p.module === "produk"
+    );
+    const kasirNeedsSync = Boolean(kasirProductRow && !kasirProductRow.canCreate);
+
+    const tasks: Promise<unknown>[] = [];
+
+    if (missingPerms.length > 0) {
+      tasks.push(
+        prisma.rolePermission.createMany({ data: missingPerms }).catch(() => undefined)
+      );
+    }
+
+    if (managerNeedsSync) {
+      tasks.push(
+        prisma.rolePermission
+          .updateMany({
+            where: {
+              role: "MANAJER",
+              OR: [
+                { canView: false },
+                { canCreate: false },
+                { canEdit: false },
+                { canApprove: false },
+              ],
+            },
+            data: {
+              canView: true,
+              canCreate: true,
+              canEdit: true,
+              canApprove: true,
+            },
+          })
+          .catch(() => undefined)
+      );
+    }
+
+    if (kasirNeedsSync) {
+      tasks.push(
+        prisma.rolePermission
+          .updateMany({
+            where: { role: "KASIR", module: "produk", canCreate: false },
+            data: { canCreate: true },
+          })
+          .catch(() => undefined)
+      );
+    }
+
+    if (!existingUnit) {
+      tasks.push(prisma.unit.createMany({ data: DEFAULT_UNITS }).catch(() => undefined));
+    }
+
+    if (!existingSetting) {
+      tasks.push(
+        prisma.systemSetting
+          .upsert({
+            where: { id: "default" },
+            update: {},
+            create: {
+              id: "default",
+              storeName: "TRASIR Toko Utama",
+              storeAddress: "Indonesia",
+              toleranceThresholdRp: 50000,
+              opnameSchedule: "MINGGUAN",
+            },
+          })
+          .catch(() => undefined)
+      );
+    }
+
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
+    }
+
+    // Migrasi aman data lama (sebelum sistem multi-ruangan) agar seluruh pengguna & transaksi historis tetap terjaga
+    const hasLegacyData = Boolean(legacyAssignedUser || legacyProduct || legacyCategory);
+    const needsDefaultRoom = hasLegacyData || !existingRoom;
+
+    if (needsDefaultRoom) {
+      const settingNow =
+        existingSetting || (await prisma.systemSetting.findUnique({ where: { id: "default" } }));
+      const defaultRoom = await prisma.room.upsert({
+        where: { id: DEFAULT_ROOM_ID },
+        update: {},
+        create: {
+          id: DEFAULT_ROOM_ID,
+          name: settingNow?.storeName || "TRASIR Toko Utama",
+          address: settingNow?.storeAddress || "Indonesia",
+          toleranceThresholdRp: settingNow?.toleranceThresholdRp ?? 50000,
+          opnameSchedule: settingNow?.opnameSchedule ?? "MINGGUAN",
+          openAreaPolicy:
+            settingNow?.openAreaPolicy ??
+            "Evaluasi faktor eksternal (pelanggan/kerusakan fisik) sebelum tindak lanjut internal.",
+          closedAreaPolicy:
+            settingNow?.closedAreaPolicy ??
+            "Evaluasi ketat berbasis log akses pegawai, bukti foto, dan kronologi shift.",
+          autoBackupInterval: settingNow?.autoBackupInterval ?? "HARIAN",
+          lastBackupAt: settingNow?.lastBackupAt ?? null,
+        },
+      });
+
+      if (hasLegacyData) {
+        const roomData = { roomId: defaultRoom.id };
+        await prisma.user.updateMany({ where: { isAssigned: true, roomId: null }, data: roomData });
+        await prisma.category.updateMany({ where: { roomId: null }, data: roomData });
+        await prisma.warehouse.updateMany({ where: { roomId: null }, data: roomData });
+        await prisma.product.updateMany({ where: { roomId: null }, data: roomData });
+        await Promise.all([
+          prisma.purchase.updateMany({ where: { roomId: null }, data: roomData }),
+          prisma.sale.updateMany({ where: { roomId: null }, data: roomData }),
+          prisma.saleAmendment.updateMany({ where: { roomId: null }, data: roomData }),
+          prisma.shiftClosing.updateMany({ where: { roomId: null }, data: roomData }),
+        ]);
+        await Promise.all([
+          prisma.stockAdjustment.updateMany({ where: { roomId: null }, data: roomData }),
+          prisma.stockOpnameSession.updateMany({ where: { roomId: null }, data: roomData }),
+          prisma.storeInvitation.updateMany({ where: { roomId: null }, data: roomData }),
+          prisma.notification.updateMany({ where: { roomId: null }, data: roomData }),
+          prisma.auditLog.updateMany({ where: { roomId: null }, data: roomData }),
+        ]);
+      }
+
+      await seedRoomDefaults(prisma, defaultRoom.id);
+    }
+
+    if (!isTestEnv) {
+      globalForRbac.__trasirBaselineDone = true;
+    }
+  };
+
+  if (isTestEnv) {
+    await run();
+    return;
+  }
+
+  const promise = run()
+    .catch((err) => {
+      globalForRbac.__trasirBaselineDone = false;
+      globalForRbac.__trasirBaselinePromise = null;
+      throw err;
+    })
+    .finally(() => {
+      if (globalForRbac.__trasirBaselineDone) {
+        globalForRbac.__trasirBaselinePromise = null;
+      }
+    });
+
+  globalForRbac.__trasirBaselinePromise = promise;
+  return promise;
+}
+
+export async function getRolePermissionsMap(
+  role: UserRole
+): Promise<Record<ModuleKey, PermissionRow>> {
   await ensureSystemBaseline();
+  if (isStoreAdmin(role)) {
+    return composePermissionsMap(role, []);
+  }
+
+  const targetRoles = role === "KASIR_GUDANG" ? ["KASIR", "GUDANG", "KASIR_GUDANG"] : [role];
   const rows = await prisma.rolePermission.findMany({
-    where: { role },
+    where: { role: { in: targetRoles } },
   });
 
-  const map = {} as Record<ModuleKey, PermissionRow>;
-  for (const mod of ALL_MODULES) {
-    const found = rows.find((r) => r.module === mod.key);
-    const fallback = DEFAULT_PERMISSIONS.find((d) => d.role === role && d.module === mod.key)!;
-    map[mod.key] = {
-      role,
-      module: mod.key,
-      canView: role === "PEMILIK" ? true : (found?.canView ?? fallback.canView),
-      canCreate: role === "PEMILIK" ? true : (found?.canCreate ?? fallback.canCreate),
-      canEdit: role === "PEMILIK" ? true : (found?.canEdit ?? fallback.canEdit),
-      canApprove: role === "PEMILIK" ? true : (found?.canApprove ?? fallback.canApprove),
-    };
-  }
-  return map;
+  return composePermissionsMap(role, rows);
 }
 
 export async function checkUserPermission(
@@ -213,7 +308,10 @@ export async function checkUserPermission(
   moduleKey: ModuleKey,
   action: PermissionAction
 ): Promise<boolean> {
-  if (role === "PEMILIK") return true;
+  if (isStoreAdmin(role)) return true;
+  if ((moduleKey === "dashboard" || moduleKey === "laporan") && !canViewFinancials(role)) {
+    return false;
+  }
   const map = await getRolePermissionsMap(role as UserRole);
   const perm = map[moduleKey];
   if (!perm) return false;
@@ -223,18 +321,3 @@ export async function checkUserPermission(
   if (action === "approve") return perm.canApprove;
   return false;
 }
-
-export function getDefaultRedirectForRole(role: string): string {
-  switch (role) {
-    case "PEMILIK":
-    case "MANAJER":
-      return "/dashboard";
-    case "KASIR":
-      return "/kasir";
-    case "GUDANG":
-      return "/pembelian";
-    default:
-      return "/dashboard";
-  }
-}
-

@@ -1,23 +1,32 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser, hashPassword, verifyPassword } from "@/lib/auth";
-import { ensureSystemBaseline } from "@/lib/rbac";
+import { requireAssignedUser, hashPassword, verifyPassword } from "@/lib/auth";
+import {
+  DEFAULT_ROOM_ID,
+  ensureSystemBaseline,
+  hasMinimumRemainingOwners,
+  isStoreAdmin,
+  seedRoomDefaults,
+  validateRoleManagementAction,
+  validateUsername,
+} from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
 import { z } from "zod";
 
 export async function GET() {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     await ensureSystemBaseline();
-    const isOwner = user.role === "PEMILIK";
+    await seedRoomDefaults(prisma, user.roomId);
+    const isOwner = isStoreAdmin(user.role);
 
-    const [users, rolePermissions, settings, units, categories, warehouses] = await Promise.all([
+    const [users, rolePermissions, room] = await Promise.all([
       isOwner
         ? prisma.user.findMany({
+            where: { roomId: user.roomId, isAssigned: true },
             select: {
               id: true,
               username: true,
@@ -46,11 +55,28 @@ export async function GET() {
       prisma.rolePermission.findMany({
         orderBy: [{ role: "asc" }, { module: "asc" }],
       }),
-      prisma.systemSetting.findUnique({ where: { id: "default" } }),
-      prisma.unit.findMany({ orderBy: [{ group: "asc" }, { name: "asc" }] }),
-      prisma.category.findMany({ orderBy: { name: "asc" } }),
-      prisma.warehouse.findMany({ orderBy: { name: "asc" } }),
+      prisma.room.findUnique({ where: { id: user.roomId } }),
     ]);
+
+    const [units, categories, warehouses] = await Promise.all([
+      prisma.unit.findMany({ orderBy: [{ group: "asc" }, { name: "asc" }] }),
+      prisma.category.findMany({ where: { roomId: user.roomId }, orderBy: { name: "asc" } }),
+      prisma.warehouse.findMany({ where: { roomId: user.roomId }, orderBy: { name: "asc" } }),
+    ]);
+
+    const settings = room
+      ? {
+          id: room.id,
+          storeName: room.name,
+          storeAddress: room.address,
+          toleranceThresholdRp: room.toleranceThresholdRp,
+          opnameSchedule: room.opnameSchedule,
+          openAreaPolicy: room.openAreaPolicy,
+          closedAreaPolicy: room.closedAreaPolicy,
+          autoBackupInterval: room.autoBackupInterval,
+          lastBackupAt: room.lastBackupAt,
+        }
+      : null;
 
     return NextResponse.json({
       users,
@@ -69,29 +95,28 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const body = await request.json();
-    const isOwner = user.role === "PEMILIK";
+    const isOwner = isStoreAdmin(user.role);
 
-    // 1. CREATE STAFF USER (Owner Only)
+    // 1. CREATE STAFF USER (Pemilik / Manajer — dengan perlindungan role Pemilik)
     if (body.action === "CREATE_USER") {
       if (!isOwner) {
         return NextResponse.json(
-          { error: "Hanya Pemilik yang dapat menambahkan akun pegawai baru." },
+          { error: "Hanya Pemilik atau Manajer yang dapat menambahkan akun pegawai baru." },
           { status: 403 }
         );
       }
 
       const schema = z.object({
-        name: z.string().min(2),
-        username: z.string().min(3),
-        email: z.string().email(),
-        password: z.string().min(6),
-        role: z.enum(["PEMILIK", "MANAJER", "KASIR", "GUDANG"]),
+        name: z.string().trim().min(2, "Nama minimal 2 karakter"),
+        username: z.string().min(3, "Username minimal 3 karakter"),
+        email: z.string().trim().email("Format email tidak valid"),
+        password: z.string().min(6, "Kata sandi minimal 6 karakter"),
+        role: z.enum(["PEMILIK", "MANAJER", "KASIR", "GUDANG", "KASIR_GUDANG"]),
       });
       const parsed = schema.safeParse(body);
       if (!parsed.success) {
@@ -101,15 +126,31 @@ export async function POST(request: Request) {
         );
       }
 
+      const guard = validateRoleManagementAction({
+        actorRole: user.role,
+        targetNextRole: parsed.data.role,
+        action: "CREATE_USER",
+      });
+      if (!guard.allowed) {
+        return NextResponse.json({ error: guard.error }, { status: guard.status ?? 403 });
+      }
+
+      const unameCheck = validateUsername(parsed.data.username);
+      if (!unameCheck.valid) {
+        return NextResponse.json({ error: unameCheck.error }, { status: 400 });
+      }
+
       const passwordHash = await hashPassword(parsed.data.password);
       const created = await prisma.user.create({
         data: {
           name: parsed.data.name.trim(),
-          username: parsed.data.username.trim().toLowerCase(),
+          username: unameCheck.normalized,
           email: parsed.data.email.trim().toLowerCase(),
           passwordHash,
           role: parsed.data.role,
           isActive: true,
+          isAssigned: true,
+          roomId: user.roomId,
         },
         select: {
           id: true,
@@ -123,6 +164,7 @@ export async function POST(request: Request) {
       });
 
       await recordAuditLog({
+        roomId: user.roomId,
         actorId: user.id,
         actorName: user.name,
         actorRole: user.role,
@@ -138,23 +180,72 @@ export async function POST(request: Request) {
       return NextResponse.json({ user: created });
     }
 
-    // 2. TOGGLE USER ACTIVE OR UPDATE ROLE (Owner Only)
+    // 2. TOGGLE USER ACTIVE OR UPDATE ROLE (dengan proteksi akun Pemilik & anti-lockout Pemilik terakhir)
     if (body.action === "UPDATE_USER") {
       if (!isOwner) {
-        return NextResponse.json({ error: "Hanya Pemilik yang dapat mengubah status/jabatan akun." }, { status: 403 });
+        return NextResponse.json(
+          { error: "Hanya Pemilik atau Manajer yang dapat mengubah status atau jabatan akun." },
+          { status: 403 }
+        );
       }
 
       const targetId = String(body.userId || "");
-      const targetUser = await prisma.user.findUnique({ where: { id: targetId } });
+      const targetUser = await prisma.user.findFirst({
+        where: { id: targetId, roomId: user.roomId },
+      });
       if (!targetUser) {
-        return NextResponse.json({ error: "Akun tidak ditemukan." }, { status: 404 });
+        return NextResponse.json(
+          { error: "Akun tidak ditemukan pada ruangan ini." },
+          { status: 404 }
+        );
+      }
+
+      const validRoles = ["PEMILIK", "MANAJER", "KASIR", "GUDANG", "KASIR_GUDANG"];
+      const nextRole = body.role ? String(body.role) : targetUser.role;
+      if (!validRoles.includes(nextRole)) {
+        return NextResponse.json({ error: "Role tidak valid." }, { status: 400 });
+      }
+      const nextIsActive =
+        typeof body.isActive === "boolean" ? body.isActive : targetUser.isActive;
+
+      const guard = validateRoleManagementAction({
+        actorRole: user.role,
+        targetCurrentRole: targetUser.role,
+        targetNextRole: nextRole,
+        action: nextIsActive ? "CHANGE_ROLE" : "DEACTIVATE",
+      });
+      if (!guard.allowed) {
+        return NextResponse.json({ error: guard.error }, { status: guard.status ?? 403 });
+      }
+
+      const activeOwnerCount = await prisma.user.count({
+        where: {
+          roomId: user.roomId,
+          role: "PEMILIK",
+          isActive: true,
+          isAssigned: true,
+        },
+      });
+      const targetIsActiveOwner =
+        targetUser.isActive && targetUser.isAssigned && targetUser.role === "PEMILIK";
+      const nextIsActiveOwner =
+        nextIsActive && targetUser.isAssigned && nextRole === "PEMILIK";
+
+      if (!hasMinimumRemainingOwners(activeOwnerCount, targetIsActiveOwner, nextIsActiveOwner)) {
+        return NextResponse.json(
+          {
+            error:
+              "Tidak dapat mengubah role atau menonaktifkan satu-satunya Pemilik aktif pada ruangan ini.",
+          },
+          { status: 400 }
+        );
       }
 
       const updated = await prisma.user.update({
         where: { id: targetId },
         data: {
-          role: body.role ? String(body.role) : targetUser.role,
-          isActive: typeof body.isActive === "boolean" ? body.isActive : targetUser.isActive,
+          role: nextRole,
+          isActive: nextIsActive,
         },
         select: {
           id: true,
@@ -167,6 +258,7 @@ export async function POST(request: Request) {
       });
 
       await recordAuditLog({
+        roomId: user.roomId,
         actorId: user.id,
         actorName: user.name,
         actorRole: user.role,
@@ -183,11 +275,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ user: updated });
     }
 
-    // 3. UPDATE RBAC PERMISSION MATRIX (Owner Only)
+    // 3. UPDATE RBAC PERMISSION MATRIX (Pemilik / Manajer)
     if (body.action === "UPDATE_PERMISSIONS") {
       if (!isOwner) {
         return NextResponse.json(
-          { error: "Hanya Pemilik yang dapat mengubah matriks hak akses (RBAC)." },
+          { error: "Hanya Pemilik atau Manajer yang dapat mengubah matriks hak akses (RBAC)." },
           { status: 403 }
         );
       }
@@ -195,33 +287,35 @@ export async function POST(request: Request) {
       const permissions = Array.isArray(body.permissions) ? body.permissions : [];
       await prisma.$transaction(async (tx) => {
         for (const p of permissions) {
-          if (p.role === "PEMILIK") continue; // Pemilik selalu memiliki akses penuh
+          const roleKey = String(p.role);
+          const modKey = String(p.module);
+          if (isStoreAdmin(roleKey)) continue;
+          // Modul keuangan & approval tidak boleh dibuka untuk pegawai lewat RBAC matrix
+          const isFinancial = modKey === "dashboard" || modKey === "laporan";
           await tx.rolePermission.upsert({
             where: {
-              role_module: {
-                role: String(p.role),
-                module: String(p.module),
-              },
+              role_module: { role: roleKey, module: modKey },
             },
             update: {
-              canView: Boolean(p.canView),
-              canCreate: Boolean(p.canCreate),
-              canEdit: Boolean(p.canEdit),
-              canApprove: Boolean(p.canApprove),
+              canView: isFinancial ? false : Boolean(p.canView),
+              canCreate: isFinancial ? false : Boolean(p.canCreate),
+              canEdit: isFinancial ? false : Boolean(p.canEdit),
+              canApprove: false,
             },
             create: {
-              role: String(p.role),
-              module: String(p.module),
-              canView: Boolean(p.canView),
-              canCreate: Boolean(p.canCreate),
-              canEdit: Boolean(p.canEdit),
-              canApprove: Boolean(p.canApprove),
+              role: roleKey,
+              module: modKey,
+              canView: isFinancial ? false : Boolean(p.canView),
+              canCreate: isFinancial ? false : Boolean(p.canCreate),
+              canEdit: isFinancial ? false : Boolean(p.canEdit),
+              canApprove: false,
             },
           });
         }
 
         await recordAuditLog(
           {
+            roomId: user.roomId,
             actorId: user.id,
             actorName: user.name,
             actorRole: user.role,
@@ -240,58 +334,95 @@ export async function POST(request: Request) {
       return NextResponse.json({ rolePermissions: updatedPermissions });
     }
 
-    // 4. UPDATE AUDIT & TOLERANCE RULES (Owner Only)
+    // 4. UPDATE ROOM & AUDIT SETTINGS (Pemilik / Manajer)
     if (body.action === "UPDATE_AUDIT_SETTINGS") {
       if (!isOwner) {
         return NextResponse.json(
-          { error: "Hanya Pemilik yang dapat mengubah aturan toleransi audit." },
+          { error: "Hanya Pemilik atau Manajer yang dapat mengubah pengaturan ruangan & audit." },
           { status: 403 }
         );
       }
 
-      const prev = await prisma.systemSetting.findUnique({ where: { id: "default" } });
-      const updated = await prisma.systemSetting.upsert({
-        where: { id: "default" },
-        update: {
-          storeName: body.storeName ? String(body.storeName).trim() : prev?.storeName,
-          storeAddress: body.storeAddress ? String(body.storeAddress).trim() : prev?.storeAddress,
+      const prev = await prisma.room.findUnique({ where: { id: user.roomId } });
+      const updatedRoom = await prisma.room.update({
+        where: { id: user.roomId },
+        data: {
+          name: body.storeName ? String(body.storeName).trim() : prev?.name,
+          address: body.storeAddress ? String(body.storeAddress).trim() : prev?.address,
           toleranceThresholdRp:
             typeof body.toleranceThresholdRp === "number"
               ? Math.max(0, Math.round(body.toleranceThresholdRp))
               : prev?.toleranceThresholdRp ?? 50000,
-          opnameSchedule: body.opnameSchedule ? String(body.opnameSchedule) : prev?.opnameSchedule,
-          openAreaPolicy: body.openAreaPolicy ? String(body.openAreaPolicy) : prev?.openAreaPolicy,
-          closedAreaPolicy: body.closedAreaPolicy ? String(body.closedAreaPolicy) : prev?.closedAreaPolicy,
+          opnameSchedule: body.opnameSchedule
+            ? String(body.opnameSchedule)
+            : prev?.opnameSchedule,
+          openAreaPolicy: body.openAreaPolicy
+            ? String(body.openAreaPolicy)
+            : prev?.openAreaPolicy,
+          closedAreaPolicy: body.closedAreaPolicy
+            ? String(body.closedAreaPolicy)
+            : prev?.closedAreaPolicy,
           autoBackupInterval: body.autoBackupInterval
             ? String(body.autoBackupInterval)
             : prev?.autoBackupInterval,
         },
-        create: {
-          id: "default",
-          storeName: String(body.storeName || "TRASIR Toko Utama"),
-          toleranceThresholdRp: Math.max(0, Math.round(Number(body.toleranceThresholdRp ?? 50000))),
-          opnameSchedule: String(body.opnameSchedule || "MINGGUAN"),
-        },
       });
 
+      if (user.roomId === DEFAULT_ROOM_ID) {
+        await prisma.systemSetting
+          .upsert({
+            where: { id: "default" },
+            update: {
+              storeName: updatedRoom.name,
+              storeAddress: updatedRoom.address,
+              toleranceThresholdRp: updatedRoom.toleranceThresholdRp,
+              opnameSchedule: updatedRoom.opnameSchedule,
+              openAreaPolicy: updatedRoom.openAreaPolicy,
+              closedAreaPolicy: updatedRoom.closedAreaPolicy,
+              autoBackupInterval: updatedRoom.autoBackupInterval,
+            },
+            create: {
+              id: "default",
+              storeName: updatedRoom.name,
+              storeAddress: updatedRoom.address,
+              toleranceThresholdRp: updatedRoom.toleranceThresholdRp,
+              opnameSchedule: updatedRoom.opnameSchedule,
+            },
+          })
+          .catch(() => undefined);
+      }
+
       await recordAuditLog({
+        roomId: user.roomId,
         actorId: user.id,
         actorName: user.name,
         actorRole: user.role,
         actionType: "PENGATURAN",
-        actionSummary: `Memperbarui aturan audit & batas toleransi selisih stok menjadi Rp ${updated.toleranceThresholdRp}`,
-        entityType: "SystemSetting",
-        entityId: "default",
+        actionSummary: `Memperbarui profil ruangan "${updatedRoom.name}" & batas toleransi selisih stok Rp ${updatedRoom.toleranceThresholdRp}`,
+        entityType: "Room",
+        entityId: updatedRoom.id,
         beforeData: prev,
-        afterData: updated,
+        afterData: updatedRoom,
         approvalState: "DISETUJUI",
         linkUrl: "/pengaturan",
       });
 
-      return NextResponse.json({ settings: updated });
+      return NextResponse.json({
+        settings: {
+          id: updatedRoom.id,
+          storeName: updatedRoom.name,
+          storeAddress: updatedRoom.address,
+          toleranceThresholdRp: updatedRoom.toleranceThresholdRp,
+          opnameSchedule: updatedRoom.opnameSchedule,
+          openAreaPolicy: updatedRoom.openAreaPolicy,
+          closedAreaPolicy: updatedRoom.closedAreaPolicy,
+          autoBackupInterval: updatedRoom.autoBackupInterval,
+          lastBackupAt: updatedRoom.lastBackupAt,
+        },
+      });
     }
 
-    // 5. CREATE MASTER UNIT / CATEGORY / WAREHOUSE (Owner Only)
+    // 5. CREATE MASTER UNIT / CATEGORY / WAREHOUSE
     if (body.action === "CREATE_UNIT") {
       if (!isOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       const unit = await prisma.unit.create({
@@ -308,12 +439,14 @@ export async function POST(request: Request) {
       if (!isOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       const category = await prisma.category.create({
         data: {
+          roomId: user.roomId,
           name: String(body.name).trim(),
           areaType: body.areaType === "TERTUTUP" ? "TERTUTUP" : "TERBUKA",
           description: body.description ? String(body.description).trim() : null,
         },
       });
       await recordAuditLog({
+        roomId: user.roomId,
         actorId: user.id,
         actorName: user.name,
         actorRole: user.role,
@@ -332,6 +465,7 @@ export async function POST(request: Request) {
       if (!isOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       const warehouse = await prisma.warehouse.create({
         data: {
+          roomId: user.roomId,
           name: String(body.name).trim(),
           location: body.location ? String(body.location).trim() : null,
         },
@@ -339,7 +473,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ warehouse });
     }
 
-    // 6. UPDATE OWN PROFILE & PASSWORD (Available to all logged-in roles)
+    // 6. UPDATE OWN PROFILE & PASSWORD
     if (body.action === "UPDATE_PROFILE") {
       const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
       if (!dbUser) {
@@ -375,6 +509,7 @@ export async function POST(request: Request) {
       });
 
       await recordAuditLog({
+        roomId: user.roomId,
         actorId: user.id,
         actorName: updated.name,
         actorRole: user.role,
@@ -395,4 +530,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

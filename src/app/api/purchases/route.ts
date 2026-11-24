@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentSessionUser } from "@/lib/auth";
+import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
-import {
-  analyzePurchaseReceiptWithGemini,
-  computeReceiptHash,
-} from "@/lib/gemini";
+import { analyzePurchaseReceiptWithGemini, computeReceiptHash } from "@/lib/gemini";
 import { z } from "zod";
 
 const purchaseItemSchema = z.object({
@@ -24,7 +21,7 @@ const purchaseItemSchema = z.object({
 });
 
 const purchaseSchema = z.object({
-  id: z.string().optional(), // Digunakan apabila pegawai mengirim perbaikan atas pengajuan PERLU_PERBAIKAN
+  id: z.string().optional(),
   invoiceNumber: z.string().min(1, "Nomor nota wajib diisi"),
   supplierName: z.string().min(1, "Nama pemasok wajib diisi"),
   purchaseDate: z.string().min(1, "Tanggal pembelian wajib diisi"),
@@ -37,10 +34,9 @@ const purchaseSchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const canView = await checkUserPermission(user.role, "pembelian", "view");
     if (!canView) {
@@ -54,23 +50,25 @@ export async function GET(request: Request) {
     const id = searchParams.get("id");
 
     if (id) {
-      const purchase = await prisma.purchase.findUnique({
-        where: { id },
+      const purchase = await prisma.purchase.findFirst({
+        where: { id, roomId: user.roomId },
         include: {
           submittedBy: { select: { id: true, name: true, role: true, username: true } },
           reviewedBy: { select: { id: true, name: true, role: true } },
-          items: {
-            include: { product: true },
-          },
+          items: { include: { product: true } },
         },
       });
       if (!purchase) {
-        return NextResponse.json({ error: "Data pembelian tidak ditemukan." }, { status: 404 });
+        return NextResponse.json(
+          { error: "Data pembelian tidak ditemukan pada ruangan ini." },
+          { status: 404 }
+        );
       }
       return NextResponse.json({ purchase });
     }
 
     const purchases = await prisma.purchase.findMany({
+      where: { roomId: user.roomId },
       include: {
         submittedBy: { select: { id: true, name: true, role: true, username: true } },
         reviewedBy: { select: { id: true, name: true, role: true } },
@@ -88,10 +86,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await getCurrentSessionUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
 
     const canCreate = await checkUserPermission(user.role, "pembelian", "create");
     const canEdit = await checkUserPermission(user.role, "pembelian", "edit");
@@ -114,14 +111,11 @@ export async function POST(request: Request) {
     const data = parsed.data;
     const receiptHash = computeReceiptHash(data.receiptImageData);
 
-    // Check if invoiceNumber or receiptHash was already submitted in another purchase
     const existingDuplicate = await prisma.purchase.findFirst({
       where: {
+        roomId: user.roomId,
         id: data.id ? { not: data.id } : undefined,
-        OR: [
-          { invoiceNumber: data.invoiceNumber.trim() },
-          { receiptHash },
-        ],
+        OR: [{ invoiceNumber: data.invoiceNumber.trim() }, { receiptHash }],
       },
       select: { id: true, invoiceNumber: true, supplierName: true },
     });
@@ -147,13 +141,14 @@ export async function POST(request: Request) {
 
     const savedPurchase = await prisma.$transaction(async (tx) => {
       if (data.id) {
-        // Resubmitting an existing purchase that was marked PERLU_PERBAIKAN
-        const prev = await tx.purchase.findUnique({ where: { id: data.id } });
+        const prev = await tx.purchase.findFirst({
+          where: { id: data.id, roomId: user.roomId },
+        });
         if (!prev) {
           throw new Error("Pengajuan pembelian yang ingin diperbaiki tidak ditemukan.");
         }
         if (prev.approvalStatus === "DISETUJUI") {
-          throw new Error("Pembelian yang sudah disetujui Pemilik tidak dapat diubah langsung.");
+          throw new Error("Pembelian yang sudah disetujui tidak dapat diubah langsung.");
         }
 
         await tx.purchaseItem.deleteMany({ where: { purchaseId: prev.id } });
@@ -202,6 +197,7 @@ export async function POST(request: Request) {
 
         await recordAuditLog(
           {
+            roomId: user.roomId,
             actorId: user.id,
             actorName: user.name,
             actorRole: user.role,
@@ -223,11 +219,12 @@ export async function POST(request: Request) {
 
         await createNotification(
           {
+            roomId: user.roomId,
             title: `Perbaikan Pembelian #${updated.invoiceNumber}`,
-            message: `${user.name} telah mengirim perbaikan data pembelian dari ${updated.supplierName} (Status AI: ${updated.aiValidationStatus}).`,
+            message: `${user.name} mengirim perbaikan data pembelian dari ${updated.supplierName} (Status AI: ${updated.aiValidationStatus}).`,
             severity: updated.aiValidationStatus === "SESUAI" ? "INFO" : "WARNING",
             category: "PEMBELIAN",
-            targetRole: "PEMILIK",
+            targetRole: null,
             linkUrl: `/pembelian/${updated.id}`,
           },
           tx
@@ -238,6 +235,7 @@ export async function POST(request: Request) {
 
       const created = await tx.purchase.create({
         data: {
+          roomId: user.roomId,
           invoiceNumber: data.invoiceNumber.trim(),
           supplierName: data.supplierName.trim(),
           purchaseDate: new Date(data.purchaseDate),
@@ -280,6 +278,7 @@ export async function POST(request: Request) {
 
       await recordAuditLog(
         {
+          roomId: user.roomId,
           actorId: user.id,
           actorName: user.name,
           actorRole: user.role,
@@ -301,6 +300,7 @@ export async function POST(request: Request) {
 
       await createNotification(
         {
+          roomId: user.roomId,
           title:
             created.aiValidationStatus === "SESUAI"
               ? `Pengajuan Pembelian Baru #${created.invoiceNumber}`
@@ -308,7 +308,7 @@ export async function POST(request: Request) {
           message: `${user.name} mengajukan pembelian dari ${created.supplierName}. ${aiValidation.neutralEvaluationSummary}`,
           severity: created.aiValidationStatus === "SESUAI" ? "INFO" : "WARNING",
           category: "PEMBELIAN",
-          targetRole: "PEMILIK",
+          targetRole: null,
           linkUrl: `/pembelian/${created.id}`,
         },
         tx
@@ -326,4 +326,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

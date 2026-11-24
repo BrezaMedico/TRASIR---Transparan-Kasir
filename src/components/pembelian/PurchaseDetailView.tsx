@@ -405,7 +405,9 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
       {(session) => {
         const canApprove =
           session.permissions.pembelian?.canApprove &&
-          (session.user.role === "PEMILIK" || submittedById !== session.user.id);
+          (session.user.role === "PEMILIK" ||
+            session.user.role === "MANAJER" ||
+            submittedById !== session.user.id);
 
         return (
           <div className="space-y-6 pb-24">

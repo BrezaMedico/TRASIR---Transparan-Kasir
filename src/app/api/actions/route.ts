@@ -1,24 +1,41 @@
 import { NextResponse } from "next/server";
-import { getCurrentSessionUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireAssignedUser } from "@/lib/auth";
+import { prisma, withDbRetry } from "@/lib/prisma";
 
 export async function GET() {
-  const user = await getCurrentSessionUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
+
+    const [pendingProductRequests, pendingPurchases, pendingAmendments, pendingAdjustments] =
+      await withDbRetry(() =>
+        Promise.all([
+          prisma.productRequest.count({
+            where: { roomId: user.roomId, status: "MENUNGGU_PERSETUJUAN" },
+          }),
+          prisma.purchase.count({
+            where: { roomId: user.roomId, approvalStatus: "MENUNGGU_PERSETUJUAN" },
+          }),
+          prisma.saleAmendment.count({
+            where: { roomId: user.roomId, status: "MENUNGGU_PERSETUJUAN" },
+          }),
+          prisma.stockAdjustment.count({
+            where: { roomId: user.roomId, status: "MENUNGGU_PERSETUJUAN" },
+          }),
+        ])
+      );
+
+    return NextResponse.json({
+      pendingProductRequests,
+      pendingPurchases,
+      pendingAmendments,
+      pendingAdjustments,
+      totalPending:
+        pendingProductRequests + pendingPurchases + pendingAmendments + pendingAdjustments,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Gagal memuat ringkasan antrean.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const [pendingPurchases, pendingAmendments, pendingAdjustments] = await Promise.all([
-    prisma.purchase.count({ where: { approvalStatus: "MENUNGGU_PERSETUJUAN" } }),
-    prisma.saleAmendment.count({ where: { status: "MENUNGGU_PERSETUJUAN" } }),
-    prisma.stockAdjustment.count({ where: { status: "MENUNGGU_PERSETUJUAN" } }),
-  ]);
-
-  return NextResponse.json({
-    pendingPurchases,
-    pendingAmendments,
-    pendingAdjustments,
-    totalPending: pendingPurchases + pendingAmendments + pendingAdjustments,
-  });
 }
-
