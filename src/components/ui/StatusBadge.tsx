@@ -12,7 +12,7 @@ export function resolveStatusTone(status: string): BadgeTone {
     s === "NORMAL" ||
     s === "TERIMA_PENJELASAN"
   ) {
-    return "green";
+    return "cyan";
   }
   if (
     s === "MENUNGGU_PERSETUJUAN" ||
@@ -38,7 +38,7 @@ export function resolveStatusTone(status: string): BadgeTone {
     return "red";
   }
   if (s === "RESEP" || s === "PECAH" || s === "DIKEMBALIKAN" || s === "DIUBAH") {
-    return "cyan";
+    return "navy";
   }
   return "neutral";
 }
@@ -53,23 +53,23 @@ export function formatStatusLabel(status: string): string {
     ADA_SELISIH: "Perlu Diperiksa (Selisih)",
     NOTA_GANDA: "Terindikasi Nota Ganda",
     TERINDIKASI_EDIT: "Perlu Diperiksa (Indikasi Edit)",
-    DALAM_TOLERANSI: "Aman (Dalam Toleransi)",
-    ANOMALI_TERBUKA: "Anomali Area Terbuka",
-    ANOMALI_TERTUTUP: "Anomali Area Tertutup",
+    DALAM_TOLERANSI: "Aman",
+    ANOMALI_TERBUKA: "Area Terbuka",
+    ANOMALI_TERTUTUP: "Area Tertutup",
     TERBUKA: "Area Terbuka",
     TERTUTUP: "Area Tertutup",
-    NORMAL: "Normal",
+    NORMAL: "Berhasil",
     DIBATALKAN: "Dibatalkan",
-    DIKEMBALIKAN: "Dikembalikan (Retur)",
+    DIKEMBALIKAN: "Dikembalikan",
     DIUBAH: "Diubah",
     PERLU_DIPERIKSA: "Perlu Diperiksa",
-    TERIMA_PENJELASAN: "Penjelasan Diterima",
+    TERIMA_PENJELASAN: "Diterima",
     MINTA_INFO_TAMBAHAN: "Perlu Info Tambahan",
     TANDAI_TINDAK_LANJUT: "Ditandai Tindak Lanjut",
     BELUM_DIEVALUASI: "Menunggu Evaluasi",
-    TETAP: "Satuan Tetap (1:1)",
+    TETAP: "Satuan Tetap",
     PECAH: "Pecah Satuan",
-    RESEP: "Resep & Varian",
+    RESEP: "Menu Resep",
     DANA_TOKO: "Dana Kas Toko",
     BELANJA_PEMILIK: "Belanja Langsung Pemilik",
     TERCATAT: "Tercatat",
@@ -91,30 +91,19 @@ export function StatusBadge({
   const label = customLabel || formatStatusLabel(status);
 
   const classes: Record<BadgeTone, string> = {
-    green: "bg-[#F0FDF4] text-[#166534] border-[#BBF7D0]",
-    amber: "bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]",
-    red: "bg-[#FFF1F2] text-[#9F1239] border-[#FECDD3]",
-    cyan: "bg-[#F0FDFA] text-[#0F766E] border-[#99F6E4]",
-    navy: "bg-[#E8EEF4] text-[#334E6B] border-[#CBD5E1]",
-    neutral: "bg-slate-100 text-slate-700 border-slate-300",
-  };
-
-  const dotClasses: Record<BadgeTone, string> = {
-    green: "bg-[#166534]",
-    amber: "bg-[#B45309]",
-    red: "bg-[#9F1239]",
-    cyan: "bg-[#0F766E]",
-    navy: "bg-[#334E6B]",
-    neutral: "bg-slate-500",
+    green: "bg-[#01DAD7]/20 text-[#202531] border-[#01DAD7]",
+    amber: "bg-[#EBEBEB] text-[#202531] border-[#202531]/20",
+    red: "bg-[#FFF0F4] text-[#D41448] border-[#FF2A63]/35",
+    cyan: "bg-[#01DAD7]/20 text-[#202531] border-[#01DAD7]",
+    navy: "bg-[#202531] text-white border-[#202531]",
+    neutral: "bg-[#EBEBEB] text-[#202531] border-[#202531]/15",
   };
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border whitespace-nowrap ${classes[resolved]}`}
+      className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold border whitespace-nowrap ${classes[resolved]}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${dotClasses[resolved]}`} aria-hidden="true" />
       {label}
     </span>
   );
 }
-

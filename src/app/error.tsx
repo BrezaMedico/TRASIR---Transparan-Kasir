@@ -12,9 +12,9 @@ export default function GlobalAppError({
   reset: () => void;
 }) {
   return (
-    <main className="min-h-screen bg-[#F5F5F5] flex items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 text-center space-y-5">
-        <div className="w-12 h-12 rounded-2xl bg-[#FFF1F2] text-[#9F1239] border border-[#FECDD3] flex items-center justify-center mx-auto">
+    <main className="min-h-screen bg-[#EBEBEB] flex items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md bg-white rounded-2xl border border-[#202531]/10 p-6 sm:p-8 text-center space-y-5">
+        <div className="w-12 h-12 rounded-2xl bg-[#FFF0F4] text-[#D41448] border border-[#FF2A63]/35 flex items-center justify-center mx-auto">
           <WarningCircle size={26} weight="duotone" aria-hidden="true" />
         </div>
 
@@ -36,7 +36,7 @@ export default function GlobalAppError({
           <button
             type="button"
             onClick={() => reset()}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#2563EB] text-white text-xs font-bold hover:bg-[#1D4ED8] transition-colors cursor-pointer"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-colors cursor-pointer"
           >
             <ArrowsClockwise size={16} weight="bold" aria-hidden="true" />
             <span>Coba Lagi</span>

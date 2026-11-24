@@ -383,7 +383,7 @@ export default function PenjualanPage() {
                   onClick={() => setActiveTab("history")}
                   className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                     activeTab === "history"
-                      ? "bg-[#334E6B] text-white"
+                      ? "bg-[#202531] text-white"
                       : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                   }`}
                 >
@@ -398,7 +398,7 @@ export default function PenjualanPage() {
                   onClick={() => setActiveTab("amendments")}
                   className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                     activeTab === "amendments"
-                      ? "bg-[#334E6B] text-white"
+                      ? "bg-[#202531] text-white"
                       : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                   }`}
                 >
@@ -459,7 +459,7 @@ export default function PenjualanPage() {
                               }}
                               className="hover:bg-slate-50 transition-colors cursor-pointer"
                             >
-                              <td className="py-3.5 px-4 font-mono font-extrabold text-[#334E6B]">
+                              <td className="py-3.5 px-4 font-mono font-extrabold text-[#202531]">
                                 #{sale.receiptNumber}
                               </td>
                               <td className="py-3.5 px-4 text-slate-700">
@@ -490,7 +490,7 @@ export default function PenjualanPage() {
                                     setSelectedSale(sale);
                                     setShowCancelForm(false);
                                   }}
-                                  className="px-3 py-1.5 min-h-[36px] rounded-lg border border-slate-300 text-xs font-bold text-[#334E6B] hover:bg-slate-100 cursor-pointer"
+                                  className="px-3 py-1.5 min-h-[36px] rounded-lg border border-slate-300 text-xs font-bold text-[#202531] hover:bg-slate-100 cursor-pointer"
                                 >
                                   Lihat Detail
                                 </button>
@@ -590,8 +590,8 @@ export default function PenjualanPage() {
                         }
                         className={`px-4 py-2 min-h-[38px] rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 ${
                           confirmReview.decision === "DISETUJUI"
-                            ? "bg-[#166534]"
-                            : "bg-[#9F1239]"
+                            ? "bg-[#202531] text-white"
+                            : "bg-[#D41448]"
                         }`}
                       >
                         {processingReviewId === confirmReview.item.id
@@ -623,7 +623,7 @@ export default function PenjualanPage() {
                           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
                             <div className="space-y-1.5 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-mono text-xs font-extrabold text-[#334E6B]">
+                                <span className="font-mono text-xs font-extrabold text-[#202531]">
                                   Struk #{item.sale.receiptNumber}
                                 </span>
                                 <StatusBadge
@@ -656,8 +656,8 @@ export default function PenjualanPage() {
                                 <p
                                   className={`text-xs font-semibold rounded-lg px-3 py-1.5 border ${
                                     item.status === "DITOLAK"
-                                      ? "bg-[#FFF1F2] border-[#FECDD3] text-[#9F1239]"
-                                      : "bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]"
+                                      ? "bg-[#FFF0F4] border-[#FF2A63]/35 text-[#D41448]"
+                                      : "bg-[#01DAD7]/15 border-[#01DAD7] text-[#202531]"
                                   }`}
                                 >
                                   Catatan Keputusan: {item.reviewNotes}
@@ -684,7 +684,7 @@ export default function PenjualanPage() {
                                     <a
                                       href={item.proofImageData}
                                       download={`bukti-${item.sale.receiptNumber}.pdf`}
-                                      className="inline-flex items-center gap-1 text-xs font-bold text-[#2563EB] hover:underline"
+                                      className="inline-flex items-center gap-1 text-xs font-bold text-[#202531] hover:underline"
                                     >
                                       Unduh Lampiran Bukti (PDF)
                                     </a>
@@ -715,7 +715,7 @@ export default function PenjualanPage() {
                                       onClick={() =>
                                         setConfirmReview({ item, decision: "DISETUJUI" })
                                       }
-                                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-xl bg-[#166534] text-white text-xs font-bold hover:opacity-90 cursor-pointer"
+                                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 cursor-pointer"
                                     >
                                       <CheckCircle size={16} weight="bold" aria-hidden="true" />
                                       <span>Setujui</span>
@@ -725,7 +725,7 @@ export default function PenjualanPage() {
                                       onClick={() =>
                                         setConfirmReview({ item, decision: "DITOLAK" })
                                       }
-                                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-xl bg-[#9F1239] text-white text-xs font-bold hover:opacity-90 cursor-pointer"
+                                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2.5 min-h-[44px] rounded-xl bg-[#D41448] text-white text-xs font-bold hover:opacity-90 cursor-pointer"
                                     >
                                       <XCircle size={16} weight="bold" aria-hidden="true" />
                                       <span>Tolak</span>
@@ -780,7 +780,7 @@ export default function PenjualanPage() {
                       <p className="text-xs text-slate-600">
                         Total Pembayaran ({selectedSale.paymentMethod})
                       </p>
-                      <p className="text-lg font-extrabold font-mono text-[#334E6B]">
+                      <p className="text-lg font-extrabold font-mono text-[#202531]">
                         {formatRupiah(selectedSale.totalAmount)}
                       </p>
                     </div>
@@ -798,7 +798,7 @@ export default function PenjualanPage() {
                             <p className="font-bold text-slate-900">
                               {it.productName}{" "}
                               {it.variantName && (
-                                <span className="text-[#334E6B]">({it.variantName})</span>
+                                <span className="text-[#202531]">({it.variantName})</span>
                               )}
                             </p>
                             <p className="text-[11px] font-mono text-slate-600">
@@ -849,8 +849,8 @@ export default function PenjualanPage() {
                               <p
                                 className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg border ${
                                   am.status === "DITOLAK"
-                                    ? "bg-[#FFF1F2] border-[#FECDD3] text-[#9F1239]"
-                                    : "bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]"
+                                    ? "bg-[#FFF0F4] border-[#FF2A63]/35 text-[#D41448]"
+                                    : "bg-[#01DAD7]/15 border-[#01DAD7] text-[#202531]"
                                 }`}
                               >
                                 {am.status === "DITOLAK" ? "Alasan Penolakan: " : "Catatan: "}
@@ -875,7 +875,7 @@ export default function PenjualanPage() {
                               setAmendmentType("PEMBATALAN");
                               setShowCancelForm(true);
                             }}
-                            className="w-full min-h-[46px] inline-flex items-center justify-center gap-2 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] px-4 text-xs font-extrabold text-[#9F1239] hover:bg-rose-100 cursor-pointer"
+                            className="w-full min-h-[46px] inline-flex items-center justify-center gap-2 rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] px-4 text-xs font-extrabold text-[#D41448] hover:bg-rose-100 cursor-pointer"
                           >
                             <XCircle size={18} weight="bold" aria-hidden="true" />
                             <span>Ajukan Pembatalan</span>
@@ -980,7 +980,7 @@ export default function PenjualanPage() {
                               <button
                                 type="submit"
                                 disabled={submittingAmendment}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] disabled:opacity-50 cursor-pointer"
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] disabled:opacity-50 cursor-pointer"
                               >
                                 <span>
                                   {submittingAmendment

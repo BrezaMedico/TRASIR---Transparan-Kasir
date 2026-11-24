@@ -10,16 +10,16 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          navy: "#334E6B",
-          navyDark: "#24384E",
-          navyLight: "#E8EEF4",
-          cyan: "#3DC2CA",
-          cyanDark: "#0F766E",
-          cyanLight: "#F0FDFA",
-          canvas: "#F5F5F5",
-          rose: "#FC5086",
-          roseDark: "#9F1239",
-          roseLight: "#FFF1F2",
+          navy: "#202531",
+          navyDark: "#151922",
+          navyLight: "#EBEBEB",
+          cyan: "#01DAD7",
+          cyanDark: "#202531",
+          cyanLight: "#E6FBFB",
+          canvas: "#EBEBEB",
+          rose: "#FF2A63",
+          roseDark: "#D41448",
+          roseLight: "#FFF0F4",
         },
       },
       fontFamily: {

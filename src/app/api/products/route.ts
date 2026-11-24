@@ -555,3 +555,143 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
+
+    const canEdit =
+      isStoreAdmin(user.role) || (await checkUserPermission(user.role, "produk", "edit"));
+    if (!canEdit) {
+      return NextResponse.json(
+        { error: "Anda tidak memiliki izin menghapus produk atau resep." },
+        { status: 403 }
+      );
+    }
+
+    const url = new URL(request.url);
+    let productId = url.searchParams.get("id")?.trim() || "";
+    if (!productId) {
+      try {
+        const body = (await request.json()) as { id?: unknown };
+        if (typeof body?.id === "string") productId = body.id.trim();
+      } catch {
+        // body optional when ?id= is provided
+      }
+    }
+
+    if (!productId) {
+      return NextResponse.json({ error: "ID produk wajib disertakan." }, { status: 400 });
+    }
+
+    const existing = await prisma.product.findFirst({
+      where: { id: productId, roomId: user.roomId, isActive: true },
+      include: {
+        usedInRecipes: {
+          include: {
+            variant: {
+              include: {
+                product: { select: { id: true, name: true, isActive: true } },
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            saleItems: true,
+            purchaseItems: true,
+            stockAdjustments: true,
+            opnameItems: true,
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { error: "Produk tidak ditemukan atau sudah dihapus." },
+        { status: 404 }
+      );
+    }
+
+    const activeDependentMenus = Array.from(
+      new Set(
+        existing.usedInRecipes
+          .filter((r) => r.variant.product.isActive && r.variant.product.id !== existing.id)
+          .map((r) => r.variant.product.name)
+      )
+    );
+
+    if (activeDependentMenus.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Bahan baku "${existing.name}" masih dipakai pada resep menu: ${activeDependentMenus.join(", ")}. Hapus atau ubah resep menu tersebut terlebih dahulu.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    const hasHistory =
+      existing._count.saleItems > 0 ||
+      existing._count.purchaseItems > 0 ||
+      existing._count.stockAdjustments > 0 ||
+      existing._count.opnameItems > 0;
+
+    await prisma.$transaction(async (tx) => {
+      // Bersihkan relasi resep dari produk nonaktif jika ada agar penghapusan aman
+      await tx.recipeIngredient.deleteMany({
+        where: { materialId: existing.id },
+      });
+
+      if (hasHistory) {
+        await tx.product.update({
+          where: { id: existing.id },
+          data: {
+            isActive: false,
+            barcode: null,
+            sku: `${existing.sku}__DEL_${Date.now().toString(36)}`,
+          },
+        });
+      } else {
+        await tx.product.delete({
+          where: { id: existing.id },
+        });
+      }
+
+      await recordAuditLog(
+        {
+          roomId: user.roomId,
+          actorId: user.id,
+          actorName: user.name,
+          actorRole: user.role,
+          actionType: "KATALOG",
+          actionSummary: `Menghapus ${existing.isRawMaterial ? "bahan baku" : existing.stockMethod === "RESEP" ? "produk resep" : "produk"} "${existing.name}" (${existing.sku})`,
+          entityType: "Product",
+          entityId: existing.id,
+          beforeData: {
+            id: existing.id,
+            sku: existing.sku,
+            name: existing.name,
+            stockMethod: existing.stockMethod,
+            isRawMaterial: existing.isRawMaterial,
+          },
+          approvalState: "TERCATAT",
+          linkUrl: "/produk",
+        },
+        tx
+      );
+    });
+
+    return NextResponse.json({
+      deleted: true,
+      mode: hasHistory ? "ARCHIVED" : "HARD_DELETED",
+      id: existing.id,
+      name: existing.name,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Gagal menghapus produk.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

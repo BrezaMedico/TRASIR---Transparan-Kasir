@@ -11,6 +11,7 @@ import {
   Plus,
   CaretDown,
   CaretUp,
+  Trash,
 } from "@phosphor-icons/react";
 import {
   getUnitDisplayLabel,
@@ -28,6 +29,7 @@ interface RawMaterialDrawerProps {
   isAdmin: boolean;
   canSave: boolean;
   onSaved: (mode: "DIRECT" | "REQUEST", productName: string) => Promise<void> | void;
+  onRequestDelete?: (product: ProductItem) => void;
 }
 
 const COMMON_MATERIAL_UNITS = [
@@ -80,6 +82,7 @@ export function RawMaterialDrawer({
   isAdmin,
   canSave,
   onSaved,
+  onRequestDelete,
 }: RawMaterialDrawerProps) {
   const { showToast } = useToast();
 
@@ -240,7 +243,7 @@ export function RawMaterialDrawer({
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         {!editingProduct && !isAdmin && (
-          <div className="p-3.5 rounded-xl bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E] flex items-start gap-2.5">
+          <div className="p-3.5 rounded-xl bg-[#EBEBEB] text-[#202531] border border-[#202531]/15 flex items-start gap-2.5">
             <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
             <p>
               Bahan baku yang Anda masukkan akan masuk antrean{" "}
@@ -261,7 +264,7 @@ export function RawMaterialDrawer({
                   key={preset.label}
                   type="button"
                   onClick={() => applyPreset(preset)}
-                  className="px-3 py-2 min-h-[38px] rounded-xl bg-slate-100 hover:bg-[#F0FDFA] hover:text-[#0F766E] border border-slate-200 hover:border-[#99F6E4] text-xs font-semibold text-slate-800 transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0F766E]"
+                  className="px-3 py-2 min-h-[38px] rounded-xl bg-slate-100 hover:bg-[#01DAD7]/20 hover:text-[#202531] border border-[#202531]/15 hover:border-[#01DAD7] text-xs font-semibold text-slate-800 transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531]"
                 >
                   {preset.label}
                 </button>
@@ -282,7 +285,7 @@ export function RawMaterialDrawer({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Contoh: Susu Ultra Milk, Gula Pasir, Teh Bubuk"
-            className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:border-[#0F766E] focus:ring-2 focus:ring-[#0F766E]/15"
+            className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:border-[#202531] focus:ring-2 focus:ring-[#202531]/15"
           />
         </div>
 
@@ -314,7 +317,7 @@ export function RawMaterialDrawer({
                   }
                 }}
                 aria-label="Jumlah isi per kemasan"
-                className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#0F766E]"
+                className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#202531]"
               />
             </div>
 
@@ -329,9 +332,9 @@ export function RawMaterialDrawer({
                       setUseOtherUnit(false);
                       setUnit(opt.value);
                     }}
-                    className={`flex-1 min-w-[76px] px-3 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0F766E] ${
+                    className={`flex-1 min-w-[76px] px-3 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
                       active
-                        ? "bg-[#0F766E] text-white border-[#0F766E]"
+                        ? "bg-[#202531] text-white border-[#202531]"
                         : "bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100"
                     }`}
                   >
@@ -344,7 +347,7 @@ export function RawMaterialDrawer({
                 onClick={() => setUseOtherUnit((prev) => !prev)}
                 className={`px-3 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer ${
                   useOtherUnit
-                    ? "bg-[#334E6B] text-white border-[#334E6B]"
+                    ? "bg-[#202531] text-white border-[#202531]"
                     : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
                 }`}
               >
@@ -394,7 +397,7 @@ export function RawMaterialDrawer({
               value={packPrice}
               onChange={(e) => setPackPrice(Math.max(0, Number(e.target.value) || 0))}
               placeholder="20000"
-              className="w-full pl-11 pr-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#0F766E]"
+              className="w-full pl-11 pr-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#202531]"
             />
           </div>
           <p className="text-xs text-slate-600">
@@ -457,7 +460,7 @@ export function RawMaterialDrawer({
               <button
                 type="button"
                 onClick={() => setDirectTotalStock((prev) => Number((prev + safePackSize).toFixed(2)))}
-                className="px-3.5 min-h-[44px] rounded-xl bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4] hover:bg-[#CCFBF1] text-xs font-bold cursor-pointer"
+                className="px-3.5 min-h-[44px] rounded-xl bg-[#01DAD7]/20 text-[#202531] border border-[#01DAD7] hover:bg-[#01DAD7]/35 text-xs font-bold cursor-pointer"
               >
                 +1 Kemasan (+{formatNumber(safePackSize)} {unitLabel})
               </button>
@@ -466,25 +469,25 @@ export function RawMaterialDrawer({
         )}
 
         {/* Ringkasan Otomatis Ramah Pemula */}
-        <div className="p-4 rounded-2xl bg-[#F0FDFA] border border-[#99F6E4] space-y-2.5">
-          <p className="text-xs font-extrabold text-[#0F766E]">
+        <div className="p-4 rounded-2xl bg-[#EBEBEB]/60 border border-[#202531]/15 space-y-2.5">
+          <p className="text-xs font-extrabold text-[#202531]">
             Ringkasan Otomatis (Siap Dipecah di Resep)
           </p>
           <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-3 rounded-xl bg-white border border-[#99F6E4]">
+            <div className="p-3 rounded-xl bg-white border border-[#202531]/15">
               <p className="text-slate-600">Total Stok Bahan</p>
               <p className="text-base font-extrabold font-mono text-slate-900 mt-0.5 tabular-nums">
                 {formatNumber(computedTotalStock)} {unitLabel}
               </p>
             </div>
-            <div className="p-3 rounded-xl bg-white border border-[#99F6E4]">
+            <div className="p-3 rounded-xl bg-white border border-[#202531]/15">
               <p className="text-slate-600">Modal per 1 {unitLabel}</p>
-              <p className="text-base font-extrabold font-mono text-[#0F766E] mt-0.5 tabular-nums">
+              <p className="text-base font-extrabold font-mono text-[#202531] mt-0.5 tabular-nums">
                 {formatRupiah(savedCostPerUnit)} / {unitLabel}
               </p>
             </div>
           </div>
-          <p className="text-xs text-[#0F766E]">
+          <p className="text-xs text-[#202531]">
             Nanti saat membuat menu seperti <strong>Kopi Susu</strong> atau <strong>Teh Manis</strong>, Anda cukup pilih bahan ini lalu masukkan berapa {unitLabel} yang dipakai per gelas.
           </p>
         </div>
@@ -557,23 +560,41 @@ export function RawMaterialDrawer({
         </div>
 
         {canSave && (
-          <button
-            type="submit"
-            disabled={submitting}
-            aria-busy={submitting}
-            className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#0F766E] text-white text-sm font-extrabold hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity duration-150 cursor-pointer"
-          >
-            <FloppyDisk size={18} weight="bold" aria-hidden="true" />
-            <span>
-              {submitting
-                ? "Menyimpan Bahan Baku..."
-                : editingProduct
-                ? "Simpan Perubahan Bahan Baku"
-                : isAdmin
-                ? "Simpan Bahan Baku"
-                : "Kirim Usulan Bahan Baku"}
-            </span>
-          </button>
+          <div className="space-y-2.5">
+            <button
+              type="submit"
+              disabled={submitting}
+              aria-busy={submitting}
+              className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity duration-150 cursor-pointer"
+            >
+              <FloppyDisk size={18} weight="bold" aria-hidden="true" />
+              <span>
+                {submitting
+                  ? "Menyimpan Bahan Baku..."
+                  : editingProduct
+                  ? "Simpan Perubahan Bahan Baku"
+                  : isAdmin
+                  ? "Simpan Bahan Baku"
+                  : "Kirim Usulan Bahan Baku"}
+              </span>
+            </button>
+
+            {editingProduct && onRequestDelete && (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => {
+                  const target = editingProduct;
+                  onClose();
+                  onRequestDelete(target);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] text-[#D41448] text-sm font-bold hover:bg-[#FFE0E8] disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                <Trash size={17} weight="bold" aria-hidden="true" />
+                <span>Hapus Bahan Baku</span>
+              </button>
+            )}
+          </div>
         )}
       </form>
     </SlideDrawer>

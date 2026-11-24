@@ -3,7 +3,7 @@ import React from "react";
 export default function LoginLoading() {
   return (
     <main
-      className="min-h-screen bg-[#F5F5F5] flex flex-col items-center justify-center p-4"
+      className="min-h-screen bg-[#EBEBEB] flex flex-col items-center justify-center p-4"
       aria-busy="true"
       aria-label="Memuat halaman masuk"
     >

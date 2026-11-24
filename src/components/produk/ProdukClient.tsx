@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AppShell, useToast } from "@/components/layout/AppShell";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SlideDrawer } from "@/components/ui/SlideDrawer";
@@ -16,6 +17,8 @@ import {
   CheckCircle,
   XCircle,
   Eye,
+  Trash,
+  Warning,
 } from "@phosphor-icons/react";
 import {
   computeProductMaxPortions,
@@ -73,7 +76,27 @@ export function ProdukClient({
   const [rejectionReason, setRejectionReason] = useState("");
   const [reviewingBusy, setReviewingBusy] = useState(false);
 
+  // Delete confirmation modal
+  const [deletingTarget, setDeletingTarget] = useState<ProductItem | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+  const [portalMounted, setPortalMounted] = useState(false);
+
   const skippedInitialFetch = useRef(Boolean(initialCatalog));
+
+  useEffect(() => {
+    setPortalMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!deletingTarget || deletingBusy) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDeletingTarget(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deletingTarget, deletingBusy]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -236,6 +259,41 @@ export function ProdukClient({
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!deletingTarget) return;
+    setDeletingBusy(true);
+    try {
+      const res = await fetch(`/api/products?id=${encodeURIComponent(deletingTarget.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || "Gagal menghapus produk.", "error");
+        return;
+      }
+
+      const label = deletingTarget.isRawMaterial
+        ? "Bahan baku"
+        : deletingTarget.stockMethod === "RESEP"
+        ? "Menu & resep"
+        : "Produk";
+      showToast(
+        data.mode === "ARCHIVED"
+          ? `${label} "${deletingTarget.name}" dihapus dari daftar aktif (riwayat transaksi lama tetap aman).`
+          : `${label} "${deletingTarget.name}" berhasil dihapus permanen.`,
+        "success"
+      );
+      setDeletingTarget(null);
+      invalidateCache("/api/dashboard");
+      invalidateCache("/api/products");
+      await loadCatalog();
+    } catch {
+      showToast("Gagal menghubungi server.", "error");
+    } finally {
+      setDeletingBusy(false);
+    }
+  };
+
   return (
     <AppShell>
       {(session) => {
@@ -292,7 +350,7 @@ export function ProdukClient({
                     <button
                       type="button"
                       onClick={openAddMaterial}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4] text-xs font-extrabold hover:bg-[#CCFBF1] transition-colors duration-150 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2a3140] transition-colors duration-150 cursor-pointer"
                     >
                       <CookingPot size={17} weight="bold" aria-hidden="true" />
                       <span>+ Tambah Bahan Baku</span>
@@ -300,7 +358,7 @@ export function ProdukClient({
                     <button
                       type="button"
                       onClick={openAddProduct}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] transition-colors duration-150 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity duration-150 cursor-pointer"
                     >
                       <Plus size={17} weight="bold" aria-hidden="true" />
                       <span>{isAdmin ? "+ Tambah Menu / Produk" : "+ Ajukan Menu Baru"}</span>
@@ -313,7 +371,7 @@ export function ProdukClient({
               <div
                 role="tablist"
                 aria-label="Tab Produk dan Bahan Baku"
-                className="flex flex-wrap gap-2 pt-3 border-t border-slate-200"
+                className="flex flex-wrap gap-2 pt-3 border-t border-[#202531]/10"
               >
                 <button
                   type="button"
@@ -322,8 +380,8 @@ export function ProdukClient({
                   onClick={() => setPageTab("catalog")}
                   className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
                     pageTab === "catalog"
-                      ? "bg-[#334E6B] text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      ? "bg-[#202531] text-white"
+                      : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
                   }`}
                 >
                   <Package size={16} weight="bold" aria-hidden="true" />
@@ -337,8 +395,8 @@ export function ProdukClient({
                   onClick={() => setPageTab("materials")}
                   className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
                     pageTab === "materials"
-                      ? "bg-[#0F766E] text-white"
-                      : "bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4] hover:bg-[#CCFBF1]"
+                      ? "bg-[#202531] text-white"
+                      : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
                   }`}
                 >
                   <CookingPot size={16} weight="bold" aria-hidden="true" />
@@ -355,18 +413,18 @@ export function ProdukClient({
                   }}
                   className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
                     pageTab === "requests"
-                      ? "bg-[#334E6B] text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                      ? "bg-[#202531] text-white"
+                      : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
                   }`}
                 >
                   <ClockCounterClockwise size={16} weight="bold" aria-hidden="true" />
                   <span>{isAdmin ? "Persetujuan" : "Pengajuan Saya"}</span>
                   {pendingRequestsCount > 0 && (
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold ${
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold ${
                         pageTab === "requests"
-                          ? "bg-[#3DC2CA] text-slate-950"
-                          : "bg-[#FC5086] text-white"
+                          ? "bg-[#01DAD7] text-[#202531]"
+                          : "bg-[#FF2A63] text-white"
                       }`}
                     >
                       {pendingRequestsCount}
@@ -415,7 +473,7 @@ export function ProdukClient({
                         onClick={() => setMethodFilter(f.id)}
                         className={`px-3 min-h-[38px] rounded-xl text-xs font-bold cursor-pointer ${
                           methodFilter === f.id
-                            ? "bg-[#334E6B] text-white"
+                            ? "bg-[#202531] text-white"
                             : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
                       >
@@ -441,7 +499,7 @@ export function ProdukClient({
                         onClick={() => setReqStatusFilter(st.id)}
                         className={`px-3 min-h-[38px] rounded-xl text-xs font-bold cursor-pointer ${
                           reqStatusFilter === st.id
-                            ? "bg-[#334E6B] text-white"
+                            ? "bg-[#202531] text-white"
                             : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
                       >
@@ -481,7 +539,7 @@ export function ProdukClient({
                         <button
                           type="button"
                           onClick={openAddMaterial}
-                          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4] text-xs font-bold cursor-pointer"
+                          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7]/20 text-[#202531] border border-[#01DAD7] text-xs font-bold cursor-pointer"
                         >
                           <CookingPot size={16} weight="bold" aria-hidden="true" />
                           <span>1. Input Bahan Baku</span>
@@ -489,7 +547,7 @@ export function ProdukClient({
                         <button
                           type="button"
                           onClick={openAddProduct}
-                          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold cursor-pointer"
+                          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold cursor-pointer"
                         >
                           <Plus size={16} weight="bold" aria-hidden="true" />
                           <span>2. Tambah Menu Jual</span>
@@ -525,7 +583,7 @@ export function ProdukClient({
                               <span
                                 className={`px-2 py-0.5 rounded-lg text-[11px] font-bold ${
                                   isRecipe
-                                    ? "bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4]"
+                                    ? "bg-[#01DAD7]/20 text-[#202531] border border-[#01DAD7]"
                                     : "bg-slate-100 text-slate-700"
                                 }`}
                               >
@@ -555,7 +613,7 @@ export function ProdukClient({
 
                           <div className="flex flex-wrap items-center justify-between sm:justify-end gap-4 shrink-0">
                             <div className="text-left sm:text-right">
-                              <p className="text-sm font-extrabold font-mono text-[#334E6B] tabular-nums">
+                              <p className="text-sm font-extrabold font-mono text-[#202531] tabular-nums">
                                 {formatRupiah(displaySellPrice)}
                               </p>
                               <p className="text-[11px] font-mono text-slate-600 tabular-nums">
@@ -566,7 +624,7 @@ export function ProdukClient({
                             <div className="text-left sm:text-right min-w-[116px]">
                               <p
                                 className={`text-xs font-extrabold font-mono tabular-nums ${
-                                  isLow ? "text-[#9F1239]" : "text-[#0F766E]"
+                                  isLow ? "text-[#D41448]" : "text-[#202531]"
                                 }`}
                               >
                                 {isRecipe
@@ -579,13 +637,24 @@ export function ProdukClient({
                             </div>
 
                             {canEdit && (
-                              <button
-                                type="button"
-                                onClick={() => openEditProduct(prod)}
-                                className="px-3.5 min-h-[40px] rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-[#334E6B] cursor-pointer"
-                              >
-                                Ubah
-                              </button>
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditProduct(prod)}
+                                  className="px-3.5 min-h-[44px] rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-[#202531] cursor-pointer"
+                                >
+                                  Ubah
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingTarget(prod)}
+                                  aria-label={`Hapus ${prod.name}`}
+                                  className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] text-[#D41448] hover:bg-[#FFE0E8] text-xs font-bold cursor-pointer transition-colors"
+                                >
+                                  <Trash size={14} weight="bold" aria-hidden="true" />
+                                  <span>Hapus</span>
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -609,7 +678,7 @@ export function ProdukClient({
                       <CookingPot
                         size={36}
                         weight="duotone"
-                        className="mx-auto text-[#0F766E]"
+                        className="mx-auto text-[#202531]"
                         aria-hidden="true"
                       />
                       <div className="space-y-1">
@@ -624,7 +693,7 @@ export function ProdukClient({
                         <button
                           type="button"
                           onClick={openAddMaterial}
-                          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#0F766E] text-white text-xs font-extrabold cursor-pointer"
+                          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold cursor-pointer"
                         >
                           <Plus size={16} weight="bold" aria-hidden="true" />
                           <span>Tambah Bahan Baku Pertama</span>
@@ -666,7 +735,7 @@ export function ProdukClient({
                               <div className="text-left sm:text-right min-w-[110px]">
                                 <p
                                   className={`text-sm font-extrabold font-mono tabular-nums ${
-                                    isLow ? "text-[#9F1239]" : "text-[#0F766E]"
+                                    isLow ? "text-[#D41448]" : "text-[#202531]"
                                   }`}
                                 >
                                   {formatNumber(mat.currentStock)} {uLabel}
@@ -683,16 +752,25 @@ export function ProdukClient({
                                     disabled={busy}
                                     aria-busy={busy}
                                     onClick={() => handleQuickRestockPack(mat)}
-                                    className="px-3 min-h-[40px] rounded-xl bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4] hover:bg-[#CCFBF1] disabled:opacity-50 text-xs font-bold cursor-pointer"
+                                    className="px-3 min-h-[44px] rounded-xl bg-[#01DAD7]/20 text-[#202531] border border-[#01DAD7] hover:bg-[#01DAD7]/30 disabled:opacity-50 text-xs font-bold cursor-pointer"
                                   >
                                     {busy ? "Menambah..." : `+1 Kemasan`}
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => openEditMaterial(mat)}
-                                    className="px-3.5 min-h-[40px] rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-[#334E6B] cursor-pointer"
+                                    className="px-3.5 min-h-[44px] rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-[#202531] cursor-pointer"
                                   >
                                     Ubah
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingTarget(mat)}
+                                    aria-label={`Hapus ${mat.name}`}
+                                    className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] text-[#D41448] hover:bg-[#FFE0E8] text-xs font-bold cursor-pointer transition-colors"
+                                  >
+                                    <Trash size={14} weight="bold" aria-hidden="true" />
+                                    <span>Hapus</span>
                                   </button>
                                 </div>
                               )}
@@ -755,7 +833,7 @@ export function ProdukClient({
                               {!req.isRawMaterial && (
                                 <>
                                   {" "}• Harga Jual:{" "}
-                                  <strong className="font-mono text-[#334E6B]">
+                                  <strong className="font-mono text-[#202531]">
                                     {formatRupiah(req.sellPrice)}
                                   </strong>
                                 </>
@@ -763,7 +841,7 @@ export function ProdukClient({
                               {reqInitStock !== null && reqInitStock > 0 && (
                                 <>
                                   {" "}• Stok Awal:{" "}
-                                  <strong className="font-mono text-[#0F766E]">
+                                  <strong className="font-mono text-[#202531]">
                                     {formatNumber(reqInitStock)} {getUnitDisplayLabel(req.sellUnit)}
                                   </strong>
                                 </>
@@ -775,7 +853,7 @@ export function ProdukClient({
                               {formatDateTimeJakarta(req.createdAt)}
                             </p>
                             {req.status === "DITOLAK" && req.rejectionReason && (
-                              <p className="text-xs font-semibold text-[#9F1239] bg-[#FFF1F2] border border-[#FECDD3] rounded-lg px-3 py-1.5 mt-1">
+                              <p className="text-xs font-semibold text-[#D41448] bg-[#FFF0F4] border border-[#FF2A63]/35 rounded-lg px-3 py-1.5 mt-1">
                                 Alasan Penolakan: {req.rejectionReason}
                               </p>
                             )}
@@ -789,7 +867,7 @@ export function ProdukClient({
                                   setReviewingRequest(req);
                                   setRejectionReason("");
                                 }}
-                                className="inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] cursor-pointer"
+                                className="inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] cursor-pointer"
                               >
                                 <Eye size={16} weight="bold" aria-hidden="true" />
                                 <span>Tinjau &amp; Putuskan</span>
@@ -865,7 +943,7 @@ export function ProdukClient({
                     </div>
                     <div>
                       <p className="text-slate-500">Harga Jual</p>
-                      <p className="font-mono font-extrabold text-[#334E6B] mt-0.5">
+                      <p className="font-mono font-extrabold text-[#202531] mt-0.5">
                         {reviewingRequest.isRawMaterial
                           ? "Tidak dijual langsung"
                           : formatRupiah(reviewingRequest.sellPrice)}
@@ -877,7 +955,7 @@ export function ProdukClient({
                       return (
                         <div>
                           <p className="text-slate-500">Stok Awal Diajukan</p>
-                          <p className="font-mono font-extrabold text-[#0F766E] mt-0.5">
+                          <p className="font-mono font-extrabold text-[#202531] mt-0.5">
                             {formatNumber(initStock)}{" "}
                             {getUnitDisplayLabel(reviewingRequest.sellUnit)}
                           </p>
@@ -909,7 +987,7 @@ export function ProdukClient({
                       disabled={reviewingBusy}
                       aria-busy={reviewingBusy}
                       onClick={() => handleReviewRequest("DISETUJUI")}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-[#0F766E] text-white text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
                     >
                       <CheckCircle size={18} weight="bold" aria-hidden="true" />
                       <span>{reviewingBusy ? "Memproses..." : "Setujui & Aktifkan"}</span>
@@ -919,7 +997,7 @@ export function ProdukClient({
                       disabled={reviewingBusy}
                       aria-busy={reviewingBusy}
                       onClick={() => handleReviewRequest("DITOLAK")}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-[#9F1239] text-white text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[48px] rounded-xl bg-[#D41448] text-white text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
                     >
                       <XCircle size={18} weight="bold" aria-hidden="true" />
                       <span>Tolak Pengajuan</span>
@@ -938,6 +1016,7 @@ export function ProdukClient({
               units={units}
               isAdmin={isAdmin}
               canSave={editingMaterial ? canEdit : canCreate}
+              onRequestDelete={(mat) => setDeletingTarget(mat)}
               onSaved={async (mode) => {
                 invalidateCache("/api/dashboard");
                 if (mode === "REQUEST") {
@@ -960,6 +1039,7 @@ export function ProdukClient({
               units={units}
               isAdmin={isAdmin}
               canSave={editingProduct ? canEdit : canCreate}
+              onRequestDelete={(prod) => setDeletingTarget(prod)}
               onSwitchToAddMaterial={() => {
                 setProductDrawerOpen(false);
                 openAddMaterial();
@@ -975,6 +1055,108 @@ export function ProdukClient({
                 }
               }}
             />
+
+            {/* MODAL KONFIRMASI HAPUS PRODUK / RESEP / BAHAN BAKU */}
+            {portalMounted &&
+              deletingTarget &&
+              (() => {
+                const dependentMenus = deletingTarget.isRawMaterial
+                  ? products.filter(
+                      (p) =>
+                        !p.isRawMaterial &&
+                        p.variants.some((v) =>
+                          v.ingredients.some((ing) => ing.materialId === deletingTarget.id)
+                        )
+                    )
+                  : [];
+                const targetKindLabel = deletingTarget.isRawMaterial
+                  ? "bahan baku"
+                  : deletingTarget.stockMethod === "RESEP"
+                  ? "produk dan resep"
+                  : "produk";
+
+                return createPortal(
+                  <div className="fixed inset-0 z-[70] !m-0 flex items-center justify-center p-4">
+                    <div
+                      className="fixed inset-0 bg-[#202531]/55 backdrop-blur-[1px]"
+                      onClick={() => {
+                        if (!deletingBusy) setDeletingTarget(null);
+                      }}
+                    />
+                    <div
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="delete-product-title"
+                      className="relative z-10 w-full max-w-md rounded-2xl bg-white border border-[#EBEBEB] shadow-2xl p-6 space-y-4"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-11 h-11 rounded-xl bg-[#FFF0F4] border border-[#FF2A63]/30 text-[#D41448] flex items-center justify-center shrink-0">
+                          <Warning size={22} weight="bold" aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0">
+                          <h2
+                            id="delete-product-title"
+                            className="text-base font-bold text-[#202531] leading-snug"
+                          >
+                            Apakah Anda yakin ingin menghapus {targetKindLabel} &quot;{deletingTarget.name}&quot;?
+                          </h2>
+                          <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                            {deletingTarget.stockMethod === "RESEP"
+                              ? "Menu ini beserta daftar takaran resepnya akan dihapus dari kasir. Stok bahan baku yang tersisa tidak ikut terhapus."
+                              : deletingTarget.isRawMaterial
+                              ? "Bahan baku ini akan dihapus dari daftar stok dapur/gudang."
+                              : "Produk ini akan dihapus dari daftar kasir dan katalog."}
+                          </p>
+                        </div>
+                      </div>
+
+                      {dependentMenus.length > 0 && (
+                        <div className="rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] p-3 text-xs text-[#D41448] space-y-1">
+                          <p className="font-bold">
+                            Bahan baku ini masih dipakai di {dependentMenus.length} resep aktif:
+                          </p>
+                          <p className="font-semibold">
+                            {dependentMenus
+                              .slice(0, 4)
+                              .map((m) => m.name)
+                              .join(", ")}
+                            {dependentMenus.length > 4
+                              ? `, dan ${dependentMenus.length - 4} lainnya`
+                              : ""}
+                          </p>
+                          <p>
+                            Hapus atau ubah resep menu tersebut terlebih dahulu sebelum menghapus bahan baku ini.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-2.5 pt-2">
+                        <button
+                          type="button"
+                          disabled={deletingBusy}
+                          onClick={() => setDeletingTarget(null)}
+                          className="px-4 min-h-[44px] rounded-xl border border-[#EBEBEB] bg-white hover:bg-[#F7F8FA] text-sm font-bold text-[#202531] disabled:opacity-50 cursor-pointer transition-colors"
+                        >
+                          Batal
+                        </button>
+                        {dependentMenus.length === 0 && (
+                          <button
+                            type="button"
+                            disabled={deletingBusy}
+                            aria-busy={deletingBusy}
+                            onClick={handleConfirmDelete}
+                            className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#D41448] hover:bg-[#b8103d] text-white text-sm font-bold disabled:opacity-50 cursor-pointer transition-colors"
+                          >
+                            <Trash size={16} weight="bold" aria-hidden="true" />
+                            <span>{deletingBusy ? "Menghapus..." : "Ya, Hapus"}</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>,
+                  document.body
+                );
+              })()}
           </div>
         );
       }}

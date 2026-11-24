@@ -16,7 +16,11 @@ import { POST as registerUser } from "../src/app/api/auth/register/route";
 import { GET as getProfit } from "../src/app/api/profit/route";
 import { GET as getDashboard } from "../src/app/api/dashboard/route";
 import { GET as getReports } from "../src/app/api/reports/route";
-import { POST as createProduct, GET as listProducts } from "../src/app/api/products/route";
+import {
+  POST as createProduct,
+  GET as listProducts,
+  DELETE as deleteProduct,
+} from "../src/app/api/products/route";
 import { GET as listProductRequests } from "../src/app/api/product-requests/route";
 import { POST as reviewProductRequest } from "../src/app/api/product-requests/[id]/review/route";
 import { GET as listSales, POST as createSale } from "../src/app/api/sales/route";
@@ -868,5 +872,159 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     // Pastikan tidak ada notifikasi selisih kas shift yang dibuat
     const shiftNotifs = await prisma.notification.findMany({ where: { category: "SHIFT" } });
     expect(shiftNotifs.length).toBe(0);
+  });
+
+  it("Scenario 26: Delete product, recipe product, and raw material with dependency & history safety", async () => {
+    const regOwnerRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Owner Kafe",
+        username: "owner_kafe_del",
+        password: "PasswordAman123",
+        roomName: "Kafe Uji Hapus",
+      })
+    );
+    expect(regOwnerRes.status).toBe(201);
+    const ownerJson = await regOwnerRes.json();
+    const ownerToken = extractSessionToken(regOwnerRes)!;
+
+    activeSessionToken = ownerToken;
+    const invRes = await createInvitation(
+      jsonReq("http://localhost/api/invitations", "POST", {
+        inviteType: "CODE",
+        assignedRole: "KASIR",
+      })
+    );
+    expect(invRes.status).toBe(201);
+    const invCode = (await invRes.json()).inviteCode as string;
+
+    const category = await prisma.category.create({
+      data: { roomId: ownerJson.user.roomId, name: "Minuman", areaType: "CAFE" },
+    });
+
+    // 1. Tambah bahan baku Susu Ultra Milk
+    const matRes = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "BHN-SUSU-01",
+        name: "Susu Ultra Milk",
+        categoryId: category.id,
+        stockMethod: "PECAH",
+        isRawMaterial: true,
+        purchaseUnit: "dus",
+        sellUnit: "ml",
+        conversionRatio: 1000,
+        costPrice: 20,
+        sellPrice: 0,
+        initialStock: 2000,
+      })
+    );
+    expect(matRes.status).toBe(201);
+    const susu = (await matRes.json()).product;
+
+    // 2. Tambah menu resep Es Teh Susu memakai Susu Ultra Milk
+    const recipeRes = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "MNU-SUSU-01",
+        name: "Es Susu Manis",
+        categoryId: category.id,
+        stockMethod: "RESEP",
+        isRawMaterial: false,
+        purchaseUnit: "gelas",
+        sellUnit: "gelas",
+        conversionRatio: 1,
+        costPrice: 0,
+        sellPrice: 15000,
+        variants: [
+          {
+            name: "Reguler",
+            sellPrice: 15000,
+            costPrice: 0,
+            ingredients: [{ materialId: susu.id, quantity: 150, unit: "ml" }],
+          },
+        ],
+      })
+    );
+    expect(recipeRes.status).toBe(201);
+    const recipeProd = (await recipeRes.json()).product;
+
+    // 3. Tambah produk reguler dengan riwayat transaksi
+    const regProdRes = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "PRD-AIR-01",
+        barcode: "8990001112223",
+        name: "Air Mineral",
+        categoryId: category.id,
+        stockMethod: "TETAP",
+        isRawMaterial: false,
+        purchaseUnit: "botol",
+        sellUnit: "botol",
+        conversionRatio: 1,
+        costPrice: 2000,
+        sellPrice: 5000,
+        initialStock: 10,
+      })
+    );
+    expect(regProdRes.status).toBe(201);
+    const regProd = (await regProdRes.json()).product;
+
+    const saleRes = await createSale(
+      jsonReq("http://localhost/api/sales", "POST", {
+        paymentMethod: "TUNAI",
+        items: [{ productId: regProd.id, quantity: 1 }],
+      })
+    );
+    expect(saleRes.status).toBe(200);
+
+    // 4. Kasir tidak boleh menghapus produk (403)
+    const joinKasir = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "JOIN_ROOM",
+        name: "Kasir Uji",
+        username: "kasir_uji_del",
+        password: "PasswordAman123",
+        inviteCode: invCode,
+      })
+    );
+    expect(joinKasir.status).toBe(201);
+    activeSessionToken = extractSessionToken(joinKasir)!;
+    const kasirDel = await deleteProduct(
+      new Request(`http://localhost/api/products?id=${regProd.id}`, { method: "DELETE" })
+    );
+    expect(kasirDel.status).toBe(403);
+
+    // 5. Bahan baku yang masih dipakai di resep aktif ditolak (409)
+    activeSessionToken = ownerToken;
+    const delMatBlocked = await deleteProduct(
+      new Request(`http://localhost/api/products?id=${susu.id}`, { method: "DELETE" })
+    );
+    expect(delMatBlocked.status).toBe(409);
+
+    // 6. Hapus produk resep (belum ada transaksi -> HARD_DELETED), lalu bahan baku bisa dihapus
+    const delRecipe = await deleteProduct(
+      new Request(`http://localhost/api/products?id=${recipeProd.id}`, { method: "DELETE" })
+    );
+    expect(delRecipe.status).toBe(200);
+    expect((await delRecipe.json()).mode).toBe("HARD_DELETED");
+
+    const delMatOk = await deleteProduct(
+      new Request(`http://localhost/api/products?id=${susu.id}`, { method: "DELETE" })
+    );
+    expect(delMatOk.status).toBe(200);
+    expect((await delMatOk.json()).mode).toBe("HARD_DELETED");
+
+    // 7. Hapus produk yang sudah punya transaksi -> ARCHIVED (barcode dilepas, hilang dari katalog aktif)
+    const delRegProd = await deleteProduct(
+      new Request(`http://localhost/api/products?id=${regProd.id}`, { method: "DELETE" })
+    );
+    expect(delRegProd.status).toBe(200);
+    const delRegJson = await delRegProd.json();
+    expect(delRegJson.mode).toBe("ARCHIVED");
+
+    const archivedRow = await prisma.product.findUniqueOrThrow({ where: { id: regProd.id } });
+    expect(archivedRow.isActive).toBe(false);
+    expect(archivedRow.barcode).toBeNull();
+
+    const activeList = await (await listProducts()).json();
+    expect(activeList.products).toHaveLength(0);
   });
 });

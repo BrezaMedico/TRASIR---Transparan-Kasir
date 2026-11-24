@@ -4,17 +4,17 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AppShell, useToast } from "@/components/layout/AppShell";
 import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { SalesLineChart } from "@/components/charts/SalesLineChart";
 import { formatNumber, formatRupiah } from "@/lib/format";
 import {
   DownloadSimple,
   Info,
-  ChartBar,
-  TrendUp,
   Trophy,
   WarningOctagon,
 } from "@phosphor-icons/react";
 
 interface ReportPayload {
+  granularity?: "hourly" | "daily" | "monthly";
   summary: {
     totalRevenue: number;
     totalPurchases: number;
@@ -25,10 +25,14 @@ interface ReportPayload {
   };
   chartSeries: {
     date: string;
+    label?: string;
+    shortLabel?: string;
     revenue: number;
     cogs: number;
     grossProfit: number;
     purchases: number;
+    salesCount?: number;
+    isFuture?: boolean;
   }[];
   profitableProducts: {
     productId: string;
@@ -53,7 +57,7 @@ interface ReportPayload {
 export default function LaporanPage() {
   const { showToast } = useToast();
 
-  const [period, setPeriod] = useState<"daily" | "monthly" | "custom">("monthly");
+  const [period, setPeriod] = useState<"daily" | "weekly" | "monthly" | "custom">("monthly");
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -110,13 +114,15 @@ export default function LaporanPage() {
       ["Keuntungan Kotor (Total Penjualan - HPP)", String(report.summary.grossProfit)],
       [],
       ["Tanggal", "Pendapatan (Rp)", "HPP Barang Terjual (Rp)", "Keuntungan Kotor (Rp)", "Pembelian Disetujui (Rp)"],
-      ...report.chartSeries.map((c) => [
-        c.date,
-        String(c.revenue),
-        String(c.cogs),
-        String(c.grossProfit),
-        String(c.purchases),
-      ]),
+      ...report.chartSeries
+        .filter((c) => !c.isFuture)
+        .map((c) => [
+          c.date,
+          String(c.revenue),
+          String(c.cogs),
+          String(c.grossProfit),
+          String(c.purchases),
+        ]),
     ];
 
     const csvContent = rows.map((r) => r.join(",")).join("\n");
@@ -133,10 +139,8 @@ export default function LaporanPage() {
   return (
     <AppShell>
       {() => {
-        const maxVal = Math.max(
-          1,
-          ...(report?.chartSeries || []).flatMap((c) => [c.revenue, c.cogs, Math.abs(c.grossProfit)])
-        );
+        const activeGranularity =
+          report?.granularity || (period === "daily" ? "hourly" : "daily");
 
         return (
           <div className="space-y-6">
@@ -161,17 +165,19 @@ export default function LaporanPage() {
                     {(
                       [
                         { id: "daily", label: "Harian" },
-                        { id: "monthly", label: "Bulanan (30 Hari)" },
+                        { id: "weekly", label: "Mingguan" },
+                        { id: "monthly", label: "Bulanan" },
                         { id: "custom", label: "Rentang Kustom" },
                       ] as const
                     ).map((p) => (
                       <button
                         key={p.id}
                         type="button"
+                        aria-pressed={period === p.id}
                         onClick={() => setPeriod(p.id)}
-                        className={`px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                        className={`px-3 py-1.5 min-h-[44px] sm:min-h-[38px] rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                           period === p.id
-                            ? "bg-[#334E6B] text-white"
+                            ? "bg-[#202531] text-white"
                             : "text-slate-700 hover:text-slate-900"
                         }`}
                       >
@@ -184,7 +190,7 @@ export default function LaporanPage() {
                     type="button"
                     onClick={handleExportCsv}
                     disabled={!report}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] disabled:opacity-40 cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2a3140] disabled:opacity-40 cursor-pointer"
                   >
                     <DownloadSimple size={18} weight="bold" aria-hidden="true" />
                     <span>Ekspor Laporan (CSV)</span>
@@ -261,7 +267,7 @@ export default function LaporanPage() {
                       </p>
                     </div>
 
-                    <div className="bg-[#334E6B] text-white rounded-2xl p-5 shadow-sm">
+                    <div className="bg-[#202531] text-white rounded-2xl p-5 shadow-sm">
                       <p className="text-xs font-semibold text-slate-200">
                         Keuntungan Kotor (Penjualan - HPP)
                       </p>
@@ -275,7 +281,7 @@ export default function LaporanPage() {
                   </div>
 
                   {/* Mandatory Notice per Blueprint & PDF Section 9 */}
-                  <div className="p-4 rounded-2xl bg-[#F0FDFA] border border-[#99F6E4] text-xs text-[#0F766E] flex items-start gap-2.5">
+                  <div className="p-4 rounded-2xl bg-[#EBEBEB] border border-[#202531]/15 text-xs text-[#202531] flex items-start gap-2.5">
                     <Info size={18} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
                     <div>
                       <p className="font-extrabold">
@@ -288,110 +294,34 @@ export default function LaporanPage() {
                   </div>
                 </div>
 
-                {/* ROW 2: 2 Side-by-Side Charts (Bar Chart: Pendapatan vs HPP, Line/Trend Chart: Perkembangan Keuntungan Kotor) */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Chart 1: Bar Chart Pendapatan vs Modal/HPP */}
-                  <section
-                    aria-labelledby="bar-chart-heading"
-                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ChartBar size={20} weight="duotone" className="text-[#334E6B]" aria-hidden="true" />
-                        <h2 id="bar-chart-heading" className="text-base font-extrabold text-slate-900">
-                          Grafik Batang: Pendapatan vs Modal / HPP
-                        </h2>
-                      </div>
-                    </div>
-
-                    {report.chartSeries.length === 0 ? (
-                      <div className="py-12 text-center text-xs text-slate-600 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                        Belum ada data penjualan tercatat pada periode ini.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {report.chartSeries.map((c) => {
-                          const revPct = Math.max(4, Math.round((c.revenue / maxVal) * 100));
-                          const cogsPct = Math.max(4, Math.round((c.cogs / maxVal) * 100));
-                          return (
-                            <div
-                              key={c.date}
-                              className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs"
-                            >
-                              <div className="flex items-center justify-between font-mono font-bold">
-                                <span>{c.date}</span>
-                                <span>
-                                  Pendapatan: {formatRupiah(c.revenue)} | HPP: {formatRupiah(c.cogs)}
-                                </span>
-                              </div>
-                              <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-[#334E6B] rounded-full"
-                                  style={{ width: `${revPct}%` }}
-                                />
-                              </div>
-                              <div className="h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-[#FC5086] rounded-full"
-                                  style={{ width: `${cogsPct}%` }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
-
-                  {/* Chart 2: Perkembangan Keuntungan Kotor */}
-                  <section
-                    aria-labelledby="line-chart-heading"
-                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <TrendUp size={20} weight="duotone" className="text-[#0F766E]" aria-hidden="true" />
-                        <h2 id="line-chart-heading" className="text-base font-extrabold text-slate-900">
-                          Perkembangan Keuntungan Kotor dari Waktu ke Waktu
-                        </h2>
-                      </div>
-                    </div>
-
-                    {report.chartSeries.length === 0 ? (
-                      <div className="py-12 text-center text-xs text-slate-600 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                        Belum ada perkembangan keuntungan kotor untuk ditampilkan.
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {report.chartSeries.map((c) => {
-                          const profitPct = Math.max(
-                            4,
-                            Math.round((Math.max(0, c.grossProfit) / maxVal) * 100)
-                          );
-                          return (
-                            <div
-                              key={c.date}
-                              className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs"
-                            >
-                              <div className="flex items-center justify-between font-mono font-bold">
-                                <span>{c.date}</span>
-                                <span className="text-[#0F766E]">
-                                  Laba Kotor: {formatRupiah(c.grossProfit)}
-                                </span>
-                              </div>
-                              <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-[#3DC2CA] rounded-full"
-                                  style={{ width: `${profitPct}%` }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </section>
-                </div>
+                {/* ROW 2: Grafik Garis Penjualan, Modal/HPP, & Keuntungan Kotor */}
+                <SalesLineChart
+                  headingId="report-line-chart-heading"
+                  title="Grafik Tren Penjualan, Modal/HPP, & Keuntungan Kotor"
+                  subtitle={
+                    period === "daily"
+                      ? "Pergerakan pendapatan, HPP, dan laba kotor per jam hari ini (WIB)"
+                      : period === "weekly"
+                      ? "Tren pendapatan, HPP, dan laba kotor harian sepanjang minggu ini"
+                      : period === "monthly"
+                      ? "Tren pendapatan, HPP, dan laba kotor harian sepanjang bulan ini"
+                      : "Tren pendapatan, HPP, dan laba kotor sesuai rentang tanggal pilihan"
+                  }
+                  granularity={activeGranularity}
+                  showCogsSeries={true}
+                  data={report.chartSeries.map((c) => ({
+                    key: c.date,
+                    label: c.label || c.date,
+                    shortLabel: c.shortLabel || c.date,
+                    revenue: c.revenue,
+                    grossProfit: c.grossProfit,
+                    cogs: c.cogs,
+                    salesCount: c.salesCount,
+                    isFuture: c.isFuture,
+                  }))}
+                  emptyTitle="Belum ada data penjualan tercatat pada periode ini."
+                  emptySubtitle="Grafik garis akan muncul otomatis setelah transaksi penjualan dicatat di Kasir."
+                />
 
                 {/* ROW 3: 2 Side-by-Side Tables (Produk Paling Menguntungkan & Produk Bermasalah) */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -401,7 +331,7 @@ export default function LaporanPage() {
                     className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
                   >
                     <div className="flex items-center gap-2">
-                      <Trophy size={20} weight="duotone" className="text-[#166534]" aria-hidden="true" />
+                      <Trophy size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
                       <div>
                         <h2
                           id="profitable-products-heading"
@@ -443,7 +373,7 @@ export default function LaporanPage() {
                                 <td className="py-2.5 px-3 text-right font-mono">
                                   {formatRupiah(p.totalRevenue)}
                                 </td>
-                                <td className="py-2.5 px-3 text-right font-mono font-extrabold text-[#166534]">
+                                <td className="py-2.5 px-3 text-right font-mono font-extrabold text-[#202531]">
                                   {formatRupiah(p.grossProfit)}
                                 </td>
                                 <td className="py-2.5 px-3 text-right font-mono font-bold">
@@ -466,7 +396,7 @@ export default function LaporanPage() {
                       <WarningOctagon
                         size={20}
                         weight="duotone"
-                        className="text-[#9F1239]"
+                        className="text-[#D41448]"
                         aria-hidden="true"
                       />
                       <div>
@@ -506,13 +436,13 @@ export default function LaporanPage() {
                                     <StatusBadge status={p.areaType} />
                                   </div>
                                 </td>
-                                <td className="py-2.5 px-3 text-right font-mono font-bold text-[#9F1239]">
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-[#D41448]">
                                   {p.discrepancyFrequency}x Opname
                                 </td>
                                 <td className="py-2.5 px-3 text-right font-mono">
                                   {formatNumber(p.totalUnitDiff)}
                                 </td>
-                                <td className="py-2.5 px-3 text-right font-mono font-extrabold text-[#9F1239]">
+                                <td className="py-2.5 px-3 text-right font-mono font-extrabold text-[#D41448]">
                                   {formatRupiah(p.totalLossRp)}
                                 </td>
                               </tr>

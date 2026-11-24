@@ -47,6 +47,77 @@ export function getJakartaStartOfDay(now = new Date()): Date {
   return fromJakartaWallClock(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate());
 }
 
+export function getJakartaDateParts(dateInput: Date | string = new Date()): {
+  year: number;
+  monthIndex: number;
+  day: number;
+  hour: number;
+} {
+  const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
+  const wib = toJakartaWallClock(d);
+  return {
+    year: wib.getUTCFullYear(),
+    monthIndex: wib.getUTCMonth(),
+    day: wib.getUTCDate(),
+    hour: wib.getUTCHours(),
+  };
+}
+
+export function getJakartaCurrentHour(now = new Date()): number {
+  return toJakartaWallClock(now).getUTCHours();
+}
+
+export function getJakartaDaysInMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+export function addJakartaDays(dateKey: string, deltaDays: number): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return dateKey;
+  }
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays, 12, 0, 0));
+  const year = dt.getUTCFullYear();
+  const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function enumerateJakartaDateKeys(startDateKey: string, endDateKey: string): string[] {
+  if (!startDateKey || !endDateKey || startDateKey > endDateKey) return [];
+  const keys: string[] = [];
+  let cursor = startDateKey;
+  const maxIterations = 400;
+  for (let i = 0; i < maxIterations; i += 1) {
+    keys.push(cursor);
+    if (cursor >= endDateKey) break;
+    cursor = addJakartaDays(cursor, 1);
+  }
+  return keys;
+}
+
+export function enumerateJakartaMonthKeys(startDateKey: string, endDateKey: string): string[] {
+  if (!startDateKey || !endDateKey || startDateKey > endDateKey) return [];
+  const [sy, sm] = startDateKey.split("-").map(Number);
+  const [ey, em] = endDateKey.split("-").map(Number);
+  if (!Number.isFinite(sy) || !Number.isFinite(sm) || !Number.isFinite(ey) || !Number.isFinite(em)) {
+    return [];
+  }
+  const keys: string[] = [];
+  let y = sy;
+  let m = sm;
+  for (let i = 0; i < 60; i += 1) {
+    keys.push(`${y}-${String(m).padStart(2, "0")}`);
+    if (y > ey || (y === ey && m >= em)) break;
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return keys;
+}
+
 export interface JakartaPeriodBounds {
   period: ProfitPeriod;
   timezone: "Asia/Jakarta";

@@ -3,24 +3,16 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
 import { fetchJsonCached, getCachedData, setCachedData } from "@/lib/client-cache";
+import { SalesLineChart } from "@/components/charts/SalesLineChart";
 import type { GrossProfitReport } from "@/lib/queries/profit";
 import {
   ArrowUpRight,
-  MagnifyingGlass,
   Storefront,
   Receipt,
-  Plus,
-  Warning,
-  CheckCircle,
-  Clock,
-  ChartBar,
-  TrendUp,
-  TrendDown,
-  Info,
   Package,
+  Warning,
 } from "@phosphor-icons/react";
 
 interface DashboardPayload {
@@ -48,15 +40,6 @@ interface DashboardPayload {
       category: { name: string; areaType: string };
       requestedBy: { id: string; name: string; role: string };
     }[];
-    purchases: {
-      id: string;
-      invoiceNumber: string;
-      supplierName: string;
-      totalAmount: number;
-      aiValidationStatus: string;
-      createdAt: string;
-      submittedBy: { name: string; role: string };
-    }[];
     amendments: {
       id: string;
       amendmentType: string;
@@ -64,34 +47,6 @@ interface DashboardPayload {
       createdAt: string;
       sale: { receiptNumber: string; totalAmount: number };
       requestedBy: { id: string; name: string; role: string };
-    }[];
-    adjustments: {
-      id: string;
-      adjustmentType: string;
-      quantity: number;
-      reason: string;
-      createdAt: string;
-      product: { name: string; sellUnit: string };
-      requestedBy: { name: string; role: string };
-    }[];
-  };
-  anomalies: {
-    aiFlaggedPurchases: {
-      id: string;
-      invoiceNumber: string;
-      supplierName: string;
-      aiValidationStatus: string;
-      totalAmount: number;
-      submittedBy: { name: string };
-    }[];
-    exceedingOpnameItems: {
-      id: string;
-      areaType: string;
-      differenceUnit: number;
-      lossValueRp: number;
-      toleranceStatus: string;
-      product: { name: string; sellUnit: string };
-      session: { title: string; createdAt: string };
     }[];
   };
   lowStockProducts: {
@@ -111,7 +66,6 @@ export function DashboardClient({
   initialData?: DashboardPayload | null;
 }) {
   const [range, setRange] = useState<"today" | "week" | "month">("month");
-  const [searchQuery, setSearchQuery] = useState("");
   const [queueTab, setQueueTab] = useState<"productRequests" | "amendments">("productRequests");
   const [data, setData] = useState<DashboardPayload | null>(() => {
     if (initialData) {
@@ -121,6 +75,7 @@ export function DashboardClient({
     return getCachedData<DashboardPayload>("/api/dashboard?range=month") ?? null;
   });
   const [loading, setLoading] = useState<boolean>(() => !data);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const skippedFirstFetch = useRef(Boolean(initialData));
 
@@ -131,8 +86,13 @@ export function DashboardClient({
       if (cached) {
         setData(cached);
         setLoading(false);
+        setRefreshing(false);
       } else if (!silent) {
-        setLoading(true);
+        if (data) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
       }
       setErrorMsg(null);
       try {
@@ -141,20 +101,22 @@ export function DashboardClient({
           { force: true }
         );
         if (!ok) {
-          if (!cached) {
-            setErrorMsg(json.error || "Gagal memuat data dashboard.");
+          if (!cached && !data) {
+            setErrorMsg(json.error || "Gagal memuat ringkasan toko.");
           }
           return;
         }
         setData(json);
       } catch {
-        if (!cached) {
-          setErrorMsg("Gagal terhubung ke server database.");
+        if (!cached && !data) {
+          setErrorMsg("Gagal terhubung ke server database. Coba muat ulang.");
         }
       } finally {
         setLoading(false);
+        setRefreshing(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [range]
   );
 
@@ -169,596 +131,469 @@ export function DashboardClient({
   return (
     <AppShell>
       {(session) => {
-        const q = searchQuery.trim().toLowerCase();
-
-        const filteredProductReqs = (data?.approvalQueue.productRequests || []).filter(
-          (pr) =>
-            !q ||
-            pr.name.toLowerCase().includes(q) ||
-            pr.sku.toLowerCase().includes(q) ||
-            pr.requestedBy.name.toLowerCase().includes(q)
-        );
-        const filteredQueueAmendments = (data?.approvalQueue.amendments || []).filter(
-          (a) =>
-            !q ||
-            a.sale.receiptNumber.toLowerCase().includes(q) ||
-            a.reason.toLowerCase().includes(q) ||
-            a.requestedBy.name.toLowerCase().includes(q)
-        );
-
-        const totalPendingQueue =
-          (data?.approvalQueue.productRequests.length || 0) +
-          (data?.approvalQueue.amendments.length || 0);
-
-        const maxChartVal = Math.max(
-          1,
-          ...(data?.chartSeries || []).flatMap((c) => [
-            c.netRevenue,
-            c.cogs,
-            Math.abs(c.grossProfit),
-          ])
-        );
-
+        const productReqs = data?.approvalQueue.productRequests || [];
+        const amendments = data?.approvalQueue.amendments || [];
+        const totalPendingQueue = productReqs.length + amendments.length;
         const profit = data?.profit;
 
         return (
           <div className="space-y-6">
-            {/* Header & Pemilih Periode Keuntungan Kotor */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            {/* BARIS 1: Header Minimalis & Pemilih Periode */}
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
               <div>
-                <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                  Dashboard Keuntungan Kotor &amp; Pusat Persetujuan
+                <h1 className="text-2xl font-extrabold tracking-tight text-[#202531]">
+                  Halo, {session.user.name.split(" ")[0]}
                 </h1>
-                <p className="text-xs text-slate-600 mt-1">
-                  Ringkasan keuntungan kotor berbasis HPP historis ({profit?.periodLabel || "Asia/Jakarta"}) serta antrean persetujuan ruangan
+                <p className="text-sm text-[#525866] mt-0.5">
+                  Ringkasan toko {session.storeName} ({profit?.periodLabel || "Bulan Ini"})
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="relative flex-1 sm:flex-initial sm:w-60">
-                  <MagnifyingGlass
-                    size={16}
-                    weight="bold"
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"
-                    aria-hidden="true"
-                  />
-                  <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Cari produk, struk, nota..."
-                    aria-label="Pencarian cepat di dashboard"
-                    className="w-full pl-9 pr-3.5 py-2 min-h-[44px] rounded-xl border border-slate-300 text-xs font-medium text-slate-900 bg-slate-50 focus:bg-white"
-                  />
-                </div>
-
-                {/* 3 Pilihan Periode: Hari Ini, Minggu Ini (mulai Senin), Bulan Ini */}
-                <div
-                  role="group"
-                  aria-label="Filter periode keuntungan kotor"
-                  className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200"
-                >
-                  {(
-                    [
-                      { id: "today", label: "Hari Ini" },
-                      { id: "week", label: "Minggu Ini" },
-                      { id: "month", label: "Bulan Ini" },
-                    ] as const
-                  ).map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setRange(item.id)}
-                      className={`px-3.5 py-1.5 min-h-[36px] rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                        range === item.id
-                          ? "bg-[#334E6B] text-white shadow-sm"
-                          : "text-slate-700 hover:text-slate-900"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
+              <div
+                role="group"
+                aria-label="Pilih jangka waktu"
+                className="inline-flex p-1 rounded-xl bg-white border border-[#202531]/15 self-start sm:self-auto"
+              >
+                {(
+                  [
+                    { id: "today", label: "Harian" },
+                    { id: "week", label: "Mingguan" },
+                    { id: "month", label: "Bulanan" },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    aria-pressed={range === item.id}
+                    onClick={() => setRange(item.id)}
+                    className={`px-4 min-h-[44px] sm:min-h-[40px] rounded-lg text-xs font-bold transition-colors duration-150 cursor-pointer ${
+                      range === item.id
+                        ? "bg-[#202531] text-white"
+                        : "text-[#525866] hover:text-[#202531]"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
             </div>
+
+            {/* BARIS 2: 3 Tombol Aksi Utama (Ramah Pemula: Langsung Tahu Harus Klik Apa) */}
+            <section aria-label="Aksi Cepat Toko">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                {session.permissions.kasir?.canView && (
+                  <Link
+                    href="/kasir"
+                    className="group p-5 rounded-2xl bg-[#01DAD7] text-[#202531] flex items-center justify-between gap-4 hover:opacity-95 transition-opacity duration-150"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Storefront size={20} weight="bold" aria-hidden="true" />
+                        <span className="text-base font-extrabold">Buka Kasir</span>
+                      </div>
+                      <p className="text-xs font-semibold text-[#202531]/80 mt-1">
+                        Catat pesanan dan pembayaran pembeli
+                      </p>
+                    </div>
+                    <ArrowUpRight
+                      size={20}
+                      weight="bold"
+                      className="shrink-0 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                      aria-hidden="true"
+                    />
+                  </Link>
+                )}
+
+                {session.permissions.produk?.canView && (
+                  <Link
+                    href="/produk"
+                    className="group p-5 rounded-2xl bg-[#202531] text-white flex items-center justify-between gap-4 hover:bg-[#2a3140] transition-colors duration-150"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Package size={20} weight="bold" className="text-[#01DAD7]" aria-hidden="true" />
+                        <span className="text-base font-extrabold">Produk &amp; Bahan Baku</span>
+                      </div>
+                      <p className="text-xs text-[#EBEBEB]/80 mt-1">
+                        Atur menu jualan, harga, dan stok bahan
+                      </p>
+                    </div>
+                    <ArrowUpRight
+                      size={20}
+                      weight="bold"
+                      className="shrink-0 text-[#01DAD7] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                      aria-hidden="true"
+                    />
+                  </Link>
+                )}
+
+                {session.permissions.penjualan?.canView && (
+                  <Link
+                    href="/penjualan"
+                    className="group p-5 rounded-2xl bg-white border border-[#202531]/15 text-[#202531] flex items-center justify-between gap-4 hover:border-[#202531] transition-colors duration-150"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Receipt size={20} weight="bold" aria-hidden="true" />
+                        <span className="text-base font-extrabold">Riwayat Transaksi</span>
+                      </div>
+                      <p className="text-xs text-[#525866] mt-1">
+                        Cek struk masuk atau ajukan pembatalan
+                      </p>
+                    </div>
+                    <ArrowUpRight
+                      size={20}
+                      weight="bold"
+                      className="shrink-0 text-[#525866] group-hover:text-[#202531] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                      aria-hidden="true"
+                    />
+                  </Link>
+                )}
+              </div>
+            </section>
 
             {errorMsg && (
               <div
                 role="alert"
-                className="p-4 rounded-2xl bg-[#FFF1F2] border border-[#FECDD3] text-xs font-semibold text-[#9F1239]"
+                className="p-4 rounded-2xl bg-[#FFF0F4] border border-[#FF2A63]/35 text-xs font-semibold text-[#D41448]"
               >
                 {errorMsg}
               </div>
             )}
 
             {loading ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {[1, 2, 3, 4].map((n) => (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[1, 2, 3].map((n) => (
                   <div
                     key={n}
-                    className="h-36 rounded-2xl bg-white border border-slate-200 p-5 animate-pulse flex flex-col justify-between"
+                    className="h-36 rounded-2xl bg-white border border-[#202531]/10 p-5 animate-pulse flex flex-col justify-between"
                   >
-                    <div className="h-4 w-28 bg-slate-200 rounded" />
-                    <div className="h-7 w-40 bg-slate-200 rounded" />
-                    <div className="h-3 w-36 bg-slate-100 rounded" />
+                    <div className="h-4 w-28 bg-[#EBEBEB] rounded" />
+                    <div className="h-8 w-40 bg-[#EBEBEB] rounded" />
+                    <div className="h-3 w-36 bg-[#EBEBEB] rounded" />
                   </div>
                 ))}
               </div>
             ) : data && profit ? (
               <>
-                {/* Peringatan Jujur jika Data Harga Modal (HPP) Tidak Lengkap */}
+                {/* Panduan Mulai Cepat (Hanya tampil jika katalog toko masih kosong) */}
+                {data.kpis.totalProductsCount === 0 && (
+                  <section
+                    aria-label="Panduan Memulai Toko"
+                    className="p-5 rounded-2xl bg-white border border-[#202531]/15 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1">
+                      <h2 className="text-sm font-extrabold text-[#202531]">
+                        Baru memulai toko? Lakukan 2 langkah ini dulu:
+                      </h2>
+                      <p className="text-xs text-[#525866]">
+                        1. Masukkan produk atau bahan baku Anda di menu Produk &amp; Bahan, lalu 2. Buka Kasir untuk mencatat penjualan pertama.
+                      </p>
+                    </div>
+                    <Link
+                      href="/produk"
+                      className="inline-flex items-center justify-center px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold shrink-0 hover:opacity-90"
+                    >
+                      Mulai Tambah Produk
+                    </Link>
+                  </section>
+                )}
+
+                {/* BARIS 3: 3 Kartu Angka Keuangan Sederhana */}
+                <section aria-label="Ringkasan Keuangan">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Kartu Utama: Keuntungan Jualan */}
+                    <Link
+                      href="/laporan"
+                      className="group p-6 rounded-2xl bg-[#202531] text-white flex flex-col justify-between hover:bg-[#2a3140] transition-colors duration-150"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-[#EBEBEB]/80">
+                          Keuntungan Jualan
+                        </span>
+                        <ArrowUpRight
+                          size={18}
+                          weight="bold"
+                          className="text-[#01DAD7] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <p className="text-3xl font-extrabold font-mono tabular-nums text-[#01DAD7] mt-3">
+                        {formatRupiah(profit.metrics.grossProfit)}
+                      </p>
+                      <p className="text-xs text-[#EBEBEB]/75 mt-2">
+                        {profit.comparison.hasComparisonData &&
+                        profit.comparison.grossProfitDeltaPct !== null
+                          ? `${profit.comparison.grossProfitDeltaRp >= 0 ? "+" : ""}${
+                              profit.comparison.grossProfitDeltaPct
+                            }% dibanding ${profit.previousPeriodLabel}`
+                          : "Uang masuk dikurangi modal barang"}
+                      </p>
+                    </Link>
+
+                    {/* Kartu 2: Uang Masuk */}
+                    <Link
+                      href="/penjualan"
+                      className="group p-6 rounded-2xl bg-white border border-[#202531]/15 flex flex-col justify-between hover:border-[#202531] transition-colors duration-150"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-[#525866]">Uang Masuk</span>
+                        <ArrowUpRight
+                          size={18}
+                          weight="bold"
+                          className="text-[#525866] group-hover:text-[#202531]"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <p className="text-3xl font-extrabold font-mono tabular-nums text-[#202531] mt-3">
+                        {formatRupiah(profit.metrics.netSalesRevenue)}
+                      </p>
+                      <p className="text-xs text-[#525866] mt-2">
+                        Dari {formatNumber(profit.metrics.activeSalesCount)} transaksi berhasil
+                      </p>
+                    </Link>
+
+                    {/* Kartu 3: Modal Barang Terpakai */}
+                    <div className="p-6 rounded-2xl bg-white border border-[#202531]/15 flex flex-col justify-between">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-[#525866]">
+                          Modal Barang Terpakai
+                        </span>
+                        <span className="text-xs font-mono font-bold text-[#202531] px-2 py-0.5 rounded-md bg-[#EBEBEB]">
+                          Margin {profit.metrics.grossMarginPct}%
+                        </span>
+                      </div>
+                      <p className="text-3xl font-extrabold font-mono tabular-nums text-[#202531] mt-3">
+                        {formatRupiah(profit.metrics.totalCogs)}
+                      </p>
+                      <p className="text-xs text-[#525866] mt-2">
+                        Modal dari {formatNumber(profit.metrics.totalUnitsSold)} item terjual
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Peringatan Jujur jika ada produk yang belum diisi harga modal */}
                 {profit.dataQuality.hasIncompleteCostData && profit.dataQuality.warningMessage && (
                   <div
                     role="alert"
-                    className="p-4 rounded-2xl bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E] flex items-start gap-3"
+                    className="p-4 rounded-2xl bg-[#FFF0F4] border border-[#FF2A63]/35 text-xs text-[#D41448] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
-                    <Warning size={20} weight="fill" className="shrink-0 mt-0.5 text-[#D97706]" aria-hidden="true" />
-                    <div className="space-y-0.5">
-                      <p className="font-extrabold">
-                        Data Harga Modal (HPP) Belum Lengkap untuk Perhitungan Akurat
-                      </p>
-                      <p>{profit.dataQuality.warningMessage}</p>
+                    <div className="flex items-start gap-2.5">
+                      <Warning size={18} weight="fill" className="shrink-0 mt-0.5" aria-hidden="true" />
+                      <div>
+                        <p className="font-extrabold">Harga modal beberapa produk masih Rp 0</p>
+                        <p className="mt-0.5 text-[#202531]">{profit.dataQuality.warningMessage}</p>
+                      </div>
                     </div>
+                    <Link
+                      href="/produk"
+                      className="px-3.5 min-h-[38px] inline-flex items-center justify-center rounded-xl bg-[#202531] text-white font-bold shrink-0"
+                    >
+                      Lengkapi Modal
+                    </Link>
                   </div>
                 )}
 
-                {/* BARIS 1: 4 Kartu Keuntungan Kotor (Gross Profit) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {/* Hero Card: Total Keuntungan Kotor */}
-                  <Link
-                    href="/laporan"
-                    className="group bg-[#334E6B] text-white rounded-2xl p-5 shadow-sm flex flex-col justify-between hover:bg-[#24384E] transition-colors"
+                {/* BARIS 4: Grafik Garis Penjualan & Keuntungan */}
+                <SalesLineChart
+                  headingId="chart-section-heading"
+                  title={`Grafik Penjualan & Keuntungan (${profit.periodLabel})`}
+                  subtitle={
+                    range === "today"
+                      ? "Perkembangan penjualan dan keuntungan per jam hari ini (WIB)"
+                      : range === "week"
+                      ? "Tren penjualan dan keuntungan harian dari Senin sampai Minggu"
+                      : "Tren penjualan dan keuntungan harian sepanjang bulan ini"
+                  }
+                  granularity={range === "today" ? "hourly" : "daily"}
+                  loading={refreshing}
+                  periodControl={{
+                    value: range,
+                    onChange: setRange,
+                    ariaLabel: "Pilih rentang grafik penjualan",
+                    options: [
+                      { id: "today", label: "Harian" },
+                      { id: "week", label: "Mingguan" },
+                      { id: "month", label: "Bulanan" },
+                    ],
+                  }}
+                  data={data.chartSeries.map((row) => ({
+                    key: row.key,
+                    label: row.label,
+                    shortLabel: row.shortLabel,
+                    revenue: row.netRevenue,
+                    grossProfit: row.grossProfit,
+                    cogs: row.cogs,
+                    salesCount: row.salesCount,
+                    isFuture: row.isFuture,
+                  }))}
+                  emptyTitle={`Belum ada transaksi pada periode ${profit.periodLabel}.`}
+                  emptySubtitle="Grafik garis akan terisi otomatis setelah Anda mencatat penjualan di Kasir."
+                />
+
+                {/* BARIS 5: 2 Panel Ringkas (Persetujuan & Stok Hampir Habis) */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                  {/* Persetujuan Pegawai */}
+                  <section
+                    aria-labelledby="approval-queue-heading"
+                    className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-200">
-                        Total Keuntungan Kotor
-                      </span>
-                      <span className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
-                        <ArrowUpRight size={16} weight="bold" aria-hidden="true" />
-                      </span>
-                    </div>
-                    <p className="text-2xl font-extrabold font-mono tabular-nums mt-3">
-                      {formatRupiah(profit.metrics.grossProfit)}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                      {profit.comparison.hasComparisonData &&
-                      profit.comparison.grossProfitDeltaPct !== null ? (
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${
-                            profit.comparison.grossProfitDeltaRp >= 0
-                              ? "bg-emerald-400/20 text-emerald-100"
-                              : "bg-rose-400/20 text-rose-100"
-                          }`}
-                        >
-                          {profit.comparison.grossProfitDeltaRp >= 0 ? (
-                            <TrendUp size={12} weight="bold" aria-hidden="true" />
-                          ) : (
-                            <TrendDown size={12} weight="bold" aria-hidden="true" />
-                          )}
-                          <span>
-                            {profit.comparison.grossProfitDeltaRp >= 0 ? "+" : ""}
-                            {profit.comparison.grossProfitDeltaPct}% vs {profit.previousPeriodLabel}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-slate-200">
-                          Penjualan Bersih dikurangi HPP
+                      <h2
+                        id="approval-queue-heading"
+                        className="text-base font-extrabold text-[#202531]"
+                      >
+                        Perlu Persetujuan Anda
+                      </h2>
+                      {totalPendingQueue > 0 && (
+                        <span className="px-2.5 py-0.5 rounded-md bg-[#FF2A63] text-white text-xs font-extrabold">
+                          {totalPendingQueue} menunggu
                         </span>
                       )}
                     </div>
-                  </Link>
 
-                  {/* Kartu 2: Pendapatan Penjualan Bersih */}
-                  <Link
-                    href="/penjualan"
-                    className="group bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between hover:border-[#334E6B] transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-600">
-                        Total Pendapatan Penjualan
-                      </span>
-                      <span className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center">
-                        <ArrowUpRight size={16} weight="bold" aria-hidden="true" />
-                      </span>
-                    </div>
-                    <p className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 mt-3">
-                      {formatRupiah(profit.metrics.netSalesRevenue)}
-                    </p>
-                    <p className="text-[11px] text-slate-600 mt-2">
-                      {formatNumber(profit.metrics.activeSalesCount)} transaksi aktif
-                      {profit.metrics.totalDiscounts > 0
-                        ? ` (Diskon ${formatRupiah(profit.metrics.totalDiscounts)})`
-                        : ""}
-                      {profit.metrics.cancelledSalesCount > 0
-                        ? ` • ${profit.metrics.cancelledSalesCount} dibatalkan`
-                        : ""}
-                    </p>
-                  </Link>
-
-                  {/* Kartu 3: Total HPP */}
-                  <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-600">
-                        Total HPP (Modal Terjual)
-                      </span>
-                      <span className="w-8 h-8 rounded-full bg-[#FFFBEB] text-[#B45309] flex items-center justify-center">
-                        <Package size={16} weight="bold" aria-hidden="true" />
-                      </span>
-                    </div>
-                    <p className="text-2xl font-extrabold font-mono tabular-nums text-[#B45309] mt-3">
-                      {formatRupiah(profit.metrics.totalCogs)}
-                    </p>
-                    <p className="text-[11px] text-slate-600 mt-2">
-                      Harga modal historis dari {formatNumber(profit.metrics.totalUnitsSold)} unit terjual
-                    </p>
-                  </div>
-
-                  {/* Kartu 4: Margin Keuntungan Kotor */}
-                  <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-600">
-                        Margin Keuntungan Kotor
-                      </span>
-                      <span className="w-8 h-8 rounded-full bg-[#F0FDFA] text-[#0F766E] flex items-center justify-center">
-                        <TrendUp size={16} weight="bold" aria-hidden="true" />
-                      </span>
-                    </div>
-                    <p className="text-2xl font-extrabold font-mono tabular-nums text-[#0F766E] mt-3">
-                      {profit.metrics.grossMarginPct}%
-                    </p>
-                    <p className="text-[11px] text-slate-600 mt-2">
-                      {profit.comparison.hasComparisonData
-                        ? `Periode lalu (${profit.previousPeriodLabel}): ${formatRupiah(
-                            profit.comparison.previousGrossProfit
-                          )}`
-                        : "Rasio laba kotor terhadap penjualan bersih"}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Penjelasan Rumus & Batasan Gross Profit */}
-                <div className="p-3.5 rounded-2xl bg-[#F0FDFA] border border-[#99F6E4] text-xs text-[#0F766E] flex items-start gap-2.5">
-                  <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
-                  <p>
-                    <strong>{profit.formula}.</strong> {profit.disclaimer}
-                  </p>
-                </div>
-
-                {/* BARIS 2: Grafik Perkembangan Keuntungan Kotor */}
-                <section
-                  aria-labelledby="chart-section-heading"
-                  className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <h2
-                        id="chart-section-heading"
-                        className="text-base font-extrabold text-slate-900"
+                    <div
+                      role="tablist"
+                      aria-label="Kategori persetujuan"
+                      className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#EBEBEB]"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={queueTab === "productRequests"}
+                        onClick={() => setQueueTab("productRequests")}
+                        className={`px-3 min-h-[38px] rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                          queueTab === "productRequests"
+                            ? "bg-[#202531] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
+                        }`}
                       >
-                        Grafik Perkembangan Keuntungan Kotor ({profit.periodLabel})
-                      </h2>
-                      <p className="text-xs text-slate-600">
-                        Perbandingan pendapatan penjualan bersih, HPP historis, dan keuntungan kotor (transaksi dibatalkan otomatis dikecualikan)
-                      </p>
+                        Produk Baru ({productReqs.length})
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={queueTab === "amendments"}
+                        onClick={() => setQueueTab("amendments")}
+                        className={`px-3 min-h-[38px] rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                          queueTab === "amendments"
+                            ? "bg-[#202531] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
+                        }`}
+                      >
+                        Batal Transaksi ({amendments.length})
+                      </button>
                     </div>
-                    <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
-                      <span className="inline-flex items-center gap-1.5 text-slate-700">
-                        <span className="w-3 h-3 rounded-sm bg-[#334E6B]" aria-hidden="true" />
-                        Pendapatan
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 text-slate-700">
-                        <span className="w-3 h-3 rounded-sm bg-[#FC5086]" aria-hidden="true" />
-                        HPP
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 text-slate-700">
-                        <span className="w-3 h-3 rounded-sm bg-[#3DC2CA]" aria-hidden="true" />
-                        Keuntungan Kotor
-                      </span>
-                    </div>
-                  </div>
 
-                  {data.chartSeries.length === 0 ? (
-                    <div className="py-12 px-4 rounded-xl bg-slate-50 border border-dashed border-slate-300 text-center space-y-2">
-                      <ChartBar
-                        size={32}
-                        weight="duotone"
-                        className="mx-auto text-slate-400"
-                        aria-hidden="true"
-                      />
-                      <p className="text-sm font-bold text-slate-800">
-                        Belum ada transaksi aktif pada periode {profit.periodLabel}.
-                      </p>
-                      <p className="text-xs text-slate-600 max-w-md mx-auto">
-                        Catat penjualan di halaman Kasir (POS) untuk melihat perkembangan pendapatan, HPP, dan keuntungan kotor secara otomatis.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto pt-1">
-                      <div className="min-w-[520px] grid grid-cols-1 gap-3">
-                        {data.chartSeries.map((row) => {
-                          const revPct = Math.max(4, Math.round((row.netRevenue / maxChartVal) * 100));
-                          const cogsPct = Math.max(4, Math.round((row.cogs / maxChartVal) * 100));
-                          const profitPct = Math.max(
-                            4,
-                            Math.round((Math.max(0, row.grossProfit) / maxChartVal) * 100)
-                          );
-                          return (
-                            <div
-                              key={row.key}
-                              className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2"
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {queueTab === "productRequests" &&
+                        (productReqs.length === 0 ? (
+                          <p className="py-6 text-center text-xs text-[#525866]">
+                            Tidak ada usulan produk baru dari pegawai.
+                          </p>
+                        ) : (
+                          productReqs.map((pr) => (
+                            <Link
+                              key={pr.id}
+                              href="/produk?tab=requests"
+                              className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-[#202531]/10 hover:border-[#202531] transition-colors"
                             >
-                              <div className="flex flex-wrap items-center justify-between text-xs font-bold text-slate-800 gap-2">
-                                <span className="font-mono">
-                                  {row.label} ({row.salesCount} trx)
-                                </span>
-                                <div className="flex flex-wrap items-center gap-4 font-mono">
-                                  <span className="text-[#334E6B]">
-                                    Pendapatan: {formatRupiah(row.netRevenue)}
-                                  </span>
-                                  <span className="text-[#9F1239]">
-                                    HPP: {formatRupiah(row.cogs)}
-                                  </span>
-                                  <span className="text-[#0F766E]">
-                                    Laba Kotor: {formatRupiah(row.grossProfit)}
-                                  </span>
-                                </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-extrabold text-[#202531] truncate">
+                                  {pr.name}
+                                </p>
+                                <p className="text-[11px] text-[#525866] mt-0.5">
+                                  Diajukan {pr.requestedBy.name} • {formatDateTimeJakarta(pr.createdAt)}
+                                </p>
                               </div>
-                              <div className="space-y-1.5">
-                                <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-[#334E6B] rounded-full"
-                                    style={{ width: `${revPct}%` }}
-                                    title={`Pendapatan: ${formatRupiah(row.netRevenue)}`}
-                                  />
-                                </div>
-                                <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-[#FC5086] rounded-full"
-                                    style={{ width: `${cogsPct}%` }}
-                                    title={`HPP: ${formatRupiah(row.cogs)}`}
-                                  />
-                                </div>
-                                <div className="h-2.5 w-full bg-slate-200 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-[#3DC2CA] rounded-full"
-                                    style={{ width: `${profitPct}%` }}
-                                    title={`Keuntungan Kotor: ${formatRupiah(row.grossProfit)}`}
-                                  />
-                                </div>
+                              <span className="font-mono text-xs font-extrabold text-[#202531] shrink-0">
+                                {formatRupiah(pr.sellPrice)}
+                              </span>
+                            </Link>
+                          ))
+                        ))}
+
+                      {queueTab === "amendments" &&
+                        (amendments.length === 0 ? (
+                          <p className="py-6 text-center text-xs text-[#525866]">
+                            Tidak ada pengajuan pembatalan transaksi.
+                          </p>
+                        ) : (
+                          amendments.map((a) => (
+                            <Link
+                              key={a.id}
+                              href="/penjualan"
+                              className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-[#202531]/10 hover:border-[#202531] transition-colors"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-extrabold text-[#202531] truncate">
+                                  Batal #{a.sale.receiptNumber}
+                                </p>
+                                <p className="text-[11px] text-[#525866] mt-0.5 truncate">
+                                  {a.requestedBy.name}: {a.reason}
+                                </p>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </section>
-
-                {/* BARIS 3: Antrean Persetujuan & Ringkasan Stok + Aksi Cepat */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Antrean Persetujuan Cepat (Produk Baru & Pembatalan Transaksi) */}
-                  <section
-                    aria-labelledby="approval-queue-heading"
-                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between space-y-4"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <Clock size={20} weight="duotone" className="text-[#334E6B]" aria-hidden="true" />
-                          <h2
-                            id="approval-queue-heading"
-                            className="text-base font-extrabold text-slate-900"
-                          >
-                            Antrean Persetujuan
-                          </h2>
-                        </div>
-                        <StatusBadge
-                          status="MENUNGGU_PERSETUJUAN"
-                          customLabel={`${totalPendingQueue} Menunggu`}
-                        />
-                      </div>
-
-                      <div
-                        role="tablist"
-                        aria-label="Kategori antrean persetujuan"
-                        className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100 border border-slate-200"
-                      >
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={queueTab === "productRequests"}
-                          onClick={() => setQueueTab("productRequests")}
-                          className={`px-3 py-2 min-h-[40px] rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                            queueTab === "productRequests"
-                              ? "bg-white text-[#334E6B] shadow-sm"
-                              : "text-slate-700 hover:text-slate-900"
-                          }`}
-                        >
-                          Produk Baru ({filteredProductReqs.length})
-                        </button>
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={queueTab === "amendments"}
-                          onClick={() => setQueueTab("amendments")}
-                          className={`px-3 py-2 min-h-[40px] rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                            queueTab === "amendments"
-                              ? "bg-white text-[#334E6B] shadow-sm"
-                              : "text-slate-700 hover:text-slate-900"
-                          }`}
-                        >
-                          Pembatalan Transaksi ({filteredQueueAmendments.length})
-                        </button>
-                      </div>
-
-                      <div className="space-y-2.5 max-h-80 overflow-y-auto">
-                        {queueTab === "productRequests" &&
-                          (filteredProductReqs.length === 0 ? (
-                            <div className="py-10 text-center text-xs text-slate-600 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                              Tidak ada pengajuan produk baru yang menunggu persetujuan.
-                            </div>
-                          ) : (
-                            filteredProductReqs.map((pr) => (
-                              <Link
-                                key={pr.id}
-                                href="/produk?tab=requests"
-                                className="block p-3.5 rounded-xl border border-slate-200 hover:border-[#334E6B] bg-slate-50/60 hover:bg-white transition-colors"
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="text-xs font-extrabold text-slate-900">
-                                      {pr.name} ({pr.sku})
-                                    </p>
-                                    <p className="text-[11px] text-slate-600 mt-0.5">
-                                      Diajukan {pr.requestedBy.name} • {pr.category.name} •{" "}
-                                      {formatDateTimeJakarta(pr.createdAt)}
-                                    </p>
-                                  </div>
-                                  <span className="font-mono text-xs font-extrabold text-[#334E6B]">
-                                    {formatRupiah(pr.sellPrice)}
-                                  </span>
-                                </div>
-                              </Link>
-                            ))
-                          ))}
-
-                        {queueTab === "amendments" &&
-                          (filteredQueueAmendments.length === 0 ? (
-                            <div className="py-10 text-center text-xs text-slate-600 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                              Tidak ada pengajuan pembatalan transaksi yang menunggu.
-                            </div>
-                          ) : (
-                            filteredQueueAmendments.map((a) => (
-                              <Link
-                                key={a.id}
-                                href="/penjualan"
-                                className="block p-3.5 rounded-xl border border-slate-200 hover:border-[#334E6B] bg-slate-50/60 hover:bg-white transition-colors"
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="text-xs font-extrabold text-slate-900">
-                                      {a.amendmentType} Struk #{a.sale.receiptNumber}
-                                    </p>
-                                    <p className="text-[11px] text-slate-600 mt-0.5">
-                                      Oleh {a.requestedBy.name} • Alasan: {a.reason}
-                                    </p>
-                                  </div>
-                                  <span className="font-mono text-xs font-bold text-slate-900">
-                                    {formatRupiah(a.sale.totalAmount)}
-                                  </span>
-                                </div>
-                              </Link>
-                            ))
-                          ))}
-                      </div>
+                              <span className="font-mono text-xs font-extrabold text-[#D41448] shrink-0">
+                                {formatRupiah(a.sale.totalAmount)}
+                              </span>
+                            </Link>
+                          ))
+                        ))}
                     </div>
                   </section>
 
-                  {/* Ringkasan Stok Katalog & Aksi Cepat */}
+                  {/* Stok Hampir Habis */}
                   <section
-                    aria-labelledby="quick-actions-heading"
-                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between space-y-4"
+                    aria-labelledby="stock-alert-heading"
+                    className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4"
                   >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <Package
-                            size={20}
-                            weight="duotone"
-                            className="text-[#334E6B]"
-                            aria-hidden="true"
-                          />
-                          <h2
-                            id="quick-actions-heading"
-                            className="text-base font-extrabold text-slate-900"
-                          >
-                            Status Stok Produk
-                          </h2>
-                        </div>
-                        <span className="text-[11px] font-semibold text-slate-600">
-                          {formatNumber(data.kpis.totalProductsCount)} Produk Aktif
-                        </span>
-                      </div>
-
-                      <div className="space-y-2.5 max-h-64 overflow-y-auto">
-                        {data.lowStockProducts.length === 0 ? (
-                          <div className="py-8 px-4 text-center bg-[#F0FDFA] border border-[#99F6E4] rounded-xl space-y-1">
-                            <CheckCircle
-                              size={24}
-                              weight="fill"
-                              className="mx-auto text-[#0F766E]"
-                              aria-hidden="true"
-                            />
-                            <p className="text-xs font-bold text-[#0F766E]">
-                              Seluruh Stok Produk Aman
-                            </p>
-                            <p className="text-[11px] text-[#0F766E]/90">
-                              Tidak ada produk yang berada di bawah batas minimum stok saat ini.
-                            </p>
-                          </div>
-                        ) : (
-                          data.lowStockProducts.map((prod) => (
-                            <Link
-                              key={prod.id}
-                              href="/produk"
-                              className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#FFFBEB] border border-[#FDE68A] hover:bg-[#FEF3C7]/70 transition-colors"
-                            >
-                              <div>
-                                <p className="text-xs font-extrabold text-slate-900">
-                                  {prod.name}
-                                </p>
-                                <p className="text-[11px] text-slate-600">
-                                  {prod.category.name} • SKU: {prod.sku}
-                                </p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="font-mono text-xs font-extrabold text-[#9F1239]">
-                                  Sisa {formatNumber(prod.currentStock)} {prod.sellUnit}
-                                </p>
-                                <p className="text-[10px] text-slate-600">
-                                  Min: {formatNumber(prod.minStockAlert)} {prod.sellUnit}
-                                </p>
-                              </div>
-                            </Link>
-                          ))
-                        )}
-                      </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <h2
+                        id="stock-alert-heading"
+                        className="text-base font-extrabold text-[#202531]"
+                      >
+                        Stok Hampir Habis
+                      </h2>
+                      <Link
+                        href="/produk"
+                        className="text-xs font-bold text-[#202531] hover:underline"
+                      >
+                        Lihat semua ({formatNumber(data.kpis.totalProductsCount)})
+                      </Link>
                     </div>
 
-                    {/* Tombol Aksi Cepat Operasional */}
-                    <div className="pt-4 border-t border-slate-200 space-y-2">
-                      <p className="text-xs font-bold text-slate-700">
-                        Aksi Cepat Operasional
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        {session.permissions.kasir?.canView && (
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {data.lowStockProducts.length === 0 ? (
+                        <div className="py-8 text-center space-y-1">
+                          <p className="text-sm font-bold text-[#202531]">
+                            Semua stok produk masih aman.
+                          </p>
+                          <p className="text-xs text-[#525866]">
+                            Produk yang perlu diisi ulang akan muncul di sini secara otomatis.
+                          </p>
+                        </div>
+                      ) : (
+                        data.lowStockProducts.map((prod) => (
                           <Link
-                            href="/kasir"
-                            className="flex items-center justify-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] transition-colors"
-                          >
-                            <Storefront size={16} weight="bold" aria-hidden="true" />
-                            <span>Buka Kasir</span>
-                          </Link>
-                        )}
-                        {session.permissions.produk?.canView && (
-                          <Link
+                            key={prod.id}
                             href="/produk"
-                            className="flex items-center justify-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-xl bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4] text-xs font-bold hover:bg-[#CCFBF1] transition-colors"
+                            className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] hover:border-[#FF2A63] transition-colors"
                           >
-                            <Plus size={16} weight="bold" aria-hidden="true" />
-                            <span>Produk &amp; Stok</span>
+                            <div className="min-w-0">
+                              <p className="text-xs font-extrabold text-[#202531] truncate">
+                                {prod.name}
+                              </p>
+                              <p className="text-[11px] text-[#525866]">
+                                Batas minimum: {formatNumber(prod.minStockAlert)} {prod.sellUnit}
+                              </p>
+                            </div>
+                            <span className="font-mono text-xs font-extrabold text-[#D41448] shrink-0">
+                              Sisa {formatNumber(prod.currentStock)} {prod.sellUnit}
+                            </span>
                           </Link>
-                        )}
-                        {session.permissions.penjualan?.canView && (
-                          <Link
-                            href="/penjualan"
-                            className="flex items-center justify-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-xl bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold hover:bg-slate-200 transition-colors"
-                          >
-                            <Receipt size={16} weight="bold" aria-hidden="true" />
-                            <span>Riwayat Transaksi</span>
-                          </Link>
-                        )}
-                      </div>
+                        ))
+                      )}
                     </div>
                   </section>
                 </div>

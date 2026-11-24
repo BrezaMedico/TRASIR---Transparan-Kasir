@@ -15,7 +15,6 @@ import {
   X,
   CaretLeft,
   CaretRight,
-  WifiHigh,
   WifiSlash,
   CheckCircle,
   WarningCircle,
@@ -66,16 +65,21 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             key={t.id}
             className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-semibold ${
               t.type === "error"
-                ? "bg-[#FFF1F2] text-[#9F1239] border-[#FECDD3]"
+                ? "bg-[#FFF0F4] text-[#D41448] border-[#FF2A63]/35"
                 : t.type === "info"
-                ? "bg-[#F0FDFA] text-[#0F766E] border-[#99F6E4]"
-                : "bg-[#F0FDF4] text-[#166534] border-[#BBF7D0]"
+                ? "bg-white text-[#202531] border-[#202531]/20"
+                : "bg-[#202531] text-white border-[#202531]"
             }`}
           >
             {t.type === "error" ? (
               <WarningCircle size={20} weight="fill" aria-hidden="true" />
             ) : (
-              <CheckCircle size={20} weight="fill" aria-hidden="true" />
+              <CheckCircle
+                size={20}
+                weight="fill"
+                className={t.type === "success" ? "text-[#01DAD7]" : "text-[#202531]"}
+                aria-hidden="true"
+              />
             )}
             <span className="flex-1">{t.title}</span>
           </div>
@@ -122,13 +126,13 @@ interface NavEntry {
 }
 
 const NAV_ITEMS: NavEntry[] = [
-  { key: "dashboard", label: "Dashboard & Keuntungan", shortLabel: "Dashboard", href: "/dashboard", icon: SquaresFour },
-  { key: "kasir", label: "Kasir (POS)", shortLabel: "Kasir", href: "/kasir", icon: Storefront },
-  { key: "produk", label: "Produk & Stok", shortLabel: "Produk", href: "/produk", icon: Package },
+  { key: "dashboard", label: "Ringkasan", shortLabel: "Ringkasan", href: "/dashboard", icon: SquaresFour },
+  { key: "kasir", label: "Kasir", shortLabel: "Kasir", href: "/kasir", icon: Storefront },
+  { key: "produk", label: "Produk & Bahan", shortLabel: "Produk", href: "/produk", icon: Package },
   { key: "penjualan", label: "Riwayat Transaksi", shortLabel: "Transaksi", href: "/penjualan", icon: Receipt },
-  { key: "laporan", label: "Laporan Keuangan", shortLabel: "Laporan", href: "/laporan", icon: ChartBar },
-  { key: "pengguna", label: "Tim & Undangan", shortLabel: "Tim", href: "/pengguna", adminOnly: true, icon: UsersThree },
-  { key: "aktivitas", label: "Notifikasi & Aktivitas", shortLabel: "Aktivitas", href: "/aktivitas", icon: BellRinging },
+  { key: "laporan", label: "Laporan", shortLabel: "Laporan", href: "/laporan", icon: ChartBar },
+  { key: "pengguna", label: "Tim", shortLabel: "Tim", href: "/pengguna", adminOnly: true, icon: UsersThree },
+  { key: "aktivitas", label: "Aktivitas", shortLabel: "Aktivitas", href: "/aktivitas", icon: BellRinging },
 ];
 
 const ROLE_BADGE_LABEL: Record<UserRole, string> = {
@@ -191,58 +195,63 @@ function ShellFrame({
   });
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-[#EBEBEB] text-[#202531] flex flex-col">
       {!isOnline && (
         <div
           role="alert"
-          className="bg-[#FFF1F2] border-b border-[#FECDD3] text-[#9F1239] px-4 py-2.5 text-xs font-semibold flex items-center justify-center gap-2"
+          className="bg-[#FFF0F4] border-b border-[#FF2A63]/35 text-[#D41448] px-4 py-2.5 text-xs font-semibold flex items-center justify-center gap-2"
         >
           <WifiSlash size={18} weight="bold" aria-hidden="true" />
           <span>
-            Koneksi internet terputus. Sistem TRASIR berjalan secara real-time dan tidak mendukung pencatatan transaksi offline. Periksa jaringan Anda.
+            Koneksi internet terputus. Periksa jaringan Anda untuk mencatat transaksi.
           </span>
         </div>
       )}
 
       <div className="flex-1 flex">
-        {/* Desktop & Tablet Collapsible Sidebar (tetap terpasang saat berpindah halaman) */}
+        {/* Desktop & Tablet Collapsible Sidebar */}
         <aside
           aria-label="Navigasi Utama"
-          className={`hidden md:flex flex-col bg-white border-r border-slate-200 transition-all duration-200 shrink-0 sticky top-0 h-screen ${
+          className={`hidden md:flex flex-col bg-white border-r border-[#202531]/10 transition-all duration-200 shrink-0 sticky top-0 h-screen ${
             collapsed ? "w-20" : "w-64"
           }`}
         >
-          <div className="h-16 px-4 border-b border-slate-200 flex items-center justify-between">
-            <Link
-              href={visibleNavItems[0]?.href || "/dashboard"}
-              prefetch={false}
-              onClick={() => handleNavClick(visibleNavItems[0]?.href || "/dashboard")}
-              className="flex items-center gap-3 overflow-hidden"
-            >
-              <div className="w-10 h-10 rounded-xl bg-[#334E6B] text-white flex items-center justify-center shrink-0 font-extrabold text-sm tracking-tight shadow-sm">
-                <ShieldCheck size={22} weight="duotone" aria-hidden="true" />
-              </div>
-              {!collapsed && (
+          <div
+            className={`h-16 border-b border-[#202531]/10 flex items-center ${
+              collapsed ? "justify-center px-2" : "justify-between px-4"
+            }`}
+          >
+            {!collapsed && (
+              <Link
+                href={visibleNavItems[0]?.href || "/dashboard"}
+                prefetch={false}
+                onClick={() => handleNavClick(visibleNavItems[0]?.href || "/dashboard")}
+                className="flex items-center gap-3 overflow-hidden"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center shrink-0 font-extrabold text-sm tracking-tight">
+                  <ShieldCheck size={22} weight="duotone" aria-hidden="true" />
+                </div>
                 <div className="truncate">
-                  <span className="block text-base font-extrabold tracking-tight text-[#334E6B] leading-none">
+                  <span className="block text-base font-extrabold tracking-tight text-[#202531] leading-none">
                     TRASIR
                   </span>
-                  <span className="block text-[11px] font-medium text-slate-600 truncate mt-1">
+                  <span className="block text-[11px] font-medium text-[#525866] truncate mt-1">
                     {session.storeName}
                   </span>
                 </div>
-              )}
-            </Link>
+              </Link>
+            )}
 
             <button
               type="button"
               onClick={() => setCollapsed((c) => !c)}
               aria-expanded={!collapsed}
               aria-label={collapsed ? "Perluas sidebar navigasi" : "Ciutkan sidebar navigasi"}
-              className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer"
+              title={collapsed ? "Buka menu lengkap" : "Ciutkan menu"}
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-[#202531] hover:bg-[#EBEBEB] transition-colors cursor-pointer"
             >
               {collapsed ? (
-                <CaretRight size={18} weight="bold" aria-hidden="true" />
+                <CaretRight size={20} weight="bold" aria-hidden="true" />
               ) : (
                 <CaretLeft size={18} weight="bold" aria-hidden="true" />
               )}
@@ -251,8 +260,8 @@ function ShellFrame({
 
           <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
             {!collapsed && (
-              <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Modul Operasional
+              <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-[#525866]">
+                Menu
               </p>
             )}
             {visibleNavItems.map((item) => {
@@ -270,28 +279,34 @@ function ShellFrame({
                   onClick={() => handleNavClick(item.href)}
                   title={collapsed ? item.label : undefined}
                   aria-current={isActive ? "page" : undefined}
-                  className={`relative flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ${
+                  className={`relative flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold transition-colors duration-150 active:scale-[0.98] ${
                     isActive
-                      ? "bg-[#334E6B] text-white shadow-sm"
+                      ? "bg-[#202531] text-white"
                       : isPending
-                      ? "bg-slate-100 text-[#334E6B]"
-                      : "text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+                      ? "bg-[#EBEBEB] text-[#202531]"
+                      : "text-[#525866] hover:bg-[#EBEBEB]/70 hover:text-[#202531]"
                   } ${collapsed ? "justify-center" : ""}`}
                 >
-                  <Icon size={20} weight={isActive ? "fill" : "duotone"} />
+                  <span className={isActive ? "text-[#01DAD7]" : ""} aria-hidden="true">
+                    <Icon size={20} weight={isActive ? "fill" : "duotone"} />
+                  </span>
                   {!collapsed && <span className="truncate flex-1">{item.label}</span>}
                   {isPending && (
                     <span
-                      className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-[#334E6B]/25 border-t-[#2563EB] animate-spin"
+                      className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-[#202531]/25 border-t-[#01DAD7] animate-spin"
                       aria-hidden="true"
                     />
                   )}
                   {!isPending && item.key === "aktivitas" && session.unreadNotifications > 0 && (
                     <span
-                      className={`px-1.5 py-0.5 text-[11px] font-bold rounded-full ${
+                      className={`${
+                        collapsed
+                          ? "absolute top-1.5 right-2 px-1 py-0.2 text-[10px] leading-tight"
+                          : "px-1.5 py-0.5 text-[11px]"
+                      } font-extrabold rounded-md ${
                         isActive
-                          ? "bg-[#3DC2CA] text-slate-950"
-                          : "bg-[#FC5086] text-white"
+                          ? "bg-[#01DAD7] text-[#202531]"
+                          : "bg-[#FF2A63] text-white"
                       }`}
                     >
                       {session.unreadNotifications}
@@ -302,11 +317,11 @@ function ShellFrame({
             })}
           </nav>
 
-          <div className="p-3 border-t border-slate-200 space-y-2">
+          <div className="p-3 border-t border-[#202531]/10 space-y-2">
             {!collapsed && (
-              <div className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200">
-                <p className="text-xs font-bold text-slate-900 truncate">{session.user.name}</p>
-                <p className="text-[11px] font-semibold text-[#334E6B] mt-0.5">
+              <div className="px-3 py-2 rounded-xl bg-[#EBEBEB]/60 border border-[#202531]/10">
+                <p className="text-xs font-bold text-[#202531] truncate">{session.user.name}</p>
+                <p className="text-[11px] font-semibold text-[#525866] mt-0.5">
                   {ROLE_BADGE_LABEL[session.user.role]}
                 </p>
               </div>
@@ -315,20 +330,20 @@ function ShellFrame({
               type="button"
               onClick={onLogoutClick}
               disabled={loggingOut}
-              title={collapsed ? "Keluar (Logout)" : undefined}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold text-[#9F1239] hover:bg-[#FFF1F2] disabled:opacity-60 transition-colors cursor-pointer ${
+              title={collapsed ? "Keluar" : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold text-[#D41448] hover:bg-[#FFF0F4] disabled:opacity-60 transition-colors cursor-pointer ${
                 collapsed ? "justify-center" : ""
               }`}
             >
               {loggingOut ? (
                 <span
-                  className="inline-block h-4 w-4 rounded-full border-2 border-[#9F1239]/25 border-t-[#9F1239] animate-spin"
+                  className="inline-block h-4 w-4 rounded-full border-2 border-[#D41448]/25 border-t-[#D41448] animate-spin"
                   aria-hidden="true"
                 />
               ) : (
                 <SignOut size={20} weight="bold" aria-hidden="true" />
               )}
-              {!collapsed && <span>{loggingOut ? "Keluar..." : "Keluar Sesi"}</span>}
+              {!collapsed && <span>{loggingOut ? "Keluar..." : "Keluar"}</span>}
             </button>
           </div>
         </aside>
@@ -336,56 +351,34 @@ function ShellFrame({
         {/* Main Content Column */}
         <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-0">
           {/* Top Header */}
-          <header className="h-16 bg-white border-b border-slate-200 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
+          <header className="h-16 bg-white border-b border-[#202531]/10 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
                 aria-label="Buka menu navigasi"
-                className="md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+                className="md:hidden min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-[#202531]/15 text-[#202531] hover:bg-[#EBEBEB] cursor-pointer"
               >
                 <List size={22} weight="bold" aria-hidden="true" />
               </button>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-extrabold text-[#334E6B] md:hidden">TRASIR</span>
-                  <span className="text-xs font-semibold text-slate-600 hidden sm:inline">
-                    {session.storeName}
-                  </span>
-                </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-extrabold text-[#202531] md:hidden">TRASIR</span>
+                <span className="text-xs font-bold text-[#525866] hidden sm:inline">
+                  {session.storeName}
+                </span>
               </div>
             </div>
 
             <div className="flex items-center gap-2.5 md:gap-3">
-              <div
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border ${
-                  isOnline
-                    ? "bg-[#F0FDF4] text-[#166534] border-[#BBF7D0]"
-                    : "bg-[#FFF1F2] text-[#9F1239] border-[#FECDD3]"
-                }`}
-              >
-                {isOnline ? (
-                  <>
-                    <WifiHigh size={15} weight="bold" aria-hidden="true" />
-                    <span className="hidden sm:inline">Online Real-Time</span>
-                  </>
-                ) : (
-                  <>
-                    <WifiSlash size={15} weight="bold" aria-hidden="true" />
-                    <span>Offline</span>
-                  </>
-                )}
-              </div>
-
               <Link
                 href="/aktivitas"
                 prefetch={false}
-                aria-label={`Notifikasi (${session.unreadNotifications} belum dibaca)`}
-                className="relative min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors"
+                aria-label={`Aktivitas dan notifikasi (${session.unreadNotifications} baru)`}
+                className="relative min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-[#202531]/15 text-[#202531] hover:bg-[#EBEBEB] transition-colors"
               >
                 <BellRinging size={20} weight="duotone" aria-hidden="true" />
                 {session.unreadNotifications > 0 && (
-                  <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-[#FC5086] text-white">
+                  <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-md bg-[#FF2A63] text-white">
                     {session.unreadNotifications}
                   </span>
                 )}
@@ -394,16 +387,16 @@ function ShellFrame({
               <Link
                 href="/pengaturan"
                 prefetch={false}
-                className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 min-h-[44px] rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors"
+                className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 min-h-[44px] rounded-xl border border-[#202531]/15 hover:bg-[#EBEBEB]/60 transition-colors"
               >
-                <div className="w-8 h-8 rounded-lg bg-[#334E6B] text-white flex items-center justify-center text-xs font-bold">
+                <div className="w-8 h-8 rounded-lg bg-[#202531] text-[#01DAD7] flex items-center justify-center text-xs font-extrabold">
                   {session.user.name.slice(0, 2).toUpperCase()}
                 </div>
                 <div className="hidden sm:block text-left">
-                  <p className="text-xs font-bold text-slate-900 leading-none">
+                  <p className="text-xs font-bold text-[#202531] leading-none">
                     {session.user.name}
                   </p>
-                  <p className="text-[11px] font-semibold text-[#334E6B] mt-0.5">
+                  <p className="text-[11px] font-semibold text-[#525866] mt-0.5">
                     {ROLE_BADGE_LABEL[session.user.role]}
                   </p>
                 </div>
@@ -412,7 +405,7 @@ function ShellFrame({
           </header>
 
           {/* Main Workspace Area */}
-          <main className="flex-1 p-4 md:p-6 max-w-[1600px] w-full mx-auto">
+          <main className="flex-1 p-4 md:p-6 max-w-[1440px] w-full mx-auto">
             {children}
           </main>
         </div>
@@ -421,27 +414,27 @@ function ShellFrame({
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-50 md:hidden flex bg-slate-900/60"
+          className="fixed inset-0 z-50 md:hidden flex bg-[#202531]/60"
           role="dialog"
           aria-modal="true"
           aria-label="Menu Navigasi Mobile"
         >
           <div className="relative w-72 max-w-[85vw] bg-white h-full flex flex-col shadow-2xl">
-            <div className="h-16 px-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="h-16 px-4 border-b border-[#202531]/10 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#334E6B] text-white flex items-center justify-center font-bold">
+                <div className="w-9 h-9 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center font-extrabold text-xs">
                   TR
                 </div>
                 <div>
-                  <p className="text-sm font-extrabold text-[#334E6B]">TRASIR</p>
-                  <p className="text-xs text-slate-600">{ROLE_BADGE_LABEL[session.user.role]}</p>
+                  <p className="text-sm font-extrabold text-[#202531]">TRASIR</p>
+                  <p className="text-xs text-[#525866]">{ROLE_BADGE_LABEL[session.user.role]}</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
                 aria-label="Tutup menu"
-                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-[#525866] hover:bg-[#EBEBEB] cursor-pointer"
               >
                 <X size={20} weight="bold" aria-hidden="true" />
               </button>
@@ -460,19 +453,21 @@ function ShellFrame({
                       handleNavClick(item.href);
                       setMobileMenuOpen(false);
                     }}
-                    className={`flex items-center gap-3 px-3.5 py-3 min-h-[44px] rounded-xl text-sm font-semibold transition-all active:scale-[0.98] ${
+                    className={`flex items-center gap-3 px-3.5 py-3 min-h-[44px] rounded-xl text-sm font-semibold transition-colors active:scale-[0.98] ${
                       isActive
-                        ? "bg-[#334E6B] text-white"
+                        ? "bg-[#202531] text-white"
                         : isPending
-                        ? "bg-slate-100 text-[#334E6B]"
-                        : "text-slate-700 hover:bg-slate-100"
+                        ? "bg-[#EBEBEB] text-[#202531]"
+                        : "text-[#525866] hover:bg-[#EBEBEB]/70"
                     }`}
                   >
-                    <Icon size={20} weight={isActive ? "fill" : "duotone"} />
+                    <span className={isActive ? "text-[#01DAD7]" : ""} aria-hidden="true">
+                      <Icon size={20} weight={isActive ? "fill" : "duotone"} />
+                    </span>
                     <span className="flex-1">{item.label}</span>
                     {isPending && (
                       <span
-                        className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-[#334E6B]/25 border-t-[#2563EB] animate-spin"
+                        className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-[#202531]/25 border-t-[#01DAD7] animate-spin"
                         aria-hidden="true"
                       />
                     )}
@@ -480,22 +475,22 @@ function ShellFrame({
                 );
               })}
             </nav>
-            <div className="p-3 border-t border-slate-200">
+            <div className="p-3 border-t border-[#202531]/10">
               <button
                 type="button"
                 onClick={onLogoutClick}
                 disabled={loggingOut}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#FFF1F2] text-[#9F1239] text-sm font-bold disabled:opacity-60 cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#FFF0F4] text-[#D41448] text-sm font-bold disabled:opacity-60 cursor-pointer"
               >
                 {loggingOut ? (
                   <span
-                    className="inline-block h-4 w-4 rounded-full border-2 border-[#9F1239]/25 border-t-[#9F1239] animate-spin"
+                    className="inline-block h-4 w-4 rounded-full border-2 border-[#D41448]/25 border-t-[#D41448] animate-spin"
                     aria-hidden="true"
                   />
                 ) : (
                   <SignOut size={18} weight="bold" aria-hidden="true" />
                 )}
-                <span>{loggingOut ? "Keluar..." : "Keluar Sesi"}</span>
+                <span>{loggingOut ? "Keluar..." : "Keluar"}</span>
               </button>
             </div>
           </div>
@@ -506,7 +501,7 @@ function ShellFrame({
       {/* Mobile Bottom Navigation Bar */}
       <nav
         aria-label="Navigasi Bawah Mobile"
-        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 px-2 py-1 flex items-center justify-around"
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[#202531]/10 px-2 py-1 flex items-center justify-around"
       >
         {visibleNavItems.slice(0, 5).map((item) => {
           const Icon = item.icon;
@@ -518,12 +513,12 @@ function ShellFrame({
               href={item.href}
               prefetch={false}
               onClick={() => handleNavClick(item.href)}
-              className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] px-2 py-1 rounded-xl text-[11px] font-semibold transition-all active:scale-95 ${
+              className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] px-2 py-1 rounded-xl text-[11px] font-semibold transition-colors active:scale-95 ${
                 isActive
-                  ? "text-[#334E6B] font-bold"
+                  ? "text-[#202531] font-bold bg-[#01DAD7]/25"
                   : isPending
-                  ? "text-[#2563EB] bg-blue-50/70"
-                  : "text-slate-600"
+                  ? "text-[#202531] bg-[#EBEBEB]"
+                  : "text-[#525866]"
               }`}
             >
               <Icon size={20} weight={isActive ? "fill" : "duotone"} />
@@ -731,13 +726,13 @@ function StandaloneAppShell({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#F5F5F5] flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl border border-slate-200 p-8 max-w-sm w-full text-center space-y-3 shadow-sm">
-          <div className="w-12 h-12 rounded-2xl bg-[#334E6B] text-white flex items-center justify-center mx-auto font-bold text-lg">
+      <div className="min-h-screen bg-[#EBEBEB] flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl border border-[#202531]/10 p-8 max-w-sm w-full text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-[#202531] text-[#01DAD7] flex items-center justify-center mx-auto font-extrabold text-lg">
             TR
           </div>
-          <p className="text-sm font-bold text-slate-900">Memuat Ruang Kerja TRASIR...</p>
-          <p className="text-xs text-slate-600">Memverifikasi sesi dan matriks hak akses (RBAC)</p>
+          <p className="text-sm font-bold text-[#202531]">Memuat Ruang Kerja TRASIR...</p>
+          <p className="text-xs text-[#525866]">Menyiapkan sesi dan data toko Anda</p>
         </div>
       </div>
     );

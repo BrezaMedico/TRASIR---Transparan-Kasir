@@ -348,9 +348,9 @@ export function KasirClient({
                   </div>
                   <Link
                     href="/penjualan"
-                    className="inline-flex items-center justify-center px-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                    className="inline-flex items-center justify-center px-3.5 py-2 min-h-[40px] rounded-xl border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB]"
                   >
-                    Riwayat & Tutup Shift →
+                    Riwayat Transaksi
                   </Link>
                 </div>
 
@@ -375,7 +375,7 @@ export function KasirClient({
                   <button
                     type="button"
                     onClick={() => setScannerOpen(true)}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] shrink-0 cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] shrink-0 cursor-pointer"
                   >
                     <Barcode size={20} weight="bold" aria-hidden="true" />
                     <span>Scan Barcode</span>
@@ -389,7 +389,7 @@ export function KasirClient({
                     onClick={() => setSelectedCategory("ALL")}
                     className={`px-3.5 py-1.5 min-h-[36px] rounded-xl text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       selectedCategory === "ALL"
-                        ? "bg-[#334E6B] text-white"
+                        ? "bg-[#202531] text-white"
                         : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                     }`}
                   >
@@ -402,7 +402,7 @@ export function KasirClient({
                       onClick={() => setSelectedCategory(cat.id)}
                       className={`px-3.5 py-1.5 min-h-[36px] rounded-xl text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                         selectedCategory === cat.id
-                          ? "bg-[#334E6B] text-white"
+                          ? "bg-[#202531] text-white"
                           : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                       }`}
                     >
@@ -442,7 +442,7 @@ export function KasirClient({
                     {session.permissions.produk?.canCreate && (
                       <Link
                         href="/produk"
-                        className="px-4 py-2.5 min-h-[44px] inline-flex items-center rounded-xl bg-[#334E6B] text-white text-xs font-bold"
+                        className="px-4 py-2.5 min-h-[44px] inline-flex items-center rounded-xl bg-[#202531] text-white text-xs font-bold"
                       >
                         Buka Katalog Produk & Resep
                       </Link>
@@ -472,7 +472,7 @@ export function KasirClient({
                     return (
                       <div
                         key={product.id}
-                        className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between gap-3 hover:border-[#334E6B] transition-colors"
+                        className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between gap-3 hover:border-[#202531] transition-colors"
                       >
                         <div className="space-y-2">
                           <div className="flex items-start justify-between gap-2">
@@ -512,7 +512,7 @@ export function KasirClient({
                                       }
                                       className={`px-2.5 py-1 min-h-[32px] rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                                         isSelected
-                                          ? "bg-[#334E6B] text-white border-[#334E6B]"
+                                          ? "bg-[#202531] text-white border-[#202531]"
                                           : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
                                       }`}
                                     >
@@ -527,12 +527,12 @@ export function KasirClient({
 
                         <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                           <div>
-                            <p className="text-base font-extrabold font-mono text-[#334E6B] tabular-nums">
+                            <p className="text-base font-extrabold font-mono text-[#202531] tabular-nums">
                               {formatRupiah(displayPrice)}
                             </p>
                             <p
                               className={`text-[11px] font-bold ${
-                                availableStock > 0 ? "text-[#166534]" : "text-[#9F1239]"
+                                availableStock > 0 ? "text-[#202531]" : "text-[#D41448]"
                               }`}
                             >
                               {product.stockMethod === "RESEP"
@@ -545,7 +545,7 @@ export function KasirClient({
                             type="button"
                             disabled={availableStock <= 0}
                             onClick={() => addToCart(product, activeVarId)}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] disabled:opacity-40 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] disabled:opacity-40 transition-colors cursor-pointer"
                           >
                             <Plus size={16} weight="bold" aria-hidden="true" />
                             <span>Tambah</span>
@@ -566,14 +566,14 @@ export function KasirClient({
               {/* Mobile Bottom Sheet Toggle Header */}
               <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-[#334E6B] text-white flex items-center justify-center">
+                  <div className="w-9 h-9 rounded-xl bg-[#202531] text-white flex items-center justify-center">
                     <ShoppingCart size={18} weight="fill" aria-hidden="true" />
                   </div>
                   <div>
                     <h2 className="text-sm font-extrabold text-slate-900">
                       Keranjang Belanja ({cart.reduce((s, i) => s + i.quantity, 0)})
                     </h2>
-                    <p className="text-xs font-mono font-bold text-[#334E6B]">
+                    <p className="text-xs font-mono font-bold text-[#202531]">
                       {formatRupiah(subtotal)}
                     </p>
                   </div>
@@ -610,7 +610,7 @@ export function KasirClient({
                           <p className="text-xs font-extrabold text-slate-900 truncate">
                             {item.productName}{" "}
                             {item.variantName && (
-                              <span className="text-[#334E6B]">({item.variantName})</span>
+                              <span className="text-[#202531]">({item.variantName})</span>
                             )}
                           </p>
                           <p className="text-[11px] font-mono text-slate-600 mt-0.5">
@@ -629,7 +629,7 @@ export function KasirClient({
                             className="w-9 h-9 min-w-[36px] min-h-[36px] rounded-lg border border-slate-300 bg-white flex items-center justify-center text-slate-700 hover:bg-slate-100 cursor-pointer"
                           >
                             {item.quantity === 1 ? (
-                              <Trash size={14} weight="bold" className="text-[#9F1239]" aria-hidden="true" />
+                              <Trash size={14} weight="bold" className="text-[#D41448]" aria-hidden="true" />
                             ) : (
                               <Minus size={14} weight="bold" aria-hidden="true" />
                             )}
@@ -672,7 +672,7 @@ export function KasirClient({
                           onClick={() => setPaymentMethod(m.id)}
                           className={`flex items-center gap-2 px-3 py-2.5 min-h-[44px] rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
                             active
-                              ? "bg-[#334E6B] text-white border-[#334E6B]"
+                              ? "bg-[#202531] text-white border-[#202531]"
                               : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
                           }`}
                         >
@@ -735,7 +735,7 @@ export function KasirClient({
                           {formatRupiah(cashReceivedNum)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 text-sm font-extrabold text-[#166534]">
+                      <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 text-sm font-extrabold text-[#202531]">
                         <span>Kembalian Otomatis</span>
                         <span className="font-mono">{formatRupiah(changeAmount)}</span>
                       </div>
@@ -748,13 +748,13 @@ export function KasirClient({
                   type="button"
                   disabled={submitting || cart.length === 0}
                   onClick={handleCompleteSale}
-                  className="w-full flex items-center justify-center gap-2 px-5 py-3.5 min-h-[48px] rounded-xl bg-[#334E6B] text-white text-sm font-extrabold hover:bg-[#24384E] disabled:opacity-40 transition-colors cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 px-5 py-3.5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-90 disabled:opacity-40 transition-opacity cursor-pointer"
                 >
                   <CheckCircle size={20} weight="fill" aria-hidden="true" />
                   <span>
                     {submitting
                       ? "Memproses Transaksi..."
-                      : `Selesaikan Transaksi (${formatRupiah(subtotal)})`}
+                      : `Bayar Sekarang (${formatRupiah(subtotal)})`}
                   </span>
                 </button>
               </div>

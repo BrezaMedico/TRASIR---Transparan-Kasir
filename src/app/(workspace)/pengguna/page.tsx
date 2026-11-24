@@ -304,7 +304,7 @@ export default function TeamManagementPage() {
                   Tentukan hak akses pegawai sejak undangan dibuat (Kasir, Gudang, Kasir + Gudang, atau Manajer) dan kelola anggota ruangan.
                 </p>
               </div>
-              <div className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3.5 py-2 text-xs font-bold text-[#334E6B] shrink-0">
+              <div className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3.5 py-2 text-xs font-bold text-[#202531] shrink-0">
                 <ShieldCheck size={16} weight="duotone" aria-hidden="true" />
                 <span>
                   Pemilik: {activeOwnerCount} • Pengelola: {activeAdminCount}
@@ -316,7 +316,7 @@ export default function TeamManagementPage() {
             <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <UserPlus size={20} weight="duotone" className="text-[#2563EB]" aria-hidden="true" />
+                  <UserPlus size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
                   <h2 className="text-base font-extrabold text-slate-900">
                     Undang Pegawai ke Ruangan
                   </h2>
@@ -334,7 +334,7 @@ export default function TeamManagementPage() {
                     onClick={() => setInviteMode("CODE")}
                     className={`px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-bold cursor-pointer ${
                       inviteMode === "CODE"
-                        ? "bg-[#334E6B] text-white"
+                        ? "bg-[#202531] text-white"
                         : "text-slate-700 hover:text-slate-900"
                     }`}
                   >
@@ -347,7 +347,7 @@ export default function TeamManagementPage() {
                     onClick={() => setInviteMode("USERNAME")}
                     className={`px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-bold cursor-pointer ${
                       inviteMode === "USERNAME"
-                        ? "bg-[#334E6B] text-white"
+                        ? "bg-[#202531] text-white"
                         : "text-slate-700 hover:text-slate-900"
                     }`}
                   >
@@ -369,12 +369,12 @@ export default function TeamManagementPage() {
                       value={inviteUsername}
                       onChange={(e) => setInviteUsername(e.target.value)}
                       placeholder="contoh: budi_01"
-                      className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 font-mono text-sm text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                      className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 font-mono text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
                     />
                     {usernameValidation && (
                       <p
                         className={`mt-1 text-[11px] font-medium ${
-                          usernameValidation.valid ? "text-[#0F766E]" : "text-[#9F1239]"
+                          usernameValidation.valid ? "text-[#202531]" : "text-[#D41448]"
                         }`}
                       >
                         {usernameValidation.valid
@@ -393,7 +393,7 @@ export default function TeamManagementPage() {
                     id="invite-role"
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value as InvitableRole)}
-                    className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                    className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-900 focus:border-[#202531] focus:outline-none"
                   >
                     <option value="KASIR">Kasir (POS, Riwayat Transaksi &amp; Tutup Shift)</option>
                     <option value="GUDANG">Gudang (Pembelian, Produk &amp; Inventaris)</option>
@@ -410,7 +410,7 @@ export default function TeamManagementPage() {
                   <button
                     type="submit"
                     disabled={sendingInvite}
-                    className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-4 text-sm font-bold text-white hover:bg-[#1D4ED8] disabled:opacity-60 transition-colors cursor-pointer"
+                    className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#01DAD7] px-4 text-sm font-extrabold text-[#202531] hover:opacity-90 disabled:opacity-60 transition-colors cursor-pointer"
                   >
                     {inviteMode === "CODE" ? (
                       <Key size={17} weight="bold" aria-hidden="true" />
@@ -429,15 +429,15 @@ export default function TeamManagementPage() {
               </form>
 
               {latestCreatedInvite && (
-                <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="rounded-xl border border-[#01DAD7] bg-[#01DAD7]/15 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="space-y-0.5">
-                    <p className="text-xs font-extrabold text-[#166534]">
+                    <p className="text-xs font-extrabold text-[#202531]">
                       Kode Undangan Siap Dibagikan ({formatRoleLabel(latestCreatedInvite.role)})
                     </p>
                     <p className="font-mono text-base font-extrabold text-slate-900">
                       {latestCreatedInvite.code}
                     </p>
-                    <p className="text-[11px] text-[#166534]">
+                    <p className="text-[11px] text-[#202531]">
                       Bagikan kode atau tautan ini agar calon anggota langsung bergabung dengan hak akses yang ditetapkan.
                     </p>
                   </div>
@@ -445,7 +445,7 @@ export default function TeamManagementPage() {
                     <button
                       type="button"
                       onClick={() => copyText(latestCreatedInvite.code, "Kode undangan")}
-                      className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-xl bg-white border border-[#BBF7D0] text-xs font-bold text-[#166534] hover:bg-emerald-50 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-xl bg-white border border-[#01DAD7] text-xs font-bold text-[#202531] hover:bg-emerald-50 cursor-pointer"
                     >
                       <Copy size={15} weight="bold" aria-hidden="true" />
                       <span>Salin Kode</span>
@@ -459,7 +459,7 @@ export default function TeamManagementPage() {
                             : latestCreatedInvite.invitePath;
                         copyText(fullUrl, "Tautan undangan");
                       }}
-                      className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-xl bg-[#166534] text-xs font-bold text-white hover:opacity-90 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-xl bg-[#01DAD7] text-xs font-extrabold text-[#202531] hover:opacity-90 cursor-pointer"
                     >
                       <LinkIcon size={15} weight="bold" aria-hidden="true" />
                       <span>Salin Tautan Daftar</span>
@@ -473,15 +473,15 @@ export default function TeamManagementPage() {
             {openShiftConfirm && (
               <div
                 role="alert"
-                className="rounded-2xl border border-[#FECDD3] bg-[#FFF1F2] p-5 space-y-3"
+                className="rounded-2xl border border-[#FF2A63]/35 bg-[#FFF0F4] p-5 space-y-3"
               >
                 <div className="flex items-start gap-3">
-                  <WarningCircle size={22} weight="fill" className="text-[#9F1239] shrink-0 mt-0.5" aria-hidden="true" />
+                  <WarningCircle size={22} weight="fill" className="text-[#D41448] shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="space-y-1">
-                    <p className="text-sm font-extrabold text-[#9F1239]">
+                    <p className="text-sm font-extrabold text-[#D41448]">
                       Peringatan: Shift Kasir Belum Ditutup (@{openShiftConfirm.member.username})
                     </p>
-                    <p className="text-xs text-[#9F1239]">
+                    <p className="text-xs text-[#D41448]">
                       Anggota ini masih memiliki {openShiftConfirm.count} transaksi penjualan yang belum ditutup pada tutup shift. Disarankan menutup shift terlebih dahulu, atau lanjutkan pencabutan dengan catatan di Activity Log.
                     </p>
                   </div>
@@ -497,7 +497,7 @@ export default function TeamManagementPage() {
                   <button
                     type="button"
                     onClick={() => handleRevokeAccess(openShiftConfirm.member, true, refreshSession)}
-                    className="min-h-[40px] px-4 rounded-xl bg-[#9F1239] text-xs font-bold text-white hover:bg-[#881337] cursor-pointer"
+                    className="min-h-[40px] px-4 rounded-xl bg-[#D41448] text-xs font-bold text-white hover:bg-[#881337] cursor-pointer"
                   >
                     Tetap Cabut Akses
                   </button>
@@ -509,14 +509,14 @@ export default function TeamManagementPage() {
             <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <UsersThree size={20} weight="duotone" className="text-[#334E6B]" aria-hidden="true" />
+                  <UsersThree size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
                   <h2 className="text-base font-extrabold text-slate-900">
                     Anggota Ruangan Aktif ({members.length})
                   </h2>
                 </div>
                 {!actorIsPemilik && (
                   <p className="text-xs text-slate-600 inline-flex items-center gap-1.5">
-                    <LockKey size={14} weight="bold" className="text-[#334E6B]" aria-hidden="true" />
+                    <LockKey size={14} weight="bold" className="text-[#202531]" aria-hidden="true" />
                     <span>Akun Pemilik terlindungi dan tidak dapat diubah oleh Manajer.</span>
                   </p>
                 )}
@@ -548,7 +548,7 @@ export default function TeamManagementPage() {
                               <p className="font-bold text-slate-900">
                                 {member.name}{" "}
                                 {member.id === session.user.id && (
-                                  <span className="text-[11px] font-semibold text-[#2563EB]">
+                                  <span className="text-[11px] font-semibold text-[#202531]">
                                     (Anda)
                                   </span>
                                 )}
@@ -558,7 +558,7 @@ export default function TeamManagementPage() {
 
                             <td className="py-3.5 px-4">
                               {protectedFromManager ? (
-                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#E8EEF4] border border-slate-300 text-xs font-extrabold text-[#334E6B]">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#EBEBEB] border border-slate-300 text-xs font-extrabold text-[#202531]">
                                   <LockKey size={14} weight="bold" aria-hidden="true" />
                                   <span>Pemilik (Dilindungi)</span>
                                 </span>
@@ -579,7 +579,7 @@ export default function TeamManagementPage() {
                                       refreshSession
                                     )
                                   }
-                                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 focus:border-[#2563EB] focus:outline-none disabled:opacity-60"
+                                  className="min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 focus:border-[#202531] focus:outline-none disabled:opacity-60"
                                 >
                                   {actorIsPemilik && <option value="PEMILIK">Pemilik</option>}
                                   <option value="MANAJER">Manajer</option>
@@ -617,7 +617,7 @@ export default function TeamManagementPage() {
                                       : "Cabut akses ruangan"
                                   }
                                   onClick={() => handleRevokeAccess(member, false, refreshSession)}
-                                  className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] text-xs font-bold text-[#9F1239] hover:bg-rose-100 disabled:opacity-45 cursor-pointer"
+                                  className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] text-xs font-bold text-[#D41448] hover:bg-rose-100 disabled:opacity-45 cursor-pointer"
                                 >
                                   <Trash size={15} weight="bold" aria-hidden="true" />
                                   <span>Cabut Akses</span>
@@ -636,7 +636,7 @@ export default function TeamManagementPage() {
             {/* Tabel Status Undangan Keluar */}
             <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
               <div className="flex items-center gap-2">
-                <EnvelopeSimple size={20} weight="duotone" className="text-[#334E6B]" aria-hidden="true" />
+                <EnvelopeSimple size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
                 <h2 className="text-base font-extrabold text-slate-900">
                   Riwayat &amp; Status Undangan Ruangan ({invitations.length})
                 </h2>
@@ -667,7 +667,7 @@ export default function TeamManagementPage() {
                         return (
                           <tr key={inv.id}>
                             <td className="py-3 pr-4">
-                              <p className="font-mono text-xs font-extrabold text-[#334E6B]">
+                              <p className="font-mono text-xs font-extrabold text-[#202531]">
                                 {inv.code || "-"}
                               </p>
                               <p className="text-xs text-slate-600 mt-0.5">
@@ -702,7 +702,7 @@ export default function TeamManagementPage() {
                                             : `/register?invite=${inv.code}`;
                                         copyText(url, "Tautan undangan");
                                       }}
-                                      className="min-h-[38px] px-3 rounded-xl border border-slate-300 bg-white text-xs font-bold text-[#334E6B] hover:bg-slate-50 cursor-pointer"
+                                      className="min-h-[38px] px-3 rounded-xl border border-slate-300 bg-white text-xs font-bold text-[#202531] hover:bg-slate-50 cursor-pointer"
                                     >
                                       Salin Tautan
                                     </button>
@@ -710,7 +710,7 @@ export default function TeamManagementPage() {
                                   <button
                                     type="button"
                                     onClick={() => handleCancelInvitation(inv.id)}
-                                    className="min-h-[38px] px-3 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] text-xs font-bold text-[#9F1239] hover:bg-rose-100 cursor-pointer"
+                                    className="min-h-[38px] px-3 rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] text-xs font-bold text-[#D41448] hover:bg-rose-100 cursor-pointer"
                                   >
                                     Cabut
                                   </button>

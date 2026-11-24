@@ -29,7 +29,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" className={`${jakarta.variable} ${jetbrains.variable}`}>
-      <body className="font-sans antialiased bg-[#F5F5F5] text-slate-900 min-h-screen">
+      <body className="font-sans antialiased bg-[#EBEBEB] text-[#202531] min-h-screen">
         <ToastProvider>
           <NavigationProgress />
           {children}

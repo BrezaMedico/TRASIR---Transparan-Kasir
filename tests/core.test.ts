@@ -29,6 +29,14 @@ import {
   verifyPassword,
 } from "../src/lib/auth";
 import { recordAuditLog } from "../src/lib/audit";
+import { getGrossProfitReport } from "../src/lib/queries/profit";
+import {
+  buildAreaPath,
+  buildMonotonePath,
+  computeNiceScale,
+  formatCompactRupiahAxis,
+  pickXAxisTickIndices,
+} from "../src/components/charts/sales-line-chart-utils";
 
 describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", () => {
   beforeEach(async () => {
@@ -355,5 +363,150 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
     expect(log.id).toBeDefined();
     expect(log.beforeData).toContain("50000");
     expect(log.afterData).toContain("75000");
+  });
+
+  it("computes readable Rupiah chart scales, monotone SVG paths, and non-overlapping ticks", () => {
+    expect(formatCompactRupiahAxis(0)).toBe("Rp 0");
+    expect(formatCompactRupiahAxis(25_000)).toBe("Rp 25 rb");
+    expect(formatCompactRupiahAxis(1_500_000)).toBe("Rp 1,5 jt");
+    expect(formatCompactRupiahAxis(2_000_000_000)).toBe("Rp 2 M");
+    expect(formatCompactRupiahAxis(-500)).toBe("-Rp 500");
+
+    const zeroScale = computeNiceScale(0, 0, 4);
+    expect(zeroScale.min).toBe(0);
+    expect(zeroScale.max).toBe(100_000);
+    expect(zeroScale.ticks).toEqual([0, 25_000, 50_000, 75_000, 100_000]);
+
+    const scale = computeNiceScale(0, 1_350_000, 4);
+    expect(scale.min).toBe(0);
+    expect(scale.max).toBeGreaterThanOrEqual(1_350_000);
+    expect(scale.ticks[0]).toBe(0);
+
+    const pts = [
+      { x: 0, y: 100 },
+      { x: 50, y: 100 },
+      { x: 100, y: 20 },
+      { x: 150, y: 20 },
+    ];
+    const linePath = buildMonotonePath(pts);
+    expect(linePath.startsWith("M 0.00 100.00")).toBe(true);
+    expect(linePath).not.toContain("NaN");
+
+    const areaPath = buildAreaPath(linePath, pts, 100);
+    expect(areaPath).toContain("L 150.00 100.00 L 0.00 100.00 Z");
+
+    const singlePath = buildMonotonePath([{ x: 40, y: 60 }]);
+    expect(singlePath).toBe("M 40.00 60.00");
+    expect(buildAreaPath(singlePath, [{ x: 40, y: 60 }], 100)).toBe("");
+
+    const ticks30 = pickXAxisTickIndices(30, 7);
+    expect(ticks30.length).toBeLessThanOrEqual(7);
+    expect(ticks30[0]).toBe(0);
+    expect(ticks30[ticks30.length - 1]).toBe(29);
+    for (let i = 1; i < ticks30.length; i += 1) {
+      expect(ticks30[i]).toBeGreaterThan(ticks30[i - 1]);
+    }
+  });
+
+  it("emits continuous hourly, weekly, and monthly chartSeries buckets with isFuture markers", async () => {
+    const room = await prisma.room.create({
+      data: {
+        name: "Toko Uji Grafik",
+      },
+    });
+    const roomId = room.id;
+    const category = await prisma.category.create({
+      data: {
+        roomId,
+        name: "Minuman Uji",
+        areaType: "CAFE",
+      },
+    });
+    const owner = await prisma.user.create({
+      data: {
+        roomId,
+        name: "Owner Uji",
+        username: `owner_chart_${Date.now()}`,
+        email: `owner_chart_${Date.now()}@trasir.local`,
+        passwordHash: "hash",
+        role: "PEMILIK",
+        isAssigned: true,
+      },
+    });
+
+    const prod = await prisma.product.create({
+      data: {
+        roomId,
+        sku: "CHART-KOPI-01",
+        name: "Kopi Chart",
+        categoryId: category.id,
+        stockMethod: "TETAP",
+        purchaseUnit: "cup",
+        sellUnit: "cup",
+        conversionRatio: 1,
+        costPrice: 5000,
+        sellPrice: 15000,
+        currentStock: 50,
+      },
+    });
+
+    // Reference time: Rabu, 18 Nov 2026 14:00 WIB (07:00 UTC)
+    const refNow = new Date("2026-11-18T07:00:00.000Z");
+
+    // Sale pada Rabu 18 Nov 2026 10:15 WIB (03:15 UTC)
+    await prisma.sale.create({
+      data: {
+        roomId,
+        receiptNumber: "INV-CHART-01",
+        cashierId: owner.id,
+        discountAmount: 0,
+        totalAmount: 30000,
+        totalCost: 10000,
+        paymentMethod: "TUNAI",
+        status: "NORMAL",
+        createdAt: new Date("2026-11-18T03:15:00.000Z"),
+        items: {
+          create: [
+            {
+              productId: prod.id,
+              productName: prod.name,
+              quantity: 2,
+              unitPrice: 15000,
+              unitCost: 5000,
+              subtotal: 30000,
+              totalCost: 10000,
+            },
+          ],
+        },
+      },
+    });
+
+    const todayReport = await getGrossProfitReport(roomId, "today", refNow);
+    expect(todayReport.chartSeries).toHaveLength(24);
+    expect(todayReport.chartSeries[0].key).toBe("00:00");
+    expect(todayReport.chartSeries[23].key).toBe("23:00");
+    expect(todayReport.chartSeries[10].netRevenue).toBe(30000);
+    expect(todayReport.chartSeries[10].grossProfit).toBe(20000);
+    expect(todayReport.chartSeries[10].isFuture).toBe(false);
+    expect(todayReport.chartSeries[14].isFuture).toBe(false);
+    expect(todayReport.chartSeries[15].isFuture).toBe(true);
+
+    const weekReport = await getGrossProfitReport(roomId, "week", refNow);
+    expect(weekReport.chartSeries).toHaveLength(7);
+    expect(weekReport.chartSeries[0].key).toBe("2026-11-16"); // Senin
+    expect(weekReport.chartSeries[2].key).toBe("2026-11-18"); // Rabu
+    expect(weekReport.chartSeries[2].netRevenue).toBe(30000);
+    expect(weekReport.chartSeries[2].isFuture).toBe(false);
+    expect(weekReport.chartSeries[3].isFuture).toBe(true);
+    expect(weekReport.chartSeries[6].key).toBe("2026-11-22"); // Minggu
+
+    const monthReport = await getGrossProfitReport(roomId, "month", refNow);
+    expect(monthReport.chartSeries).toHaveLength(30); // November 2026 = 30 hari
+    expect(monthReport.chartSeries[0].key).toBe("2026-11-01");
+    expect(monthReport.chartSeries[17].key).toBe("2026-11-18");
+    expect(monthReport.chartSeries[17].netRevenue).toBe(30000);
+    expect(monthReport.chartSeries[17].isFuture).toBe(false);
+    expect(monthReport.chartSeries[18].isFuture).toBe(true);
+    expect(monthReport.chartSeries[29].key).toBe("2026-11-30");
   });
 });

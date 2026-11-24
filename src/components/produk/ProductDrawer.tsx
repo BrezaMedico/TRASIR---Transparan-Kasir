@@ -37,6 +37,7 @@ interface ProductDrawerProps {
   canSave: boolean;
   onSaved: (mode: "DIRECT" | "REQUEST", productName: string) => Promise<void> | void;
   onSwitchToAddMaterial: () => void;
+  onRequestDelete?: (product: ProductItem) => void;
 }
 
 const COMMON_SELL_UNITS = [
@@ -56,6 +57,7 @@ export function ProductDrawer({
   canSave,
   onSaved,
   onSwitchToAddMaterial,
+  onRequestDelete,
 }: ProductDrawerProps) {
   const { showToast } = useToast();
 
@@ -421,9 +423,9 @@ export function ProductDrawer({
             <button
               type="button"
               onClick={() => setProductKind("RECIPE")}
-              className={`p-3.5 rounded-2xl border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#334E6B] ${
+              className={`p-3.5 rounded-2xl border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
                 productKind === "RECIPE"
-                  ? "bg-[#334E6B] text-white border-[#334E6B]"
+                  ? "bg-[#202531] text-white border-[#202531]"
                   : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
               }`}
             >
@@ -443,9 +445,9 @@ export function ProductDrawer({
             <button
               type="button"
               onClick={() => setProductKind("READY")}
-              className={`p-3.5 rounded-2xl border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#334E6B] ${
+              className={`p-3.5 rounded-2xl border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
                 productKind === "READY"
-                  ? "bg-[#334E6B] text-white border-[#334E6B]"
+                  ? "bg-[#202531] text-white border-[#202531]"
                   : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
               }`}
             >
@@ -481,7 +483,7 @@ export function ProductDrawer({
                   ? "Contoh: Es Kopi Susu, Teh Manis"
                   : "Contoh: Air Mineral 600ml, Roti Cokelat"
               }
-              className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:border-[#334E6B]"
+              className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:border-[#202531]"
             />
           </div>
 
@@ -513,7 +515,7 @@ export function ProductDrawer({
                     }
                   }}
                   placeholder="15000"
-                  className="w-full pl-11 pr-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#334E6B]"
+                  className="w-full pl-11 pr-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#202531]"
                 />
               </div>
             </div>
@@ -561,7 +563,7 @@ export function ProductDrawer({
                         }}
                         className={`flex-1 min-w-[68px] px-2.5 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer ${
                           active
-                            ? "bg-[#334E6B] text-white border-[#334E6B]"
+                            ? "bg-[#202531] text-white border-[#202531]"
                             : "bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100"
                         }`}
                       >
@@ -574,7 +576,7 @@ export function ProductDrawer({
                     onClick={() => setUseOtherUnit((prev) => !prev)}
                     className={`px-2.5 min-h-[44px] rounded-xl text-xs font-bold border cursor-pointer ${
                       useOtherUnit
-                        ? "bg-[#334E6B] text-white border-[#334E6B]"
+                        ? "bg-[#202531] text-white border-[#202531]"
                         : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
                     }`}
                   >
@@ -599,9 +601,9 @@ export function ProductDrawer({
             </div>
 
             {/* Stok Sekarang */}
-            <div className="p-4 rounded-2xl bg-[#F0FDFA] border border-[#99F6E4] space-y-3">
+            <div className="p-4 rounded-2xl bg-[#EBEBEB]/60 border border-[#202531]/15 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <label htmlFor="ready-stock" className="text-sm font-bold text-[#0F766E]">
+                <label htmlFor="ready-stock" className="text-sm font-bold text-[#202531]">
                   {editingProduct
                     ? `Stok Tersedia Sekarang (${getUnitDisplayLabel(sellUnit)})`
                     : `Jumlah Stok Awal (${getUnitDisplayLabel(sellUnit)})`}
@@ -614,7 +616,7 @@ export function ProductDrawer({
                       onClick={() =>
                         setCurrentStock((prev) => Math.max(0, (Number(prev) || 0) + inc))
                       }
-                      className="px-2.5 min-h-[34px] rounded-lg bg-white border border-[#99F6E4] text-xs font-bold text-[#0F766E] hover:bg-[#CCFBF1] cursor-pointer"
+                      className="px-2.5 min-h-[34px] rounded-lg bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#01DAD7]/20 cursor-pointer"
                     >
                       +{inc}
                     </button>
@@ -633,7 +635,7 @@ export function ProductDrawer({
               {sellPrice > 0 && (
                 <p
                   className={`text-xs font-bold ${
-                    readyProfit < 0 ? "text-[#9F1239]" : "text-[#0F766E]"
+                    readyProfit < 0 ? "text-[#D41448]" : "text-[#202531]"
                   }`}
                 >
                   {readyProfit < 0
@@ -670,7 +672,7 @@ export function ProductDrawer({
                       ]);
                       setActiveVariantIdx(nextIdx);
                     }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#334E6B] text-white text-xs font-bold cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#01DAD7] text-[#202531] text-xs font-bold cursor-pointer"
                   >
                     <Plus size={14} weight="bold" aria-hidden="true" />
                     <span>Ukuran Baru</span>
@@ -685,7 +687,7 @@ export function ProductDrawer({
                       onClick={() => setActiveVariantIdx(idx)}
                       className={`px-3.5 min-h-[40px] rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
                         safeVariantIdx === idx
-                          ? "bg-[#334E6B] text-white border-[#334E6B]"
+                          ? "bg-[#202531] text-white border-[#202531]"
                           : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
                       }`}
                     >
@@ -754,7 +756,7 @@ export function ProductDrawer({
                         });
                         setActiveVariantIdx(0);
                       }}
-                      className="px-3 h-10 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] text-[#9F1239] text-xs font-bold cursor-pointer"
+                      className="px-3 h-10 rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] text-[#D41448] text-xs font-bold cursor-pointer"
                     >
                       Hapus
                     </button>
@@ -764,20 +766,20 @@ export function ProductDrawer({
             )}
 
             {/* Pemilih Bahan Baku 1-Klik */}
-            <div className="p-4 rounded-2xl bg-[#F0FDFA] border border-[#99F6E4] space-y-3">
+            <div className="p-4 rounded-2xl bg-[#EBEBEB]/60 border border-[#202531]/15 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-extrabold text-[#0F766E]">
+                  <p className="text-sm font-extrabold text-[#202531]">
                     Pilih Bahan Baku untuk Resep Ini
                   </p>
-                  <p className="text-xs text-[#0F766E]">
+                  <p className="text-xs text-[#202531]">
                     Klik bahan di bawah untuk memasukkan ke resep, lalu tentukan takaran per gelas/porsi.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={onSwitchToAddMaterial}
-                  className="inline-flex items-center gap-1.5 px-3 min-h-[38px] rounded-xl bg-white border border-[#99F6E4] text-xs font-bold text-[#0F766E] hover:bg-[#CCFBF1] cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 min-h-[38px] rounded-xl bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#01DAD7]/20 cursor-pointer"
                 >
                   <Plus size={14} weight="bold" aria-hidden="true" />
                   <span>Bahan Baku Baru</span>
@@ -795,7 +797,7 @@ export function ProductDrawer({
                   <button
                     type="button"
                     onClick={onSwitchToAddMaterial}
-                    className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#0F766E] text-white text-xs font-extrabold cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold cursor-pointer"
                   >
                     <Plus size={16} weight="bold" aria-hidden="true" />
                     <span>Masukkan Bahan Baku Pertama</span>
@@ -814,10 +816,10 @@ export function ProductDrawer({
                         type="button"
                         aria-pressed={selected}
                         onClick={() => toggleMaterialInVariant(mat)}
-                        className={`inline-flex items-center gap-2 px-3 py-2 min-h-[42px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0F766E] ${
+                        className={`inline-flex items-center gap-2 px-3 py-2 min-h-[42px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
                           selected
-                            ? "bg-[#0F766E] text-white border-[#0F766E]"
-                            : "bg-white text-slate-900 border-[#99F6E4] hover:bg-[#CCFBF1]"
+                            ? "bg-[#202531] text-white border-[#202531]"
+                            : "bg-white text-slate-900 border-[#202531]/20 hover:bg-[#01DAD7]/20"
                         }`}
                       >
                         {selected ? (
@@ -828,7 +830,7 @@ export function ProductDrawer({
                         <span>{mat.name}</span>
                         <span
                           className={`font-mono text-[11px] ${
-                            selected ? "text-teal-100" : "text-[#0F766E]"
+                            selected ? "text-[#202531]" : "text-[#202531]"
                           }`}
                         >
                           ({formatNumber(mat.currentStock)} {uLabel})
@@ -893,7 +895,7 @@ export function ProductDrawer({
                           <button
                             type="button"
                             onClick={() => removeIngredient(ingIdx)}
-                            className="inline-flex items-center gap-1 px-2.5 min-h-[36px] rounded-lg text-xs font-bold text-[#9F1239] hover:bg-[#FFF1F2] cursor-pointer"
+                            className="inline-flex items-center gap-1 px-2.5 min-h-[36px] rounded-lg text-xs font-bold text-[#D41448] hover:bg-[#FFF0F4] cursor-pointer"
                           >
                             <Trash size={14} weight="bold" aria-hidden="true" />
                             <span>Hapus</span>
@@ -938,7 +940,7 @@ export function ProductDrawer({
                                 onClick={() => updateIngredientQty(ingIdx, dose)}
                                 className={`px-2.5 min-h-[32px] rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
                                   qty === dose
-                                    ? "bg-[#334E6B] text-white border-[#334E6B]"
+                                    ? "bg-[#202531] text-white border-[#202531]"
                                     : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
                                 }`}
                               >
@@ -959,7 +961,7 @@ export function ProductDrawer({
                             </span>
                             <span
                               className={`font-bold ${
-                                portionsFromMat <= 0 ? "text-[#9F1239]" : "text-[#0F766E]"
+                                portionsFromMat <= 0 ? "text-[#D41448]" : "text-[#202531]"
                               }`}
                             >
                               {portionsFromMat <= 0
@@ -971,7 +973,7 @@ export function ProductDrawer({
                             <div className="space-y-1">
                               <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
                                 <div
-                                  className="h-full rounded-full bg-[#0F766E] transition-all duration-150"
+                                  className="h-full rounded-full bg-[#01DAD7] transition-all duration-150"
                                   style={{ width: `${Math.max(4, pctOfPack)}%` }}
                                 />
                               </div>
@@ -1005,7 +1007,7 @@ export function ProductDrawer({
                     ]);
                     setActiveVariantIdx(1);
                   }}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#334E6B] hover:underline py-1 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#202531] hover:underline py-1 cursor-pointer"
                 >
                   <Plus size={14} weight="bold" aria-hidden="true" />
                   <span>Menu ini punya lebih dari 1 ukuran? (misal Regular &amp; Large)</span>
@@ -1029,7 +1031,7 @@ export function ProductDrawer({
                   <p className="text-slate-600">Untung Kotor / Porsi</p>
                   <p
                     className={`text-base font-extrabold font-mono mt-0.5 tabular-nums ${
-                      activeStats.profitRp < 0 ? "text-[#9F1239]" : "text-[#0F766E]"
+                      activeStats.profitRp < 0 ? "text-[#D41448]" : "text-[#202531]"
                     }`}
                   >
                     {formatRupiah(activeStats.profitRp)}
@@ -1038,14 +1040,14 @@ export function ProductDrawer({
                 </div>
                 <div className="p-3 rounded-xl bg-white border border-slate-200">
                   <p className="text-slate-600">Bisa Dibuat Sekarang</p>
-                  <p className="text-base font-extrabold font-mono text-[#334E6B] mt-0.5 tabular-nums">
+                  <p className="text-base font-extrabold font-mono text-[#202531] mt-0.5 tabular-nums">
                     {formatNumber(activeStats.resolvedPortions)} porsi
                   </p>
                 </div>
               </div>
 
               {activeStats.effectiveSell > 0 && activeStats.profitRp < 0 && (
-                <div className="p-3 rounded-xl bg-[#FFF1F2] border border-[#FECDD3] text-xs font-semibold text-[#9F1239] flex items-start gap-2">
+                <div className="p-3 rounded-xl bg-[#FFF0F4] border border-[#FF2A63]/35 text-xs font-semibold text-[#D41448] flex items-start gap-2">
                   <Warning size={16} weight="fill" className="shrink-0 mt-0.5" aria-hidden="true" />
                   <span>
                     Harga jual ({formatRupiah(activeStats.effectiveSell)}) lebih rendah daripada total modal bahan ({formatRupiah(activeStats.totalCost)}).
@@ -1081,7 +1083,7 @@ export function ProductDrawer({
                       type="checkbox"
                       checked={useBulkSplit}
                       onChange={(e) => setUseBulkSplit(e.target.checked)}
-                      className="w-4 h-4 rounded text-[#334E6B]"
+                      className="w-4 h-4 rounded text-[#202531]"
                     />
                     <span>Beli dalam dus/pak lalu jual satuan (Pecah Satuan)</span>
                   </label>
@@ -1190,23 +1192,43 @@ export function ProductDrawer({
         </div>
 
         {canSave && (
-          <button
-            type="submit"
-            disabled={submitting}
-            aria-busy={submitting}
-            className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#334E6B] text-white text-sm font-extrabold hover:bg-[#24384E] disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer"
-          >
-            <FloppyDisk size={18} weight="bold" aria-hidden="true" />
-            <span>
-              {submitting
-                ? "Menyimpan Menu..."
-                : editingProduct
-                ? "Simpan Perubahan"
-                : isAdmin
-                ? "Simpan & Aktifkan di Kasir"
-                : "Kirim Pengajuan Menu"}
-            </span>
-          </button>
+          <div className="space-y-2.5">
+            <button
+              type="submit"
+              disabled={submitting}
+              aria-busy={submitting}
+              className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer"
+            >
+              <FloppyDisk size={18} weight="bold" aria-hidden="true" />
+              <span>
+                {submitting
+                  ? "Menyimpan Menu..."
+                  : editingProduct
+                  ? "Simpan Perubahan"
+                  : isAdmin
+                  ? "Simpan & Aktifkan di Kasir"
+                  : "Kirim Pengajuan Menu"}
+              </span>
+            </button>
+
+            {editingProduct && onRequestDelete && (
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => {
+                  const target = editingProduct;
+                  onClose();
+                  onRequestDelete(target);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] text-[#D41448] text-sm font-bold hover:bg-[#FFE0E8] disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                <Trash size={17} weight="bold" aria-hidden="true" />
+                <span>
+                  {editingProduct.stockMethod === "RESEP" ? "Hapus Produk & Resep" : "Hapus Produk"}
+                </span>
+              </button>
+            )}
+          </div>
         )}
       </form>
     </SlideDrawer>

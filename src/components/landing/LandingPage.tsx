@@ -90,7 +90,7 @@ const WORKFLOW_STEPS = [
     previewLabel: "Nota #NP-108",
     previewDetail: "Total item cocok Rp 640.000",
     previewStatus: "Sesuai",
-    previewStatusClass: "border-[#BBF7D0] bg-[#F0FDF4] text-[#166534]",
+    previewStatusClass: "border-[#01DAD7] bg-[#01DAD7]/20 text-[#202531]",
   },
   {
     num: "02",
@@ -99,16 +99,16 @@ const WORKFLOW_STEPS = [
     previewLabel: "2x Es Kopi Large",
     previewDetail: "-60 ml susu, -16 g kopi",
     previewStatus: "Stok Terpotong",
-    previewStatusClass: "border-[#99F6E4] bg-[#F0FDFA] text-[#0F766E]",
+    previewStatusClass: "border-[#202531] bg-[#202531] text-[#01DAD7]",
   },
   {
     num: "03",
-    title: "Cocokkan Uang Shift Tanpa Tebakan",
-    copy: "Kasir menghitung uang laci di akhir shift, lalu sistem membandingkan langsung dengan catatan transaksi hari itu.",
-    previewLabel: "Tutup Shift Sore",
-    previewDetail: "Sistem Rp 2.450.000 = Fisik Rp 2.450.000",
-    previewStatus: "Selisih Rp 0",
-    previewStatusClass: "border-[#BBF7D0] bg-[#F0FDF4] text-[#166534]",
+    title: "Laporan Laba Jelas Setiap Hari",
+    copy: "Pantau uang masuk, modal barang yang terpakai, dan keuntungan jualan secara otomatis tanpa rekap manual.",
+    previewLabel: "Ringkasan Harian",
+    previewDetail: "Masuk Rp 2.450.000 - Modal Rp 1.400.000",
+    previewStatus: "Untung Rp 1.050.000",
+    previewStatusClass: "border-[#01DAD7] bg-[#01DAD7]/20 text-[#202531]",
   },
 ];
 
@@ -370,7 +370,7 @@ export function LandingPage({
   };
 
   return (
-    <div id="top" className="landing-root min-h-screen bg-white text-[#0F172A] selection:bg-[#3DC2CA]/25 selection:text-[#0F172A]">
+    <div id="top" className="landing-root min-h-screen bg-white text-[#0F172A] selection:bg-[#01DAD7]/25 selection:text-[#0F172A]">
       <a href="#konten-utama" className="landing-skip-link">
         Lewati ke konten utama
       </a>
@@ -390,7 +390,7 @@ export function LandingPage({
             className="landing-brand inline-flex min-h-[44px] items-center gap-3 rounded-lg pr-2 text-[#111827] cursor-pointer"
           >
             <span
-              className="inline-flex h-10 w-10 items-center justify-center rounded-[13px] bg-[#2563EB] text-white shadow-[0_8px_18px_-8px_rgba(37,99,235,0.55)]"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-[13px] bg-[#202531] text-[#01DAD7]"
               aria-hidden="true"
             >
               <svg
@@ -417,7 +417,7 @@ export function LandingPage({
             <button
               ref={menuTriggerRef}
               type="button"
-              className="landing-menu-trigger inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-[#111827] transition-colors duration-150 hover:border-[#2563EB] hover:text-[#2563EB] cursor-pointer"
+              className="landing-menu-trigger inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-[#111827] transition-colors duration-150 hover:border-[#202531] hover:text-[#202531] cursor-pointer"
               {...({
                 popoverTarget: menuId,
                 popoverTargetAction: "toggle",
@@ -452,7 +452,7 @@ export function LandingPage({
                 <a
                   href="#cara-kerja"
                   onClick={closeNarrowMenu}
-                  className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
+                  className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#202531] cursor-pointer whitespace-nowrap"
                 >
                   Cara Kerja
                 </a>
@@ -461,7 +461,7 @@ export function LandingPage({
                 <a
                   href="#metode-stok"
                   onClick={closeNarrowMenu}
-                  className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
+                  className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#202531] cursor-pointer whitespace-nowrap"
                 >
                   Metode Stok
                 </a>
@@ -470,7 +470,7 @@ export function LandingPage({
                 <a
                   href="#audit-adil"
                   onClick={closeNarrowMenu}
-                  className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#2563EB] cursor-pointer whitespace-nowrap"
+                  className="landing-nav-link flex min-h-[44px] items-center rounded-xl px-4 text-[15px] font-medium text-[#1E293B] transition-colors duration-150 hover:bg-slate-50 hover:text-[#202531] cursor-pointer whitespace-nowrap"
                 >
                   Audit Adil
                 </a>
@@ -482,7 +482,7 @@ export function LandingPage({
                     closeNarrowMenu();
                     handleCtaClick("nav-mobile");
                   }}
-                  className={`flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-5 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] ${
+                  className={`flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-[#01DAD7] px-5 text-sm font-bold text-[#202531] transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] ${
                     navigatingTarget === "nav-mobile" ? "opacity-90 pointer-events-none" : ""
                   }`}
                 >
@@ -503,7 +503,7 @@ export function LandingPage({
             ref={ctaRef}
             href={navCtaHref}
             onClick={() => handleCtaClick("nav-desktop")}
-            className={`landing-header-cta min-h-[44px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-6 text-[15px] font-semibold text-white shadow-[0_10px_24px_-12px_rgba(37,99,235,0.7)] transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] whitespace-nowrap ${
+            className={`landing-header-cta min-h-[44px] items-center justify-center gap-2 rounded-full bg-[#01DAD7] px-6 text-[15px] font-bold text-[#202531] transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] whitespace-nowrap ${
               navigatingTarget === "nav-desktop" ? "opacity-90 pointer-events-none" : ""
             }`}
           >
@@ -537,7 +537,7 @@ export function LandingPage({
                 <Link
                   href={heroCtaHref}
                   onClick={() => handleCtaClick("hero")}
-                  className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-7 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] sm:text-base ${
+                  className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-full bg-[#01DAD7] px-7 text-sm font-bold text-[#202531] transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] sm:text-base ${
                     navigatingTarget === "hero" ? "opacity-90 pointer-events-none" : ""
                   }`}
                 >
@@ -555,7 +555,7 @@ export function LandingPage({
                 </Link>
                 <a
                   href="#cara-kerja"
-                  className="inline-flex min-h-[48px] items-center justify-center rounded-full px-4 text-sm font-semibold text-[#334E6B] transition-colors duration-150 hover:bg-slate-100 hover:text-[#0F172A] sm:text-base"
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-full px-4 text-sm font-semibold text-[#202531] transition-colors duration-150 hover:bg-slate-100 hover:text-[#0F172A] sm:text-base"
                 >
                   Lihat cara kerjanya ↓
                 </a>
@@ -570,10 +570,10 @@ export function LandingPage({
         </section>
 
         {/* Section 2: Ketegangan Emosional -> Bukti Data */}
-        <section className="border-b border-slate-200/80 bg-[#F5F5F5]">
+        <section className="border-b border-slate-200/80 bg-[#EBEBEB]">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
             <div className="max-w-2xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#202531]">
                 Transparansi Dua Arah
               </p>
               <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
@@ -583,7 +583,7 @@ export function LandingPage({
 
             <div className="landing-surface-card mt-10 grid grid-cols-1 divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white md:grid-cols-2 md:divide-x md:divide-y-0">
               <div className="p-7 sm:p-10 space-y-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+                <p className="text-xs font-bold uppercase tracking-wider text-[#202531]">
                   Sisi Pemilik &amp; Manajer
                 </p>
                 <h3 className="text-lg font-bold text-[#0F172A]">
@@ -595,7 +595,7 @@ export function LandingPage({
               </div>
 
               <div className="p-7 sm:p-10 space-y-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-[#0F766E]">
+                <p className="text-xs font-bold uppercase tracking-wider text-[#202531]">
                   Sisi Pegawai Jujur
                 </p>
                 <h3 className="text-lg font-bold text-[#0F172A]">
@@ -613,7 +613,7 @@ export function LandingPage({
         <section id="cara-kerja" className="scroll-mt-24 border-b border-slate-200/80 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
             <div className="max-w-2xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#202531]">
                 Alur Operasional Harian
               </p>
               <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
@@ -628,7 +628,7 @@ export function LandingPage({
                   className="landing-surface-card flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6"
                 >
                   <div>
-                    <span className="font-mono text-3xl font-extrabold tracking-tight text-[#334E6B] tabular-nums">
+                    <span className="font-mono text-3xl font-extrabold tracking-tight text-[#202531] tabular-nums">
                       {step.num}
                     </span>
                     <h3 className="mt-4 text-lg font-bold text-[#0F172A]">{step.title}</h3>
@@ -637,7 +637,7 @@ export function LandingPage({
                     </p>
                   </div>
 
-                  <div className="mt-6 rounded-xl border border-slate-200 bg-[#F5F5F5] p-3.5">
+                  <div className="mt-6 rounded-xl border border-slate-200 bg-[#EBEBEB] p-3.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-[#0F172A]">
                         {step.previewLabel}
@@ -659,10 +659,10 @@ export function LandingPage({
         </section>
 
         {/* Section 4: Tiga Metode Stok (Accessible Interactive Tab Switcher) */}
-        <section id="metode-stok" className="scroll-mt-24 border-b border-slate-200/80 bg-[#F5F5F5]">
+        <section id="metode-stok" className="scroll-mt-24 border-b border-slate-200/80 bg-[#EBEBEB]">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
             <div className="max-w-2xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#202531]">
                 Fleksibel Untuk Ritel &amp; F&amp;B
               </p>
               <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
@@ -694,7 +694,7 @@ export function LandingPage({
                       onKeyDown={(e) => handleTabKeyDown(e, index)}
                       className={`min-h-[44px] rounded-xl px-4 py-2 text-sm font-semibold transition-colors duration-150 cursor-pointer ${
                         selected
-                          ? "bg-[#334E6B] text-white shadow-sm"
+                          ? "bg-[#202531] text-white shadow-sm"
                           : "text-[#475569] hover:bg-slate-100 hover:text-[#0F172A]"
                       }`}
                     >
@@ -716,29 +716,29 @@ export function LandingPage({
                 </p>
 
                 <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border border-slate-200 bg-[#F5F5F5] p-4">
+                  <div className="rounded-xl border border-slate-200 bg-[#EBEBEB] p-4">
                     <p className="text-xs font-semibold text-[#475569]">
                       1. {currentMethod.buyLabel}
                     </p>
-                    <p className="mt-1 font-mono text-lg font-extrabold text-[#334E6B] tabular-nums">
+                    <p className="mt-1 font-mono text-lg font-extrabold text-[#202531] tabular-nums">
                       {currentMethod.buyValue}
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-[#F5F5F5] p-4">
+                  <div className="rounded-xl border border-slate-200 bg-[#EBEBEB] p-4">
                     <p className="text-xs font-semibold text-[#475569]">
                       2. {currentMethod.sellLabel}
                     </p>
-                    <p className="mt-1 font-mono text-lg font-extrabold text-[#2563EB] tabular-nums">
+                    <p className="mt-1 font-mono text-lg font-extrabold text-[#202531] tabular-nums">
                       {currentMethod.sellValue}
                     </p>
                   </div>
 
-                  <div className="rounded-xl border border-[#99F6E4] bg-[#F0FDFA] p-4">
-                    <p className="text-xs font-semibold text-[#0F766E]">
+                  <div className="rounded-xl border border-[#01DAD7] bg-[#01DAD7]/15 p-4">
+                    <p className="text-xs font-semibold text-[#202531]">
                       3. {currentMethod.remainLabel}
                     </p>
-                    <p className="mt-1 font-mono text-lg font-extrabold text-[#0F766E] tabular-nums">
+                    <p className="mt-1 font-mono text-lg font-extrabold text-[#202531] tabular-nums">
                       {currentMethod.remainValue}
                     </p>
                   </div>
@@ -754,7 +754,7 @@ export function LandingPage({
         <section id="audit-adil" className="scroll-mt-24 border-b border-slate-200/80 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
             <div className="max-w-2xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-[#334E6B]">
+              <p className="text-xs font-bold uppercase tracking-wider text-[#202531]">
                 Keadilan Audit &amp; Kejelasan Laba
               </p>
               <h2 className="landing-section-title mt-2 font-extrabold text-[#0F172A]">
@@ -782,18 +782,18 @@ export function LandingPage({
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#FECDD3] bg-[#FFF1F2] px-4 py-3">
-                    <span className="text-xs font-bold text-[#9F1239]">Area Tertutup</span>
-                    <span className="text-xs font-medium text-[#9F1239]">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#FECDD3] bg-[#FFF0F4] px-4 py-3">
+                    <span className="text-xs font-bold text-[#D41448]">Area Tertutup</span>
+                    <span className="text-xs font-medium text-[#D41448]">
                       Gudang &amp; dapur pegawai, audit internal langsung
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-[#F5F5F5] px-4 py-3">
+                  <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-[#EBEBEB] px-4 py-3">
                     <span className="text-xs font-semibold text-[#475569]">
                       Batas Toleransi Default
                     </span>
-                    <span className="font-mono text-sm font-extrabold text-[#334E6B] tabular-nums">
+                    <span className="font-mono text-sm font-extrabold text-[#202531] tabular-nums">
                       Rp 50.000
                     </span>
                   </div>
@@ -811,7 +811,7 @@ export function LandingPage({
                   </p>
                 </div>
 
-                <div className="space-y-4 rounded-xl border border-slate-200 bg-[#F5F5F5] p-5">
+                <div className="space-y-4 rounded-xl border border-slate-200 bg-[#EBEBEB] p-5">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-[#475569]">
                     Ilustrasi Perhitungan Harian
                   </p>
@@ -823,7 +823,7 @@ export function LandingPage({
                         <span className="font-mono tabular-nums">Rp 5.000.000</span>
                       </div>
                       <div className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
-                        <div className="h-full w-full rounded-full bg-[#334E6B]" />
+                        <div className="h-full w-full rounded-full bg-[#202531]" />
                       </div>
                     </div>
 
@@ -838,12 +838,12 @@ export function LandingPage({
                     </div>
 
                     <div>
-                      <div className="mb-1 flex items-center justify-between text-xs font-bold text-[#0F766E]">
+                      <div className="mb-1 flex items-center justify-between text-xs font-bold text-[#202531]">
                         <span>Laba Kotor Nyata</span>
                         <span className="font-mono tabular-nums">Rp 1.850.000</span>
                       </div>
                       <div className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden">
-                        <div className="h-full w-[37%] rounded-full bg-[#3DC2CA]" />
+                        <div className="h-full w-[37%] rounded-full bg-[#01DAD7]" />
                       </div>
                     </div>
                   </div>
@@ -854,7 +854,7 @@ export function LandingPage({
         </section>
 
         {/* Section 6: Final CTA & Multi-Role Onboarding */}
-        <section className="bg-[#F5F5F5]">
+        <section className="bg-[#EBEBEB]">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
             <div className="landing-surface-card mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm sm:px-12 sm:py-16">
               <h2 className="landing-section-title font-extrabold text-[#0F172A]">
@@ -868,7 +868,7 @@ export function LandingPage({
                 <Link
                   href={finalCtaHref}
                   onClick={() => handleCtaClick("final")}
-                  className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-full bg-[#2563EB] px-8 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-[#1D4ED8] active:scale-[0.98] sm:text-base ${
+                  className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-full bg-[#01DAD7] px-8 text-sm font-bold text-[#202531] transition-opacity duration-150 hover:opacity-90 active:scale-[0.98] sm:text-base ${
                     navigatingTarget === "final" ? "opacity-90 pointer-events-none" : ""
                   }`}
                 >
@@ -886,7 +886,7 @@ export function LandingPage({
                   <Link
                     href="/login?redirect=/dashboard"
                     onClick={() => handleCtaClick("final-login")}
-                    className={`inline-flex min-h-[44px] items-center justify-center gap-2 px-3 text-sm font-semibold text-[#334E6B] transition-all duration-150 hover:text-[#2563EB] hover:underline active:scale-[0.98] ${
+                    className={`inline-flex min-h-[44px] items-center justify-center gap-2 px-3 text-sm font-semibold text-[#202531] transition-all duration-150 hover:text-[#202531] hover:underline active:scale-[0.98] ${
                       navigatingTarget === "final-login" ? "opacity-80 pointer-events-none" : ""
                     }`}
                   >
@@ -916,19 +916,19 @@ export function LandingPage({
           </div>
 
           <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-5">
-            <a href="#cara-kerja" className="hover:text-[#2563EB] transition-colors">
+            <a href="#cara-kerja" className="hover:text-[#202531] transition-colors">
               Cara Kerja
             </a>
-            <a href="#metode-stok" className="hover:text-[#2563EB] transition-colors">
+            <a href="#metode-stok" className="hover:text-[#202531] transition-colors">
               Metode Stok
             </a>
-            <a href="#audit-adil" className="hover:text-[#2563EB] transition-colors">
+            <a href="#audit-adil" className="hover:text-[#202531] transition-colors">
               Audit Adil
             </a>
             <Link
               href={navCtaHref}
               onClick={() => handleCtaClick("footer")}
-              className={`inline-flex items-center gap-1.5 font-semibold text-[#334E6B] hover:text-[#2563EB] active:scale-[0.98] transition-all ${
+              className={`inline-flex items-center gap-1.5 font-semibold text-[#202531] hover:text-[#202531] active:scale-[0.98] transition-all ${
                 navigatingTarget === "footer" ? "opacity-80 pointer-events-none" : ""
               }`}
             >

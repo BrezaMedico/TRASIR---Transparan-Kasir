@@ -4,17 +4,17 @@
 
 @layer base {
   :root {
-    --color-primary: #334E6B;
-    --color-secondary: #3DC2CA;
-    --color-canvas: #F5F5F5;
+    --color-primary: #202531;
+    --color-secondary: #01DAD7;
+    --color-canvas: #EBEBEB;
     --color-surface: #FFFFFF;
-    --color-rose: #FC5086;
-    --color-cta-blue: #2563EB;
+    --color-rose: #FF2A63;
+    --color-rose-dark: #D41448;
   }
 
   html {
-    background-color: #F5F5F5;
-    color: #0F172A;
+    background-color: #EBEBEB;
+    color: #202531;
     scroll-behavior: smooth;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
@@ -40,7 +40,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid #2563EB;
+    outline: 2px solid #202531;
     outline-offset: 2px;
   }
 }
@@ -89,7 +89,7 @@
   inset-block-start: -4rem;
   inset-inline-start: 1rem;
   z-index: 60;
-  background-color: #2563EB;
+  background-color: #202531;
   color: #FFFFFF;
   padding: 0.75rem 1.25rem;
   border-radius: 0.75rem;

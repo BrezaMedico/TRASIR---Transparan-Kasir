@@ -215,11 +215,11 @@ export default function WaitingInvitationPage() {
   const pastInvitations = invitations.filter((inv) => inv.status !== "PENDING");
 
   return (
-    <div className="min-h-screen bg-[#F5F5F5] text-slate-900">
-      <header className="bg-white border-b border-slate-200">
+    <div className="min-h-screen bg-[#EBEBEB] text-[#202531]">
+      <header className="bg-white border-b border-[#202531]/10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="inline-flex items-center gap-2.5 font-extrabold text-[#334E6B]">
-            <span className="w-9 h-9 rounded-xl bg-[#2563EB] text-white flex items-center justify-center">
+          <Link href="/" className="inline-flex items-center gap-2.5 font-extrabold text-[#202531]">
+            <span className="w-9 h-9 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center">
               <ShieldCheck size={20} weight="duotone" aria-hidden="true" />
             </span>
             <span>TRASIR</span>
@@ -255,12 +255,12 @@ export default function WaitingInvitationPage() {
             <div className="py-4 text-sm text-slate-500">Memuat data akun...</div>
           ) : (
             user && (
-              <div className="rounded-xl border border-slate-200 bg-[#F5F5F5] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="rounded-xl border border-slate-200 bg-[#EBEBEB] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                     Username Pribadi Anda
                   </p>
-                  <p className="mt-0.5 font-mono text-lg font-extrabold text-[#334E6B]">
+                  <p className="mt-0.5 font-mono text-lg font-extrabold text-[#202531]">
                     @{user.username}
                   </p>
                   <p className="text-xs text-slate-600">{user.name}</p>
@@ -291,7 +291,7 @@ export default function WaitingInvitationPage() {
           >
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Key size={20} weight="duotone" className="text-[#2563EB]" aria-hidden="true" />
+                <Key size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
                 <h2 className="text-base font-extrabold text-slate-900">
                   Gabung dengan Kode Undangan
                 </h2>
@@ -317,7 +317,7 @@ export default function WaitingInvitationPage() {
             <button
               type="submit"
               disabled={joiningCode}
-              className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-4 text-xs font-bold text-white hover:bg-[#1D4ED8] disabled:opacity-60 cursor-pointer"
+              className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#01DAD7] px-4 text-xs font-extrabold text-[#202531] hover:opacity-90 disabled:opacity-60 cursor-pointer"
             >
               <span>{joiningCode ? "Memverifikasi..." : "Gabung ke Ruangan"}</span>
               <ArrowRight size={15} weight="bold" aria-hidden="true" />
@@ -330,7 +330,7 @@ export default function WaitingInvitationPage() {
           >
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <Storefront size={20} weight="duotone" className="text-[#334E6B]" aria-hidden="true" />
+                <Storefront size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
                 <h2 className="text-base font-extrabold text-slate-900">
                   Buat Ruangan Baru
                 </h2>
@@ -370,7 +370,7 @@ export default function WaitingInvitationPage() {
             <button
               type="submit"
               disabled={creatingRoom}
-              className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#334E6B] px-4 text-xs font-bold text-white hover:bg-[#24384E] disabled:opacity-60 cursor-pointer"
+              className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#202531] px-4 text-xs font-bold text-white hover:bg-[#2a3140] disabled:opacity-60 cursor-pointer"
             >
               <span>{creatingRoom ? "Membuat Ruangan..." : "Buat Ruangan & Jadi Pemilik"}</span>
               <ArrowRight size={15} weight="bold" aria-hidden="true" />
@@ -382,7 +382,7 @@ export default function WaitingInvitationPage() {
         <section className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <EnvelopeOpen size={22} weight="duotone" className="text-[#334E6B]" aria-hidden="true" />
+              <EnvelopeOpen size={22} weight="duotone" className="text-[#202531]" aria-hidden="true" />
               <h2 className="text-base font-extrabold text-slate-900">Undangan Masuk ke Akun Anda</h2>
             </div>
 
@@ -416,7 +416,7 @@ export default function WaitingInvitationPage() {
                     <p className="text-xs text-slate-600">
                       Diundang oleh <strong className="text-slate-800">{inv.invitedBy.name}</strong> (@
                       {inv.invitedBy.username}) sebagai{" "}
-                      <span className="inline-flex items-center rounded-md bg-[#E8EEF4] px-2 py-0.5 font-bold text-[#334E6B]">
+                      <span className="inline-flex items-center rounded-md bg-[#EBEBEB] px-2 py-0.5 font-bold text-[#202531]">
                         {formatRoleLabel(inv.assignedRole)}
                       </span>
                     </p>
@@ -437,7 +437,7 @@ export default function WaitingInvitationPage() {
                       type="button"
                       disabled={respondingId === inv.id}
                       onClick={() => handleRespond(inv.id, "ACCEPT")}
-                      className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-5 rounded-xl bg-[#2563EB] text-xs font-bold text-white hover:bg-[#1D4ED8] disabled:opacity-50 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 min-h-[44px] px-5 rounded-xl bg-[#01DAD7] text-xs font-extrabold text-[#202531] hover:opacity-90 disabled:opacity-50 cursor-pointer"
                     >
                       <CheckCircle size={16} weight="bold" aria-hidden="true" />
                       <span>{respondingId === inv.id ? "Memproses..." : "Terima"}</span>

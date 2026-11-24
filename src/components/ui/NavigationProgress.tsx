@@ -108,7 +108,7 @@ export function NavigationProgress() {
       className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-[3px] bg-transparent"
     >
       <div
-        className="h-full bg-gradient-to-r from-[#2563EB] via-[#3DC2CA] to-[#2563EB] shadow-[0_0_10px_rgba(37,99,235,0.6)] transition-[width] duration-200 ease-out"
+        className="h-full bg-[#01DAD7] transition-[width] duration-200 ease-out"
         style={{ width: `${progress}%` }}
       />
     </div>

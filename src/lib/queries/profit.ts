@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import {
+  addJakartaDays,
+  getJakartaCurrentHour,
   getJakartaDateKey,
+  getJakartaDateParts,
+  getJakartaDaysInMonth,
   getJakartaHourKey,
   getJakartaPeriodBounds,
   type ProfitPeriod,
@@ -9,10 +13,12 @@ import {
 export interface ProfitSeriesPoint {
   key: string;
   label: string;
+  shortLabel?: string;
   netRevenue: number;
   cogs: number;
   grossProfit: number;
   salesCount: number;
+  isFuture?: boolean;
 }
 
 export interface GrossProfitReport {
@@ -140,6 +146,27 @@ function formatShortDayLabel(dateKey: string): string {
   }).format(dt);
 }
 
+function formatWeekdayShort(dateKey: string): string {
+  const parts = dateKey.split("-").map(Number);
+  if (parts.length !== 3) return dateKey;
+  const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    weekday: "short",
+  }).format(dt);
+}
+
+function formatDayMonthShort(dateKey: string): string {
+  const parts = dateKey.split("-").map(Number);
+  if (parts.length !== 3) return dateKey;
+  const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "numeric",
+    month: "short",
+  }).format(dt);
+}
+
 /**
  * Menghitung laporan Keuntungan Kotor (Gross Profit) per ruangan untuk periode
  * Hari Ini, Minggu Ini (awal Senin), atau Bulan Ini dalam zona waktu Asia/Jakarta.
@@ -218,14 +245,71 @@ export async function getGrossProfitReport(
   const current = summarizeSalesPeriod(activeSales);
   const previous = summarizeSalesPeriod(previousActiveSales);
 
-  // Bangun seri grafik berdasarkan periode (per jam WIB untuk Hari Ini, per hari WIB untuk Minggu/Bulan Ini)
+  // Bangun seri grafik kontinu per periode (24 jam WIB untuk Hari Ini, 7 hari Senin-Minggu, atau 1 bulan penuh WIB)
   const bucketMap = new Map<string, ProfitSeriesPoint>();
+  const todayKey = getJakartaDateKey(now);
+  const currentHour = getJakartaCurrentHour(now);
+
+  if (period === "today") {
+    for (let h = 0; h < 24; h += 1) {
+      const key = `${String(h).padStart(2, "0")}:00`;
+      bucketMap.set(key, {
+        key,
+        label: `${key} WIB`,
+        shortLabel: key,
+        netRevenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+        salesCount: 0,
+        isFuture: h > currentHour,
+      });
+    }
+  } else if (period === "week") {
+    const mondayKey = getJakartaDateKey(bounds.startDate);
+    for (let i = 0; i < 7; i += 1) {
+      const dateKey = addJakartaDays(mondayKey, i);
+      bucketMap.set(dateKey, {
+        key: dateKey,
+        label: formatShortDayLabel(dateKey),
+        shortLabel: formatWeekdayShort(dateKey),
+        netRevenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+        salesCount: 0,
+        isFuture: dateKey > todayKey,
+      });
+    }
+  } else {
+    const { year, monthIndex } = getJakartaDateParts(now);
+    const daysInMonth = getJakartaDaysInMonth(year, monthIndex);
+    const monthPrefix = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+    for (let d = 1; d <= daysInMonth; d += 1) {
+      const dateKey = `${monthPrefix}-${String(d).padStart(2, "0")}`;
+      bucketMap.set(dateKey, {
+        key: dateKey,
+        label: formatShortDayLabel(dateKey),
+        shortLabel: formatDayMonthShort(dateKey),
+        netRevenue: 0,
+        cogs: 0,
+        grossProfit: 0,
+        salesCount: 0,
+        isFuture: dateKey > todayKey,
+      });
+    }
+  }
+
   for (const sale of activeSales) {
     const key =
       period === "today"
         ? getJakartaHourKey(sale.createdAt)
         : getJakartaDateKey(sale.createdAt);
     const label = period === "today" ? `${key} WIB` : formatShortDayLabel(key);
+    const shortLabel =
+      period === "today"
+        ? key
+        : period === "week"
+        ? formatWeekdayShort(key)
+        : formatDayMonthShort(key);
     const saleCogs =
       sale.items.length > 0
         ? sale.items.reduce(
@@ -238,15 +322,18 @@ export async function getGrossProfitReport(
     const existing = bucketMap.get(key) || {
       key,
       label,
+      shortLabel,
       netRevenue: 0,
       cogs: 0,
       grossProfit: 0,
       salesCount: 0,
+      isFuture: false,
     };
     existing.netRevenue += sale.totalAmount;
     existing.cogs += saleCogs;
     existing.grossProfit += sale.totalAmount - saleCogs;
     existing.salesCount += 1;
+    existing.isFuture = false;
     bucketMap.set(key, existing);
   }
 

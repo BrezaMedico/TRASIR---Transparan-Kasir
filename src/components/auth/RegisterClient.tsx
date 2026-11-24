@@ -178,14 +178,14 @@ export function RegisterClient({
   };
 
   return (
-    <main className="min-h-screen bg-[#F5F5F5] flex items-center justify-center p-4 sm:p-6">
+    <main className="min-h-screen bg-[#EBEBEB] flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-lg space-y-5">
         <div className="text-center space-y-2">
           <Link
             href="/"
-            className="inline-flex items-center gap-2.5 text-[#334E6B] font-extrabold text-xl tracking-tight"
+            className="inline-flex items-center gap-2.5 text-[#202531] font-extrabold text-xl tracking-tight"
           >
-            <span className="w-10 h-10 rounded-xl bg-[#2563EB] text-white flex items-center justify-center shadow-sm">
+            <span className="w-10 h-10 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center shadow-sm">
               <ShieldCheck size={22} weight="duotone" aria-hidden="true" />
             </span>
             <span>TRASIR</span>
@@ -203,7 +203,7 @@ export function RegisterClient({
             {errorMsg && (
               <div
                 role="alert"
-                className="rounded-xl border border-[#FECDD3] bg-[#FFF1F2] px-4 py-3 text-xs font-semibold text-[#9F1239]"
+                className="rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] px-4 py-3 text-xs font-semibold text-[#D41448]"
               >
                 {errorMsg}
               </div>
@@ -224,14 +224,14 @@ export function RegisterClient({
                   aria-pressed={mode === "CREATE_ROOM"}
                   className={`text-left p-4 rounded-xl border transition-colors min-h-[44px] cursor-pointer ${
                     mode === "CREATE_ROOM"
-                      ? "border-[#2563EB] bg-blue-50/70 text-slate-900 ring-1 ring-[#2563EB]"
+                      ? "border-[#202531] bg-[#EBEBEB]/60 text-[#202531] ring-1 ring-[#202531]"
                       : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                   }`}
                 >
                   <Storefront
                     size={22}
                     weight={mode === "CREATE_ROOM" ? "fill" : "duotone"}
-                    className={mode === "CREATE_ROOM" ? "text-[#2563EB]" : "text-slate-500"}
+                    className={mode === "CREATE_ROOM" ? "text-[#202531]" : "text-slate-500"}
                     aria-hidden="true"
                   />
                   <span className="block text-sm font-extrabold mt-2">Buat Ruangan Baru</span>
@@ -249,14 +249,14 @@ export function RegisterClient({
                   aria-pressed={mode === "JOIN_ROOM"}
                   className={`text-left p-4 rounded-xl border transition-colors min-h-[44px] cursor-pointer ${
                     mode === "JOIN_ROOM"
-                      ? "border-[#2563EB] bg-blue-50/70 text-slate-900 ring-1 ring-[#2563EB]"
+                      ? "border-[#202531] bg-[#EBEBEB]/60 text-[#202531] ring-1 ring-[#202531]"
                       : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                   }`}
                 >
                   <Key
                     size={22}
                     weight={mode === "JOIN_ROOM" ? "fill" : "duotone"}
-                    className={mode === "JOIN_ROOM" ? "text-[#2563EB]" : "text-slate-500"}
+                    className={mode === "JOIN_ROOM" ? "text-[#202531]" : "text-slate-500"}
                     aria-hidden="true"
                   />
                   <span className="block text-sm font-extrabold mt-2">
@@ -272,7 +272,7 @@ export function RegisterClient({
             {/* Bagian Khusus Mode Buat Ruangan Baru */}
             {mode === "CREATE_ROOM" && (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                <p className="text-xs font-extrabold text-[#334E6B]">
+                <p className="text-xs font-extrabold text-[#202531]">
                   Informasi Ruangan Baru
                 </p>
                 <div>
@@ -287,7 +287,7 @@ export function RegisterClient({
                     value={roomName}
                     onChange={(e) => setRoomName(e.target.value)}
                     placeholder="Contoh: Kopi & Kelontong Sejahtera"
-                    className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                    className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
                   />
                 </div>
                 <div>
@@ -300,7 +300,7 @@ export function RegisterClient({
                     value={roomAddress}
                     onChange={(e) => setRoomAddress(e.target.value)}
                     placeholder="Contoh: Jakarta Selatan"
-                    className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                    className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
                   />
                 </div>
               </div>
@@ -309,7 +309,7 @@ export function RegisterClient({
             {/* Bagian Khusus Mode Gabung ke Ruangan */}
             {mode === "JOIN_ROOM" && (
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                <label htmlFor="reg-invite-code" className="block text-xs font-extrabold text-[#334E6B]">
+                <label htmlFor="reg-invite-code" className="block text-xs font-extrabold text-[#202531]">
                   Kode Undangan Ruangan
                 </label>
                 <div className="flex gap-2">
@@ -323,13 +323,13 @@ export function RegisterClient({
                       setVerifiedInvite(null);
                     }}
                     placeholder="TRS-XXXX-XXXX"
-                    className="flex-1 min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 font-mono text-sm font-bold text-slate-900 uppercase focus:border-[#2563EB] focus:outline-none"
+                    className="flex-1 min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 font-mono text-sm font-bold text-slate-900 uppercase focus:border-[#202531] focus:outline-none"
                   />
                   <button
                     type="button"
                     onClick={() => verifyInviteCode(inviteCode)}
                     disabled={verifyingCode || !inviteCode.trim()}
-                    className="inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-xl border border-[#334E6B] bg-white text-xs font-bold text-[#334E6B] hover:bg-slate-100 disabled:opacity-50 cursor-pointer shrink-0"
+                    className="inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-xl border border-[#202531] bg-white text-xs font-bold text-[#202531] hover:bg-slate-100 disabled:opacity-50 cursor-pointer shrink-0"
                   >
                     <MagnifyingGlass size={15} weight="bold" aria-hidden="true" />
                     <span>{verifyingCode ? "Cek..." : "Verifikasi"}</span>
@@ -337,7 +337,7 @@ export function RegisterClient({
                 </div>
 
                 {verifiedInvite && verifiedInvite.valid && (
-                  <div className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] p-3 text-xs text-[#166534] flex items-start gap-2">
+                  <div className="rounded-xl border border-[#01DAD7] bg-[#01DAD7]/15 p-3 text-xs text-[#202531] flex items-start gap-2">
                     <CheckCircle size={18} weight="fill" className="shrink-0 mt-0.5" aria-hidden="true" />
                     <div className="space-y-0.5">
                       <p className="font-extrabold">
@@ -345,7 +345,7 @@ export function RegisterClient({
                       </p>
                       <p>
                         Diundang oleh <strong>{verifiedInvite.inviterName}</strong> dengan hak akses{" "}
-                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-white border border-[#BBF7D0] font-bold">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-white border border-[#01DAD7] font-bold">
                           {verifiedInvite.assignedRoleLabel || verifiedInvite.assignedRole}
                         </span>
                       </p>
@@ -354,7 +354,7 @@ export function RegisterClient({
                 )}
 
                 {verifiedInvite && !verifiedInvite.valid && (
-                  <div className="rounded-xl border border-[#FECDD3] bg-[#FFF1F2] p-3 text-xs text-[#9F1239] flex items-start gap-2">
+                  <div className="rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] p-3 text-xs text-[#D41448] flex items-start gap-2">
                     <WarningCircle size={18} weight="fill" className="shrink-0 mt-0.5" aria-hidden="true" />
                     <span>{verifiedInvite.error || "Kode undangan tidak valid."}</span>
                   </div>
@@ -379,7 +379,7 @@ export function RegisterClient({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Contoh: Rina Wijaya"
-                className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 text-sm text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
               />
             </div>
 
@@ -395,12 +395,12 @@ export function RegisterClient({
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="contoh: rina_wijaya"
-                className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 font-mono text-sm text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 font-mono text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
               />
               {usernameCheck && (
                 <p
                   className={`mt-1 text-[11px] font-medium ${
-                    usernameCheck.valid ? "text-[#0F766E]" : "text-[#9F1239]"
+                    usernameCheck.valid ? "text-[#202531]" : "text-[#D41448]"
                   }`}
                 >
                   {usernameCheck.valid
@@ -421,7 +421,7 @@ export function RegisterClient({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="nama@toko.id"
-                className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 text-sm text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
               />
             </div>
 
@@ -439,7 +439,7 @@ export function RegisterClient({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimal 6 karakter"
-                  className="w-full min-h-[44px] rounded-xl border border-slate-300 pl-3.5 pr-11 text-sm text-slate-900 focus:border-[#2563EB] focus:outline-none"
+                  className="w-full min-h-[44px] rounded-xl border border-slate-300 pl-3.5 pr-11 text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
                 />
                 <button
                   type="button"
@@ -459,7 +459,7 @@ export function RegisterClient({
             <button
               type="submit"
               disabled={submitting}
-              className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 text-sm font-bold text-white hover:bg-[#1D4ED8] active:scale-[0.99] disabled:opacity-70 transition-all cursor-pointer"
+              className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 rounded-xl bg-[#01DAD7] px-5 text-sm font-extrabold text-[#202531] hover:opacity-90 active:scale-[0.99] disabled:opacity-70 transition-all cursor-pointer"
             >
               {submitting ? (
                 <span
@@ -486,7 +486,7 @@ export function RegisterClient({
             Sudah punya akun?{" "}
             <Link
               href={rawRedirect ? `/login?redirect=${encodeURIComponent(safeRedirect)}` : "/login"}
-              className="font-bold text-[#2563EB] hover:underline"
+              className="font-bold text-[#202531] hover:underline"
             >
               Masuk di sini
             </Link>

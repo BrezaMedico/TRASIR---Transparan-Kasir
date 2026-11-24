@@ -7,7 +7,6 @@ import {
   ShieldCheck,
   Eye,
   EyeSlash,
-  WifiHigh,
   WifiSlash,
   LockKey,
   UserPlus,
@@ -146,57 +145,46 @@ export function LoginClient({
   };
 
   return (
-    <main className="min-h-screen bg-[#F5F5F5] flex flex-col items-center justify-center p-4">
+    <main className="min-h-screen bg-[#EBEBEB] flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-4">
         <Link
           href="/"
-          className="inline-flex min-h-[44px] items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-[#334E6B] transition-colors"
+          className="inline-flex min-h-[44px] items-center gap-1.5 text-xs font-semibold text-[#525866] hover:text-[#202531] transition-colors"
         >
           <ArrowLeft size={15} weight="bold" aria-hidden="true" />
           <span>Kembali ke Beranda</span>
         </Link>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
+        <div className="bg-white rounded-2xl border border-[#202531]/10 p-6 sm:p-8 space-y-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#334E6B] text-white flex items-center justify-center shadow-sm">
+              <div className="w-12 h-12 rounded-2xl bg-[#202531] text-[#01DAD7] flex items-center justify-center">
                 <ShieldCheck size={28} weight="duotone" aria-hidden="true" />
               </div>
               <div>
-                <h1 className="text-xl font-extrabold tracking-tight text-[#334E6B]">
+                <h1 className="text-xl font-extrabold tracking-tight text-[#202531]">
                   TRASIR
                 </h1>
-                <p className="text-xs font-medium text-slate-600">
+                <p className="text-xs font-medium text-[#525866]">
                   Transparan Kasir &amp; Pengawasan Keuangan Toko
                 </p>
               </div>
             </div>
 
-            <div
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border shrink-0 ${
-                isOnline
-                  ? "bg-[#F0FDF4] text-[#166534] border-[#BBF7D0]"
-                  : "bg-[#FFF1F2] text-[#9F1239] border-[#FECDD3]"
-              }`}
-            >
-              {isOnline ? (
-                <>
-                  <WifiHigh size={14} weight="bold" aria-hidden="true" />
-                  <span>Online</span>
-                </>
-              ) : (
-                <>
-                  <WifiSlash size={14} weight="bold" aria-hidden="true" />
-                  <span>Offline</span>
-                </>
-              )}
-            </div>
+            {!isOnline && (
+              <div
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border shrink-0 bg-[#FFF0F4] text-[#D41448] border-[#FF2A63]/35"
+              >
+                <WifiSlash size={14} weight="bold" aria-hidden="true" />
+                <span>Offline</span>
+              </div>
+            )}
           </div>
 
           {errorMsg && (
             <div
               role="alert"
-              className="p-3.5 rounded-xl bg-[#FFF1F2] border border-[#FECDD3] text-xs font-semibold text-[#9F1239]"
+              className="p-3.5 rounded-xl bg-[#FFF0F4] border border-[#FF2A63]/35 text-xs font-semibold text-[#D41448]"
             >
               {errorMsg}
             </div>
@@ -204,7 +192,7 @@ export function LoginClient({
 
           {initialShowInitialSetup ? (
             <form onSubmit={handleInitialSetup} className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-[#F0FDFA] border border-[#99F6E4] text-xs text-[#0F766E] space-y-1">
+              <div className="p-3.5 rounded-xl bg-[#EBEBEB] border border-[#202531]/15 text-xs text-[#202531] space-y-1">
                 <p className="font-bold">Inisialisasi Pemilik Toko Pertama</p>
                 <p>
                   Belum ada akun toko terdaftar. Buat akun Pemilik utama untuk mengaktifkan sistem dan mengundang tim melalui username.
@@ -314,7 +302,7 @@ export function LoginClient({
               <button
                 type="submit"
                 disabled={submitting || !isOnline}
-                className="w-full flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-[#2563EB] text-white text-sm font-bold hover:bg-[#1D4ED8] active:scale-[0.99] disabled:opacity-70 transition-all cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-90 active:scale-[0.99] disabled:opacity-70 transition-all cursor-pointer"
               >
                 {submitting ? (
                   <span
@@ -390,7 +378,7 @@ export function LoginClient({
               <button
                 type="submit"
                 disabled={submitting || !isOnline}
-                className="w-full flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-[#2563EB] text-white text-sm font-bold hover:bg-[#1D4ED8] active:scale-[0.99] disabled:opacity-70 transition-all cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-90 active:scale-[0.99] disabled:opacity-70 transition-all cursor-pointer"
               >
                 {submitting ? (
                   <span
@@ -416,14 +404,14 @@ export function LoginClient({
               <span className="text-slate-600">Belum punya akun TRASIR?</span>
               <Link
                 href={registerHref}
-                className="inline-flex min-h-[44px] items-center font-bold text-[#2563EB] hover:text-[#1D4ED8] hover:underline"
+                className="inline-flex min-h-[44px] items-center font-bold text-[#202531] hover:underline"
               >
                 Daftar akun baru
               </Link>
             </div>
 
             <div className="flex items-center gap-2 text-xs text-slate-600">
-              <LockKey size={16} weight="duotone" className="text-[#334E6B] shrink-0" aria-hidden="true" />
+              <LockKey size={16} weight="duotone" className="text-[#202531] shrink-0" aria-hidden="true" />
               <span>
                 Setiap pengguna masuk dengan akun pribadi dan tercatat di Audit Trail.
               </span>

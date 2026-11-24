@@ -134,7 +134,7 @@ export default function AktivitasPage() {
                   </p>
                 </div>
 
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-[#334E6B]">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-[#202531]">
                   <LockKey size={15} weight="bold" aria-hidden="true" />
                   <span>Dilindungi dari Penghapusan</span>
                 </div>
@@ -153,7 +153,7 @@ export default function AktivitasPage() {
                     onClick={() => setActiveTab("audit")}
                     className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                       activeTab === "audit"
-                        ? "bg-[#334E6B] text-white"
+                        ? "bg-[#202531] text-white"
                         : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                     }`}
                   >
@@ -168,7 +168,7 @@ export default function AktivitasPage() {
                     onClick={() => setActiveTab("notifications")}
                     className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                       activeTab === "notifications"
-                        ? "bg-[#334E6B] text-white"
+                        ? "bg-[#202531] text-white"
                         : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                     }`}
                   >
@@ -190,7 +190,7 @@ export default function AktivitasPage() {
                     >
                       <option value="">Semua Jenis Aktivitas</option>
                       <option value="PEMBELIAN">Pembelian & Validasi AI</option>
-                      <option value="PENJUALAN">Penjualan & Tutup Shift</option>
+                      <option value="PENJUALAN">Penjualan Kasir</option>
                       <option value="PERUBAHAN_TRANSAKSI">Perubahan Transaksi</option>
                       <option value="PERUBAHAN_STOK">Perubahan Stok</option>
                       <option value="STOK_OPNAME">Stok Opname</option>
@@ -265,7 +265,7 @@ export default function AktivitasPage() {
                             <span className="font-mono text-xs font-bold text-slate-600">
                               {formatDateTimeJakarta(log.createdAt)}
                             </span>
-                            <span className="px-2 py-0.5 rounded bg-[#E8EEF4] text-[#334E6B] text-[11px] font-extrabold">
+                            <span className="px-2 py-0.5 rounded bg-[#EBEBEB] text-[#202531] text-[11px] font-extrabold">
                               {log.actorName} ({log.actorRole})
                             </span>
                             <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-bold">
@@ -288,7 +288,7 @@ export default function AktivitasPage() {
                                 </div>
                               )}
                               {log.afterData && (
-                                <div className="p-2 rounded-lg bg-[#F0FDFA] text-[#0F766E] truncate">
+                                <div className="p-2 rounded-lg bg-[#EBEBEB] text-[#202531] truncate">
                                   <strong>Sesudah:</strong> {log.afterData}
                                 </div>
                               )}
@@ -300,7 +300,7 @@ export default function AktivitasPage() {
                           <div className="shrink-0">
                             <Link
                               href={log.linkUrl}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-[#334E6B] hover:bg-slate-100"
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-[#202531] hover:bg-slate-100"
                             >
                               <span>Lihat Detail Terkait</span>
                               <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
@@ -327,7 +327,7 @@ export default function AktivitasPage() {
                       key={n.id}
                       className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                         !n.isRead
-                          ? "bg-[#E8EEF4]/40 border-[#334E6B]"
+                          ? "bg-[#EBEBEB]/40 border-[#202531]"
                           : "bg-slate-50 border-slate-200"
                       }`}
                     >
@@ -335,7 +335,7 @@ export default function AktivitasPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-extrabold text-slate-900">{n.title}</span>
                           {!n.isRead && (
-                            <span className="px-2 py-0.5 rounded-full bg-[#FC5086] text-white text-[10px] font-bold">
+                            <span className="px-2 py-0.5 rounded-full bg-[#FF2A63] text-white text-[10px] font-bold">
                               Baru
                             </span>
                           )}
@@ -348,7 +348,7 @@ export default function AktivitasPage() {
 
                       <Link
                         href={n.linkUrl}
-                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] shrink-0"
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] shrink-0"
                       >
                         <span>Tindak Lanjuti</span>
                         <ArrowUpRight size={14} weight="bold" aria-hidden="true" />

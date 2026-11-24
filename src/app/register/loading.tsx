@@ -3,7 +3,7 @@ import React from "react";
 export default function RegisterLoading() {
   return (
     <main
-      className="min-h-screen bg-[#F5F5F5] flex items-center justify-center p-4 sm:p-6"
+      className="min-h-screen bg-[#EBEBEB] flex items-center justify-center p-4 sm:p-6"
       aria-busy="true"
       aria-label="Memuat halaman pendaftaran"
     >
