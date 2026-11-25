@@ -7,11 +7,13 @@ import { AppShell, useToast } from "@/components/layout/AppShell";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateJakarta, formatRupiah } from "@/lib/format";
 import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
+import { isStoreAdmin } from "@/lib/rbac-shared";
 import {
   Plus,
   MagnifyingGlass,
   FileText,
   ArrowRight,
+  Receipt,
 } from "@phosphor-icons/react";
 
 interface PurchaseListItem {
@@ -21,6 +23,7 @@ interface PurchaseListItem {
   purchaseDate: string;
   fundingSource: string;
   captureMethod: string;
+  receiptImageData?: string;
   totalAmount: number;
   aiValidationStatus: string;
   approvalStatus: string;
@@ -69,6 +72,7 @@ export default function PembelianListPage() {
     <AppShell>
       {(session) => {
         const canCreate = session.permissions.pembelian?.canCreate;
+        const isAdmin = isStoreAdmin(session.user.role);
         const q = searchQuery.trim().toLowerCase();
 
         const filtered = purchases.filter((p) => {
@@ -77,6 +81,7 @@ export default function PembelianListPage() {
           if (statusFilter === "PERLU_PERBAIKAN" && p.approvalStatus !== "PERLU_PERBAIKAN")
             return false;
           if (
+            isAdmin &&
             statusFilter === "TERINDIKASI_AI" &&
             !["ADA_SELISIH", "NOTA_GANDA", "TERINDIKASI_EDIT"].includes(p.aiValidationStatus)
           )
@@ -92,48 +97,60 @@ export default function PembelianListPage() {
           );
         });
 
+        const filterPills = isAdmin
+          ? ([
+              { id: "ALL", label: "Semua" },
+              { id: "MENUNGGU_PERSETUJUAN", label: "Menunggu Persetujuan" },
+              { id: "PERLU_PERBAIKAN", label: "Perlu Perbaikan" },
+              { id: "TERINDIKASI_AI", label: "Ada Selisih AI" },
+              { id: "DISETUJUI", label: "Disetujui" },
+            ] as const)
+          : ([
+              { id: "ALL", label: "Semua" },
+              { id: "MENUNGGU_PERSETUJUAN", label: "Menunggu Persetujuan" },
+              { id: "PERLU_PERBAIKAN", label: "Perlu Perbaikan" },
+              { id: "DISETUJUI", label: "Disetujui" },
+            ] as const);
+
         return (
           <div className="space-y-6">
-            {/* Top Bar: Title, Search, Status Filter Pills & + Catat Pembelian Baru */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+            {/* Top Bar */}
+            <div className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-xl font-extrabold text-slate-900">
-                    Pembelian & Validasi Nota AI
+                  <h1 className="text-xl font-extrabold text-[#202531]">
+                    Daftar Pembelian
                   </h1>
-                  <p className="text-xs text-slate-600 mt-1">
-                    Daftar pengajuan pembelian barang, lencana hasil pembacaan AI (Gemini OCR), dan gerbang persetujuan Pemilik
+                  <p className="text-xs text-[#525866] mt-1">
+                    {isAdmin
+                      ? "Tinjau pengajuan pembelian barang, baca lampiran nota dengan jelas, dan jalankan cek kesesuaian AI Gemini."
+                      : "Catat pembelian barang dan lampirkan foto atau dokumen nota secara opsional."}
                   </p>
                 </div>
 
                 {canCreate && (
                   <Link
                     href="/pembelian/input"
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] transition-colors shrink-0"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity shrink-0"
                   >
                     <Plus size={18} weight="bold" aria-hidden="true" />
-                    <span>+ Catat Pembelian Baru</span>
+                    <span>Catat Pembelian Baru</span>
                   </Link>
                 )}
               </div>
 
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2 border-t border-slate-200">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-3 border-t border-[#202531]/10">
                 {/* Status Filter Pills */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                  {(
-                    [
-                      { id: "ALL", label: "Semua" },
-                      { id: "MENUNGGU_PERSETUJUAN", label: "Menunggu Persetujuan" },
-                    ] as const
-                  ).map((pill) => (
+                  {filterPills.map((pill) => (
                     <button
                       key={pill.id}
                       type="button"
                       onClick={() => setStatusFilter(pill.id)}
-                      className={`px-3 py-1.5 min-h-[36px] rounded-xl text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
+                      className={`px-3 py-1.5 min-h-[40px] rounded-xl text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                         statusFilter === pill.id
-                          ? "bg-[#334E6B] text-white"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                          ? "bg-[#202531] text-white"
+                          : "bg-[#EBEBEB] text-[#202531] hover:bg-[#202531]/10"
                       }`}
                     >
                       {pill.label}
@@ -141,12 +158,12 @@ export default function PembelianListPage() {
                   ))}
                 </div>
 
-                {/* Search Supplier / Employee */}
+                {/* Search */}
                 <div className="relative w-full md:w-72">
                   <MagnifyingGlass
                     size={16}
                     weight="bold"
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500"
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#525866]"
                     aria-hidden="true"
                   />
                   <input
@@ -155,16 +172,16 @@ export default function PembelianListPage() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Cari nomor nota, pemasok, pegawai..."
                     aria-label="Cari pembelian"
-                    className="w-full pl-9 pr-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-medium text-slate-900 bg-slate-50 focus:bg-white"
+                    className="w-full pl-9 pr-3.5 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-medium text-[#202531] bg-[#F8FAFC] focus:bg-white"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Purchases Table / Mobile Card List */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {/* Purchases List */}
+            <div className="bg-white rounded-2xl border border-[#202531]/15 overflow-hidden">
               {loading ? (
-                <div className="p-10 text-center text-xs text-slate-600">
+                <div className="p-10 text-center text-xs text-[#525866]">
                   Memuat daftar pengajuan pembelian...
                 </div>
               ) : filtered.length === 0 ? (
@@ -172,21 +189,21 @@ export default function PembelianListPage() {
                   <FileText
                     size={36}
                     weight="duotone"
-                    className="mx-auto text-slate-400"
+                    className="mx-auto text-[#525866]"
                     aria-hidden="true"
                   />
                   <div className="space-y-1">
-                    <p className="text-sm font-bold text-slate-900">
+                    <p className="text-sm font-bold text-[#202531]">
                       Belum ada pengajuan pembelian yang tercatat.
                     </p>
-                    <p className="text-xs text-slate-600 max-w-md mx-auto">
-                      Catat pembelian barang baru beserta lampiran bukti foto nota untuk divalidasi oleh AI dan disetujui Pemilik.
+                    <p className="text-xs text-[#525866] max-w-md mx-auto">
+                      Catat pembelian barang baru beserta lampiran nota (opsional) untuk ditinjau Manajer atau Pemilik.
                     </p>
                   </div>
                   {canCreate && (
                     <Link
                       href="/pembelian/input"
-                      className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold"
                     >
                       <Plus size={16} weight="bold" aria-hidden="true" />
                       <span>Catat Pembelian Pertama</span>
@@ -194,70 +211,132 @@ export default function PembelianListPage() {
                   )}
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase text-slate-600">
-                        <th className="py-3.5 px-4">Tanggal & No. Nota</th>
-                        <th className="py-3.5 px-4">Pegawai Pengaju</th>
-                        <th className="py-3.5 px-4">Pemasok & Sumber Dana</th>
-                        <th className="py-3.5 px-4 text-right">Total Nilai Nota</th>
-                        <th className="py-3.5 px-4">Validasi AI</th>
-                        <th className="py-3.5 px-4">Status Persetujuan</th>
-                        <th className="py-3.5 px-4 text-right">Pemeriksaan</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 text-xs">
-                      {filtered.map((item) => (
-                        <tr
-                          key={item.id}
-                          onClick={() => router.push(`/pembelian/${item.id}`)}
-                          className="hover:bg-slate-50 transition-colors cursor-pointer"
-                        >
-                          <td className="py-3.5 px-4">
-                            <p className="font-mono font-extrabold text-[#334E6B]">
-                              #{item.invoiceNumber}
-                            </p>
-                            <p className="text-[11px] text-slate-600 mt-0.5">
-                              {formatDateJakarta(item.purchaseDate)}
-                            </p>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <p className="font-bold text-slate-900">{item.submittedBy.name}</p>
-                            <p className="text-[11px] text-slate-600">{item.submittedBy.role}</p>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <p className="font-bold text-slate-900">{item.supplierName}</p>
-                            <p className="text-[11px] text-slate-600">
-                              {item.fundingSource === "DANA_TOKO"
-                                ? "Belanja Pegawai (Dana Toko)"
-                                : "Penerimaan Barang Belanja Pemilik"}
-                            </p>
-                          </td>
-                          <td className="py-3.5 px-4 text-right font-mono font-extrabold text-slate-900 tabular-nums">
-                            {formatRupiah(item.totalAmount)}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <StatusBadge status={item.aiValidationStatus} />
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <StatusBadge status={item.approvalStatus} />
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <Link
-                              href={`/pembelian/${item.id}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 min-h-[36px] rounded-lg border border-slate-300 text-xs font-bold text-[#334E6B] hover:bg-slate-100"
-                            >
-                              <span>Detail</span>
-                              <ArrowRight size={14} weight="bold" aria-hidden="true" />
-                            </Link>
-                          </td>
+                <>
+                  {/* Desktop Table */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#202531]/10 bg-[#F8FAFC] text-[11px] font-bold uppercase text-[#525866]">
+                          <th className="py-3.5 px-4">Tanggal &amp; No. Nota</th>
+                          <th className="py-3.5 px-4">Pegawai Pengaju</th>
+                          <th className="py-3.5 px-4">Pemasok &amp; Sumber Dana</th>
+                          <th className="py-3.5 px-4 text-right">Total Nilai Nota</th>
+                          <th className="py-3.5 px-4">
+                            {isAdmin ? "Nota & Cek AI" : "Lampiran Nota"}
+                          </th>
+                          <th className="py-3.5 px-4">Status Persetujuan</th>
+                          <th className="py-3.5 px-4 text-right">Aksi</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-[#202531]/10 text-xs">
+                        {filtered.map((item) => {
+                          const hasReceipt =
+                            item.captureMethod !== "TANPA_NOTA" &&
+                            item.aiValidationStatus !== "TANPA_NOTA";
+
+                          return (
+                            <tr
+                              key={item.id}
+                              onClick={() => router.push(`/pembelian/${item.id}`)}
+                              className="hover:bg-[#F8FAFC] transition-colors cursor-pointer"
+                            >
+                              <td className="py-3.5 px-4">
+                                <p className="font-mono font-extrabold text-[#202531]">
+                                  #{item.invoiceNumber}
+                                </p>
+                                <p className="text-[11px] text-[#525866] mt-0.5">
+                                  {formatDateJakarta(item.purchaseDate)}
+                                </p>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <p className="font-bold text-[#202531]">{item.submittedBy.name}</p>
+                                <p className="text-[11px] text-[#525866]">{item.submittedBy.role}</p>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <p className="font-bold text-[#202531]">{item.supplierName}</p>
+                                <p className="text-[11px] text-[#525866]">
+                                  {item.fundingSource === "DANA_TOKO"
+                                    ? "Belanja Pegawai (Dana Toko)"
+                                    : "Penerimaan Barang Belanja Pemilik"}
+                                </p>
+                              </td>
+                              <td className="py-3.5 px-4 text-right font-mono font-extrabold text-[#202531] tabular-nums">
+                                {formatRupiah(item.totalAmount)}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                {isAdmin ? (
+                                  <StatusBadge status={item.aiValidationStatus} />
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#EBEBEB] border border-[#202531]/15 text-[11px] font-bold text-[#202531]">
+                                    <Receipt size={12} weight="bold" aria-hidden="true" />
+                                    <span>{hasReceipt ? "Ada Nota" : "Tanpa Nota"}</span>
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <StatusBadge status={item.approvalStatus} />
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <Link
+                                  href={`/pembelian/${item.id}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 min-h-[36px] rounded-lg border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB]"
+                                >
+                                  <span>Detail</span>
+                                  <ArrowRight size={14} weight="bold" aria-hidden="true" />
+                                </Link>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Cards */}
+                  <div className="md:hidden divide-y divide-[#202531]/10">
+                    {filtered.map((item) => {
+                      const hasReceipt =
+                        item.captureMethod !== "TANPA_NOTA" &&
+                        item.aiValidationStatus !== "TANPA_NOTA";
+
+                      return (
+                        <Link
+                          key={item.id}
+                          href={`/pembelian/${item.id}`}
+                          className="block p-4 space-y-2.5 hover:bg-[#F8FAFC]"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-mono text-xs font-extrabold text-[#202531]">
+                                #{item.invoiceNumber}
+                              </p>
+                              <p className="text-sm font-bold text-[#202531] mt-0.5">
+                                {item.supplierName}
+                              </p>
+                            </div>
+                            <span className="font-mono text-sm font-extrabold tabular-nums text-[#202531]">
+                              {formatRupiah(item.totalAmount)}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#525866]">
+                            {item.submittedBy.name} • {formatDateJakarta(item.purchaseDate)}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <StatusBadge status={item.approvalStatus} />
+                            {isAdmin ? (
+                              <StatusBadge status={item.aiValidationStatus} />
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#EBEBEB] border border-[#202531]/15 text-[11px] font-bold text-[#202531]">
+                                {hasReceipt ? "Ada Nota" : "Tanpa Nota"}
+                              </span>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -266,4 +345,3 @@ export default function PembelianListPage() {
     </AppShell>
   );
 }
-

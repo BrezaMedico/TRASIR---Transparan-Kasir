@@ -161,11 +161,18 @@ export async function POST(request: Request) {
           tx
         );
 
+        const amendmentLabelMap: Record<string, string> = {
+          PEMBATALAN: "Pembatalan",
+          RETUR: "Retur",
+          PERUBAHAN: "Perubahan",
+        };
+        const amendLabel = amendmentLabelMap[amendmentType] || amendmentType;
+
         await createNotification(
           {
             roomId: user.roomId,
-            title: `Pengajuan ${amendmentType} Struk #${sale.receiptNumber}`,
-            message: `${user.name} mengajukan ${amendmentType} untuk struk #${sale.receiptNumber}. Alasan: ${reason.trim()}`,
+            title: `Pengajuan ${amendLabel} Struk #${sale.receiptNumber}`,
+            message: `${user.name} mengajukan ${amendLabel} untuk struk #${sale.receiptNumber}. Alasan: ${reason.trim()}`,
             severity: "WARNING",
             category: "PENJUALAN",
             targetRole: null,
@@ -327,11 +334,19 @@ export async function POST(request: Request) {
             tx
           );
 
+          const reviewedAmendLabelMap: Record<string, string> = {
+            PEMBATALAN: "Pembatalan",
+            RETUR: "Retur",
+            PERUBAHAN: "Perubahan",
+          };
+          const reviewedAmendLabel =
+            reviewedAmendLabelMap[amendment.amendmentType] || amendment.amendmentType;
+
           await createNotification(
             {
               roomId: user.roomId,
-              title: `Keputusan ${amendment.amendmentType} Struk #${amendment.sale.receiptNumber}`,
-              message: `Pengajuan ${amendment.amendmentType} struk #${amendment.sale.receiptNumber} telah ${
+              title: `Keputusan ${reviewedAmendLabel} Struk #${amendment.sale.receiptNumber}`,
+              message: `Pengajuan ${reviewedAmendLabel} struk #${amendment.sale.receiptNumber} telah ${
                 decision === "DISETUJUI" ? "disetujui" : "ditolak"
               } oleh ${user.name}.${reviewNotes?.trim() ? ` Catatan: ${reviewNotes.trim()}` : ""}`,
               severity: decision === "DISETUJUI" ? "INFO" : "WARNING",

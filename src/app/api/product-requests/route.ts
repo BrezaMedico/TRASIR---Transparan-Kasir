@@ -52,7 +52,7 @@ const createBatchSchema = z.object({
   receiptSource: z.enum(["FISIK", "DIGITAL"]).optional().nullable(),
   items: z
     .array(batchItemSchema)
-    .min(1, "Keranjang pengajuan minimal berisi 1 barang.")
+    .min(1, "Daftar pengajuan minimal berisi 1 barang.")
     .max(50, "Maksimal 50 barang per paket pengajuan."),
 });
 
@@ -197,7 +197,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Validasi tidak ada duplikasi internal di dalam keranjang yang sama
+    // Validasi tidak ada duplikasi internal di dalam daftar pengajuan yang sama
     const seenSkus = new Set<string>();
     const seenBarcodes = new Set<string>();
     const seenNames = new Set<string>();
@@ -226,7 +226,7 @@ export async function POST(request: Request) {
     for (const item of normalizedItems) {
       if (seenSkus.has(item.normalizedSku)) {
         return NextResponse.json(
-          { error: `Kode SKU "${item.normalizedSku}" terduplikasi di dalam keranjang.` },
+          { error: `Kode SKU "${item.normalizedSku}" terduplikasi di dalam daftar pengajuan.` },
           { status: 409 }
         );
       }
@@ -235,7 +235,7 @@ export async function POST(request: Request) {
       if (item.normalizedBarcode) {
         if (seenBarcodes.has(item.normalizedBarcode)) {
           return NextResponse.json(
-            { error: `Barcode "${item.normalizedBarcode}" terduplikasi di dalam keranjang.` },
+            { error: `Barcode "${item.normalizedBarcode}" terduplikasi di dalam daftar pengajuan.` },
             { status: 409 }
           );
         }
@@ -245,7 +245,7 @@ export async function POST(request: Request) {
       const nameKey = item.normalizedName.toLowerCase();
       if (seenNames.has(nameKey)) {
         return NextResponse.json(
-          { error: `Nama barang "${item.normalizedName}" terduplikasi di dalam keranjang.` },
+          { error: `Nama barang "${item.normalizedName}" terduplikasi di dalam daftar pengajuan.` },
           { status: 409 }
         );
       }
@@ -393,7 +393,7 @@ export async function POST(request: Request) {
           roomId: user.roomId,
           title: `Paket Pengajuan Baru (${normalizedItems.length} Barang)`,
           message: `${user.name} mengajukan ${itemNamesSummary}${extraCount}${
-            data.receiptImageData ? " dengan lampiran nota siap cek AI" : ""
+            data.receiptImageData ? " dengan lampiran nota" : ""
           }. Buka tab Persetujuan untuk meninjau sekaligus.`,
           severity: "INFO",
           category: "KATALOG",

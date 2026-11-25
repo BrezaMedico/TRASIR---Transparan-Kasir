@@ -20,6 +20,7 @@ import { validateProofAttachment } from "../src/lib/attachment";
 import {
   computeReceiptHash,
   analyzePurchaseReceiptWithGemini,
+  analyzeProductRequestBatchWithGemini,
   NEUTRAL_AI_DISCLAIMER,
 } from "../src/lib/gemini";
 import {
@@ -29,6 +30,12 @@ import {
   verifyPassword,
 } from "../src/lib/auth";
 import { recordAuditLog } from "../src/lib/audit";
+import {
+  formatActionTypeLabel,
+  formatAuditChangePair,
+  formatAuditSnapshot,
+  formatNotificationText,
+} from "../src/lib/audit-format";
 import { getGrossProfitReport } from "../src/lib/queries/profit";
 import {
   groupProductRequestsIntoBatches,
@@ -588,5 +595,80 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
     expect(batches[0].receiptSource).toBe("FISIK");
     expect(batches[1].batchId).toBe("single-r-legacy");
     expect(batches[1].status).toBe("DISETUJUI");
+  });
+
+  it("computes packaging counts and unit prices cleanly for AI batch receipt comparison", async () => {
+    const batchRes = await analyzeProductRequestBatchWithGemini({
+      supplierName: "Toko Sembako Jaya",
+      receiptSource: "FISIK",
+      receiptImageData: "data:image/jpeg;base64,short",
+      items: [
+        {
+          name: "Gula Pasir",
+          kind: "BAHAN_BAKU",
+          sku: "BHN-GULA-01",
+          initialStock: 5000,
+          sellUnit: "g",
+          purchaseUnit: "kemasan",
+          conversionRatio: 1000,
+          unitCostPrice: 18,
+          estimatedTotalCost: 90000,
+          sellPrice: 0,
+        },
+        {
+          name: "Teh Manis",
+          kind: "MENU_RESEP",
+          sku: "MNU-TEH-01",
+          initialStock: 0,
+          sellUnit: "pcs",
+          purchaseUnit: "pcs",
+          conversionRatio: 1,
+          unitCostPrice: 2000,
+          estimatedTotalCost: 0,
+          sellPrice: 8000,
+        },
+      ],
+    });
+
+    expect(batchRes.status).toBe("SESUAI");
+    expect(batchRes.submittedEstimatedTotal).toBe(90000);
+    expect(batchRes.items[0].packCount).toBe(5);
+    expect(batchRes.items[0].packSize).toBe(1000);
+    expect(batchRes.items[0].packUnitPrice).toBe(18000);
+    expect(batchRes.items[1].matchStatus).toBe("RESEP_NON_NOTA");
+    expect(batchRes.disclaimer).toBe(NEUTRAL_AI_DISCLAIMER);
+  });
+
+  it("formats technical audit JSON snapshots and notifications into plain Indonesian for non-technical users", () => {
+    const entries = formatAuditSnapshot(
+      '{"batchId":"BATCH-3113F23F","hasReceipt":true,"receiptSource":"DIGITAL"}'
+    );
+    expect(entries).toEqual([
+      { key: "hasReceipt", label: "Lampiran Nota", value: "Ada" },
+      { key: "receiptSource", label: "Sumber Nota", value: "Nota digital" },
+    ]);
+    expect(JSON.stringify(entries)).not.toContain("BATCH-3113F23F");
+
+    // Non-admin must not see aiValidationStatus in audit details
+    const staffPurchaseEntries = formatAuditSnapshot(
+      '{"hasReceipt":true,"captureMethod":"LIVE_CAMERA","aiValidationStatus":"BELUM_DICEK"}',
+      { isAdmin: false }
+    );
+    expect(staffPurchaseEntries).toEqual([
+      { key: "hasReceipt", label: "Lampiran Nota", value: "Ada" },
+      { key: "captureMethod", label: "Cara Input Nota", value: "Foto kamera" },
+    ]);
+
+    const { beforeItems, afterItems } = formatAuditChangePair(
+      '{"id":"p1","roomId":"r1","name":"Gula Pasir","costPrice":15000,"sellPrice":18000,"sku":"GUL-1","stockMethod":"TETAP"}',
+      '{"id":"p1","roomId":"r1","name":"Gula Pasir","costPrice":16000,"sellPrice":18000,"sku":"GUL-1","stockMethod":"TETAP"}'
+    );
+    expect(beforeItems).toEqual([{ key: "costPrice", label: "Harga Modal", value: "Rp\u00a015.000" }]);
+    expect(afterItems.map((i) => i.key)).toEqual(["name", "costPrice"]);
+
+    expect(formatActionTypeLabel("PRODUCT_REQUEST")).toBe("Pengajuan Barang");
+    expect(formatNotificationText("Bergabung sebagai KASIR_GUDANG (PINDAH_GUDANG)")).toBe(
+      "Bergabung sebagai Kasir + Gudang (Pindah Gudang)"
+    );
   });
 });

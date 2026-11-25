@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
-import { analyzePurchaseReceiptWithGemini, computeReceiptHash } from "@/lib/gemini";
+import { validateProofAttachment } from "@/lib/attachment";
+import { computeReceiptHash } from "@/lib/gemini";
+import { formatRupiah } from "@/lib/format";
 import { z } from "zod";
 
 const purchaseItemSchema = z.object({
@@ -26,8 +28,8 @@ const purchaseSchema = z.object({
   supplierName: z.string().min(1, "Nama pemasok wajib diisi"),
   purchaseDate: z.string().min(1, "Tanggal pembelian wajib diisi"),
   fundingSource: z.enum(["DANA_TOKO", "BELANJA_PEMILIK"]),
-  captureMethod: z.enum(["LIVE_CAMERA", "DIGITAL_UPLOAD"]),
-  receiptImageData: z.string().min(10, "Bukti foto/file nota wajib dilampirkan"),
+  captureMethod: z.enum(["LIVE_CAMERA", "DIGITAL_UPLOAD", "TANPA_NOTA"]).optional().default("TANPA_NOTA"),
+  receiptImageData: z.string().optional().nullable(),
   totalAmount: z.number().int().min(0),
   items: z.array(purchaseItemSchema).min(1, "Minimal 1 barang harus dimasukkan"),
 });
@@ -109,35 +111,26 @@ export async function POST(request: Request) {
     }
 
     const data = parsed.data;
-    const receiptHash = computeReceiptHash(data.receiptImageData);
+    const trimmedReceipt = data.receiptImageData?.trim() || "";
+    const hasReceipt = trimmedReceipt.length > 0;
 
-    const existingDuplicate = await prisma.purchase.findFirst({
-      where: {
-        roomId: user.roomId,
-        id: data.id ? { not: data.id } : undefined,
-        OR: [{ invoiceNumber: data.invoiceNumber.trim() }, { receiptHash }],
-      },
-      select: { id: true, invoiceNumber: true, supplierName: true },
-    });
+    if (hasReceipt) {
+      const proofCheck = validateProofAttachment(trimmedReceipt);
+      if (!proofCheck.valid) {
+        return NextResponse.json(
+          { error: proofCheck.error || "Format lampiran nota tidak valid." },
+          { status: 400 }
+        );
+      }
+    }
 
-    const aiValidation = await analyzePurchaseReceiptWithGemini({
-      supplierName: data.supplierName.trim(),
-      invoiceNumber: data.invoiceNumber.trim(),
-      purchaseDate: data.purchaseDate,
-      totalAmount: data.totalAmount,
-      items: data.items.map((it) => ({
-        itemName: it.itemName,
-        quantity: it.quantity,
-        unit: it.unit,
-        unitCost: it.unitCost,
-        subtotal: it.subtotal,
-      })),
-      receiptImageData: data.receiptImageData,
-      isDuplicateInDatabase: Boolean(existingDuplicate),
-      duplicateRef: existingDuplicate
-        ? `${existingDuplicate.invoiceNumber} (${existingDuplicate.supplierName})`
-        : null,
-    });
+    const receiptHash = hasReceipt ? computeReceiptHash(trimmedReceipt) : null;
+    const resolvedCaptureMethod = hasReceipt
+      ? data.captureMethod === "TANPA_NOTA"
+        ? "DIGITAL_UPLOAD"
+        : data.captureMethod
+      : "TANPA_NOTA";
+    const initialAiStatus = hasReceipt ? "BELUM_DICEK" : "TANPA_NOTA";
 
     const savedPurchase = await prisma.$transaction(async (tx) => {
       if (data.id) {
@@ -160,36 +153,33 @@ export async function POST(request: Request) {
             supplierName: data.supplierName.trim(),
             purchaseDate: new Date(data.purchaseDate),
             fundingSource: data.fundingSource,
-            captureMethod: data.captureMethod,
-            receiptImageData: data.receiptImageData,
+            captureMethod: resolvedCaptureMethod,
+            receiptImageData: trimmedReceipt,
             receiptHash,
             totalAmount: data.totalAmount,
-            aiValidationStatus: aiValidation.status,
-            aiExtractedSupplier: aiValidation.extractedSupplier,
-            aiExtractedDate: aiValidation.extractedDate,
-            aiExtractedTotal: aiValidation.extractedTotal,
-            aiAnalysisJson: JSON.stringify(aiValidation),
+            aiValidationStatus: initialAiStatus,
+            aiExtractedSupplier: null,
+            aiExtractedDate: null,
+            aiExtractedTotal: null,
+            aiAnalysisJson: null,
             approvalStatus: "MENUNGGU_PERSETUJUAN",
             items: {
-              create: data.items.map((it, idx) => {
-                const aiRow = aiValidation.items[idx];
-                return {
-                  productId: it.productId || null,
-                  isNewProduct: Boolean(it.isNewProduct || !it.productId),
-                  itemName: it.itemName.trim(),
-                  categoryName: it.categoryName || null,
-                  quantity: it.quantity,
-                  unit: it.unit,
-                  conversionRatio: it.conversionRatio ?? 1,
-                  sellUnit: it.sellUnit ?? it.unit,
-                  unitCost: it.unitCost,
-                  sellPrice: it.sellPrice ?? Math.round(it.unitCost * 1.25),
-                  subtotal: it.subtotal,
-                  aiExtractedQty: aiRow?.quantity ?? it.quantity,
-                  aiExtractedPrice: aiRow?.unitCost ?? it.unitCost,
-                  aiDiscrepancyNote: aiRow?.discrepancyNote ?? null,
-                };
-              }),
+              create: data.items.map((it) => ({
+                productId: it.productId || null,
+                isNewProduct: Boolean(it.isNewProduct || !it.productId),
+                itemName: it.itemName.trim(),
+                categoryName: it.categoryName || null,
+                quantity: it.quantity,
+                unit: it.unit,
+                conversionRatio: it.conversionRatio ?? 1,
+                sellUnit: it.sellUnit ?? it.unit,
+                unitCost: it.unitCost,
+                sellPrice: it.sellPrice ?? Math.round(it.unitCost * 1.25),
+                subtotal: it.subtotal,
+                aiExtractedQty: null,
+                aiExtractedPrice: null,
+                aiDiscrepancyNote: null,
+              })),
             },
           },
           include: { items: true },
@@ -202,13 +192,15 @@ export async function POST(request: Request) {
             actorName: user.name,
             actorRole: user.role,
             actionType: "PEMBELIAN",
-            actionSummary: `Mengirim perbaikan pengajuan pembelian #${updated.invoiceNumber} (${updated.supplierName})`,
+            actionSummary: `Mengirim perbaikan pembelian #${updated.invoiceNumber} dari ${updated.supplierName}${
+              hasReceipt ? " dengan lampiran nota" : " tanpa nota"
+            }`,
             entityType: "Purchase",
             entityId: updated.id,
             beforeData: { totalAmount: prev.totalAmount, approvalStatus: prev.approvalStatus },
             afterData: {
               totalAmount: updated.totalAmount,
-              aiValidationStatus: updated.aiValidationStatus,
+              hasReceipt,
               approvalStatus: updated.approvalStatus,
             },
             approvalState: "MENUNGGU_PERSETUJUAN",
@@ -221,8 +213,10 @@ export async function POST(request: Request) {
           {
             roomId: user.roomId,
             title: `Perbaikan Pembelian #${updated.invoiceNumber}`,
-            message: `${user.name} mengirim perbaikan data pembelian dari ${updated.supplierName} (Status AI: ${updated.aiValidationStatus}).`,
-            severity: updated.aiValidationStatus === "SESUAI" ? "INFO" : "WARNING",
+            message: `${user.name} mengirim perbaikan pembelian dari ${updated.supplierName} senilai ${formatRupiah(
+              updated.totalAmount
+            )}${hasReceipt ? " beserta lampiran nota." : " tanpa lampiran nota."}`,
+            severity: "INFO",
             category: "PEMBELIAN",
             targetRole: null,
             linkUrl: `/pembelian/${updated.id}`,
@@ -240,37 +234,34 @@ export async function POST(request: Request) {
           supplierName: data.supplierName.trim(),
           purchaseDate: new Date(data.purchaseDate),
           fundingSource: data.fundingSource,
-          captureMethod: data.captureMethod,
-          receiptImageData: data.receiptImageData,
+          captureMethod: resolvedCaptureMethod,
+          receiptImageData: trimmedReceipt,
           receiptHash,
           totalAmount: data.totalAmount,
-          aiValidationStatus: aiValidation.status,
-          aiExtractedSupplier: aiValidation.extractedSupplier,
-          aiExtractedDate: aiValidation.extractedDate,
-          aiExtractedTotal: aiValidation.extractedTotal,
-          aiAnalysisJson: JSON.stringify(aiValidation),
+          aiValidationStatus: initialAiStatus,
+          aiExtractedSupplier: null,
+          aiExtractedDate: null,
+          aiExtractedTotal: null,
+          aiAnalysisJson: null,
           approvalStatus: "MENUNGGU_PERSETUJUAN",
           submittedById: user.id,
           items: {
-            create: data.items.map((it, idx) => {
-              const aiRow = aiValidation.items[idx];
-              return {
-                productId: it.productId || null,
-                isNewProduct: Boolean(it.isNewProduct || !it.productId),
-                itemName: it.itemName.trim(),
-                categoryName: it.categoryName || null,
-                quantity: it.quantity,
-                unit: it.unit,
-                conversionRatio: it.conversionRatio ?? 1,
-                sellUnit: it.sellUnit ?? it.unit,
-                unitCost: it.unitCost,
-                sellPrice: it.sellPrice ?? Math.round(it.unitCost * 1.25),
-                subtotal: it.subtotal,
-                aiExtractedQty: aiRow?.quantity ?? it.quantity,
-                aiExtractedPrice: aiRow?.unitCost ?? it.unitCost,
-                aiDiscrepancyNote: aiRow?.discrepancyNote ?? null,
-              };
-            }),
+            create: data.items.map((it) => ({
+              productId: it.productId || null,
+              isNewProduct: Boolean(it.isNewProduct || !it.productId),
+              itemName: it.itemName.trim(),
+              categoryName: it.categoryName || null,
+              quantity: it.quantity,
+              unit: it.unit,
+              conversionRatio: it.conversionRatio ?? 1,
+              sellUnit: it.sellUnit ?? it.unit,
+              unitCost: it.unitCost,
+              sellPrice: it.sellPrice ?? Math.round(it.unitCost * 1.25),
+              subtotal: it.subtotal,
+              aiExtractedQty: null,
+              aiExtractedPrice: null,
+              aiDiscrepancyNote: null,
+            })),
           },
         },
         include: { items: true },
@@ -283,14 +274,16 @@ export async function POST(request: Request) {
           actorName: user.name,
           actorRole: user.role,
           actionType: "PEMBELIAN",
-          actionSummary: `Mengajukan pembelian baru #${created.invoiceNumber} dari ${created.supplierName} (Validasi AI: ${created.aiValidationStatus})`,
+          actionSummary: `Mengajukan pembelian #${created.invoiceNumber} dari ${created.supplierName}${
+            hasReceipt ? " dengan lampiran nota" : " tanpa nota"
+          }`,
           entityType: "Purchase",
           entityId: created.id,
           afterData: {
             invoiceNumber: created.invoiceNumber,
             supplierName: created.supplierName,
             totalAmount: created.totalAmount,
-            aiValidationStatus: created.aiValidationStatus,
+            hasReceipt,
           },
           approvalState: "MENUNGGU_PERSETUJUAN",
           linkUrl: `/pembelian/${created.id}`,
@@ -301,12 +294,11 @@ export async function POST(request: Request) {
       await createNotification(
         {
           roomId: user.roomId,
-          title:
-            created.aiValidationStatus === "SESUAI"
-              ? `Pengajuan Pembelian Baru #${created.invoiceNumber}`
-              : `Nota Perlu Diperiksa (${created.aiValidationStatus}) #${created.invoiceNumber}`,
-          message: `${user.name} mengajukan pembelian dari ${created.supplierName}. ${aiValidation.neutralEvaluationSummary}`,
-          severity: created.aiValidationStatus === "SESUAI" ? "INFO" : "WARNING",
+          title: `Pengajuan Pembelian #${created.invoiceNumber}`,
+          message: `${user.name} mengajukan pembelian dari ${created.supplierName} senilai ${formatRupiah(
+            created.totalAmount
+          )}${hasReceipt ? " beserta lampiran nota." : " tanpa lampiran nota."}`,
+          severity: "INFO",
           category: "PEMBELIAN",
           targetRole: null,
           linkUrl: `/pembelian/${created.id}`,
@@ -319,7 +311,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       purchase: savedPurchase,
-      aiValidation,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal menyimpan pengajuan pembelian.";

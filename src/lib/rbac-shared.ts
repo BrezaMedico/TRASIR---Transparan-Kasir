@@ -202,7 +202,7 @@ export const ALL_MODULES: { key: ModuleKey; label: string; path: string }[] = [
   { key: "dashboard", label: "Dashboard & Keuntungan", path: "/dashboard" },
   { key: "kasir", label: "Kasir (POS)", path: "/kasir" },
   { key: "penjualan", label: "Riwayat Transaksi", path: "/penjualan" },
-  { key: "pembelian", label: "Pembelian & Validasi Nota AI", path: "/pembelian" },
+  { key: "pembelian", label: "Pembelian & Nota", path: "/pembelian" },
   { key: "produk", label: "Produk & Stok", path: "/produk" },
   { key: "inventaris", label: "Inventaris & Audit Stok", path: "/inventaris" },
   { key: "laporan", label: "Laporan Keuangan", path: "/laporan" },

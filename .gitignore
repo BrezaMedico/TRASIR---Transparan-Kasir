@@ -11,4 +11,5 @@ prisma/schema.test.prisma
 .superpowers/
 .taste-skill/
 .agents/
+.agent/
 

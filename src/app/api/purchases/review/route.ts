@@ -194,14 +194,21 @@ export async function POST(request: Request) {
         tx
       );
 
+      const decisionStatusLabel =
+        decision === "DISETUJUI"
+          ? "Disetujui"
+          : decision === "PERLU_PERBAIKAN"
+          ? "Perlu Perbaikan"
+          : "Ditolak";
+
       await createNotification(
         {
           roomId: user.roomId,
-          title: `Keputusan Pembelian #${existing.invoiceNumber}: ${decision.replace("_", " ")}`,
+          title: `Keputusan Pembelian #${existing.invoiceNumber}: ${decisionStatusLabel}`,
           message:
             decision === "DISETUJUI"
               ? `Pembelian dari ${existing.supplierName} telah disetujui oleh ${user.name}. Stok otomatis ditambahkan ke inventaris.`
-              : `Pengajuan pembelian #${existing.invoiceNumber} berstatus ${decision.replace("_", " ")}. Catatan: ${ownerNotes}`,
+              : `Pengajuan pembelian #${existing.invoiceNumber} berstatus ${decisionStatusLabel}. Catatan: ${ownerNotes}`,
           severity: decision === "DISETUJUI" ? "INFO" : "WARNING",
           category: "PEMBELIAN",
           userId: existing.submittedById,

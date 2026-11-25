@@ -203,11 +203,20 @@ export async function POST(request: Request) {
           tx
         );
 
+        const adjustmentLabelMap: Record<string, string> = {
+          RUSAK: "Rusak",
+          KEDALUWARSA: "Kedaluwarsa",
+          HILANG: "Hilang",
+          DIKEMBALIKAN: "Dikembalikan",
+          PINDAH_GUDANG: "Pindah Gudang",
+        };
+        const adjLabel = adjustmentLabelMap[data.adjustmentType] || data.adjustmentType;
+
         await createNotification(
           {
             roomId: user.roomId,
-            title: `Pengajuan Perubahan Stok (${data.adjustmentType}): ${product.name}`,
-            message: `${user.name} mengajukan perubahan stok ${data.adjustmentType} sebanyak ${data.quantity} ${product.sellUnit}. Alasan: ${data.reason.trim()}`,
+            title: `Pengajuan Perubahan Stok (${adjLabel}): ${product.name}`,
+            message: `${user.name} mengajukan perubahan stok ${adjLabel} sebanyak ${data.quantity} ${product.sellUnit}. Alasan: ${data.reason.trim()}`,
             severity: "WARNING",
             category: "PERUBAHAN_STOK",
             targetRole: null,

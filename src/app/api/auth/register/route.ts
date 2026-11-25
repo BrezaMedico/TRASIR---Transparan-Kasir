@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { attachSessionCookie, createSessionToken, hashPassword } from "@/lib/auth";
 import {
   ensureSystemBaseline,
+  formatRoleLabel,
   getDefaultRedirectForRole,
   getRolePermissionsMap,
   normalizeInviteCode,
@@ -282,7 +283,7 @@ export async function POST(request: Request) {
         {
           roomId: invitation.roomId,
           title: `Anggota Baru Bergabung (@${created.username})`,
-          message: `${created.name} bergabung ke ruangan "${invitation.room.name}" sebagai ${assignedRole}.`,
+          message: `${created.name} bergabung ke ruangan "${invitation.room.name}" sebagai ${formatRoleLabel(assignedRole)}.`,
           severity: "INFO",
           category: "SISTEM",
           targetRole: null,

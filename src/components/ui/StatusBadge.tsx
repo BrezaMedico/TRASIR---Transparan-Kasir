@@ -20,13 +20,13 @@ export function resolveStatusTone(status: string): BadgeTone {
     s === "ANOMALI_TERBUKA" ||
     s === "TERBUKA" ||
     s === "MINTA_INFO_TAMBAHAN" ||
-    s === "PENDING"
+    s === "ADA_SELISIH" ||
+    s === "GAGAL_CEK"
   ) {
     return "amber";
   }
   if (
     s === "DITOLAK" ||
-    s === "ADA_SELISIH" ||
     s === "NOTA_GANDA" ||
     s === "TERINDIKASI_EDIT" ||
     s === "ANOMALI_TERTUTUP" ||
@@ -49,10 +49,14 @@ export function formatStatusLabel(status: string): string {
     PERLU_PERBAIKAN: "Perlu Perbaikan",
     DISETUJUI: "Disetujui",
     DITOLAK: "Ditolak",
-    SESUAI: "Sesuai",
-    ADA_SELISIH: "Perlu Diperiksa (Selisih)",
-    NOTA_GANDA: "Terindikasi Nota Ganda",
-    TERINDIKASI_EDIT: "Perlu Diperiksa (Indikasi Edit)",
+    TANPA_NOTA: "Tanpa Nota",
+    BELUM_DICEK: "Belum Dicek AI",
+    PENDING: "Belum Dicek AI",
+    GAGAL_CEK: "AI Belum Tersambung",
+    SESUAI: "Cocok dengan Nota",
+    ADA_SELISIH: "Ada yang Berbeda",
+    NOTA_GANDA: "Nota Pernah Dipakai",
+    TERINDIKASI_EDIT: "Perlu Cek Visual",
     DALAM_TOLERANSI: "Aman",
     ANOMALI_TERBUKA: "Area Terbuka",
     ANOMALI_TERTUTUP: "Area Tertutup",
@@ -70,8 +74,8 @@ export function formatStatusLabel(status: string): string {
     TETAP: "Satuan Tetap",
     PECAH: "Pecah Satuan",
     RESEP: "Menu Resep",
-    DANA_TOKO: "Dana Kas Toko",
-    BELANJA_PEMILIK: "Belanja Langsung Pemilik",
+    DANA_TOKO: "Uang Kas Toko",
+    BELANJA_PEMILIK: "Uang Pemilik",
     TERCATAT: "Tercatat",
     KASIR_GUDANG: "Kasir + Gudang",
   };
@@ -91,10 +95,10 @@ export function StatusBadge({
   const label = customLabel || formatStatusLabel(status);
 
   const classes: Record<BadgeTone, string> = {
-    green: "bg-[#01DAD7]/20 text-[#202531] border-[#01DAD7]",
-    amber: "bg-[#EBEBEB] text-[#202531] border-[#202531]/20",
+    green: "bg-[#E6FBFB] text-[#006B69] border-[#01DAD7]",
+    amber: "bg-[#FFFBEB] text-[#B45309] border-[#FDE68A]",
     red: "bg-[#FFF0F4] text-[#D41448] border-[#FF2A63]/35",
-    cyan: "bg-[#01DAD7]/20 text-[#202531] border-[#01DAD7]",
+    cyan: "bg-[#E6FBFB] text-[#006B69] border-[#01DAD7]",
     navy: "bg-[#202531] text-white border-[#202531]",
     neutral: "bg-[#EBEBEB] text-[#202531] border-[#202531]/15",
   };

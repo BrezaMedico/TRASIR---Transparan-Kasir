@@ -16,15 +16,24 @@ export interface ProductRequestAIItemCheck {
   submittedQty: number;
   submittedUnit: string;
   submittedCostTotal: number;
+  packCount?: number | null;
+  packSize?: number | null;
+  packUnitPrice?: number | null;
+  purchaseUnit?: string | null;
   receiptQty: number | null;
   receiptUnitCost: number | null;
   receiptSubtotal: number | null;
-  matchStatus: "COCOK" | "SELISIH" | "TIDAK_DITEMUKAN" | "RESEP_NON_NOTA";
+  matchStatus: "COCOK" | "SELISIH" | "TIDAK_DITEMUKAN" | "RESEP_NON_NOTA" | "BELUM_DICEK";
   note: string | null;
 }
 
 export interface ProductRequestAIResult {
-  status: "SESUAI" | "ADA_SELISIH" | "TERINDIKASI_EDIT";
+  status: "SESUAI" | "ADA_SELISIH" | "TERINDIKASI_EDIT" | "GAGAL_CEK";
+  isReceiptReadable?: boolean;
+  detectedDocumentType?: string | null;
+  receiptLines?: string[];
+  unmatchedReceiptItems?: string[];
+  missingReceiptInfo?: string[];
   receiptSource: "FISIK" | "DIGITAL";
   extractedSupplier: string | null;
   extractedInvoiceNumber: string | null;
@@ -32,9 +41,12 @@ export interface ProductRequestAIResult {
   extractedTotal: number | null;
   submittedEstimatedTotal: number;
   items: ProductRequestAIItemCheck[];
+  editSuspicionReason?: string | null;
   neutralSummary: string;
   disclaimer: string;
   aiEngineUsed: boolean;
+  modelUsed?: string | null;
+  engineError?: string | null;
   checkedAt: string;
 }
 
@@ -281,4 +293,3 @@ export function groupProductRequestsIntoBatches<T extends BatchableProductReques
 
   return batches.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
-

@@ -1,30 +1,35 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell, useToast } from "@/components/layout/AppShell";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { CameraCaptureModal } from "@/components/ui/CameraCaptureModal";
+import { ReceiptViewer } from "@/components/ui/ReceiptViewer";
+import {
+  ReceiptAiCheckPanel,
+  normalizePurchaseAiResult,
+} from "@/components/ui/ReceiptAiCheckPanel";
 import { formatDateJakarta, formatNumber, formatRupiah } from "@/lib/format";
+import { compressReceiptFileToDataUrl } from "@/lib/receipt-client";
+import { isStoreAdmin } from "@/lib/rbac-shared";
 import type { AIReceiptValidationResult } from "@/lib/gemini";
-
-const NEUTRAL_AI_DISCLAIMER =
-  "Hasil pemeriksaan AI merupakan bahan evaluasi, bukan keputusan kecurangan.";
 import {
   ArrowLeft,
   Camera,
-  FileArrowUp,
-  Plus,
-  Trash,
-  Sparkle,
+  CaretDown,
+  CaretUp,
   CheckCircle,
-  WarningCircle,
-  XCircle,
-  MagnifyingGlassPlus,
-  MagnifyingGlassMinus,
-  Info,
   PaperPlaneRight,
+  Plus,
+  Receipt,
+  Trash,
+  UploadSimple,
+  WarningCircle,
+  X,
+  XCircle,
 } from "@phosphor-icons/react";
 
 interface InputRow {
@@ -38,6 +43,7 @@ interface InputRow {
   sellUnit: string;
   unitCost: number;
   sellPrice: number;
+  showSplitOption?: boolean;
 }
 
 interface CatalogProd {
@@ -56,7 +62,6 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
 
   const isCreateMode = !purchaseId || purchaseId === "input";
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [viewMode, setViewMode] = useState<"INPUT" | "INSPECT">(isCreateMode ? "INPUT" : "INSPECT");
   const [loading, setLoading] = useState(!isCreateMode);
 
@@ -69,7 +74,7 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
   const [supplierName, setSupplierName] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [fundingSource, setFundingSource] = useState<"DANA_TOKO" | "BELANJA_PEMILIK">("DANA_TOKO");
-  const [captureMethod, setCaptureMethod] = useState<"LIVE_CAMERA" | "DIGITAL_UPLOAD">("LIVE_CAMERA");
+  const [captureMethod, setCaptureMethod] = useState<"LIVE_CAMERA" | "DIGITAL_UPLOAD" | "TANPA_NOTA">("TANPA_NOTA");
   const [receiptImageData, setReceiptImageData] = useState<string>("");
   const [items, setItems] = useState<InputRow[]>([
     {
@@ -83,23 +88,44 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
       sellUnit: "pcs",
       unitCost: 0,
       sellPrice: 0,
+      showSplitOption: false,
     },
   ]);
 
-  // Existing Purchase Metadata (when viewing/editing an existing purchase)
+  // Existing Purchase Metadata
   const [approvalStatus, setApprovalStatus] = useState<string>("MENUNGGU_PERSETUJUAN");
-  const [aiValidationStatus, setAiValidationStatus] = useState<string>("PENDING");
+  const [aiValidationStatus, setAiValidationStatus] = useState<string>("TANPA_NOTA");
   const [ownerNotes, setOwnerNotes] = useState<string>("");
   const [submittedByName, setSubmittedByName] = useState<string>("");
   const [submittedById, setSubmittedById] = useState<string>("");
   const [aiResult, setAiResult] = useState<AIReceiptValidationResult | null>(null);
   const [scanningAi, setScanningAi] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [savingReceipt, setSavingReceipt] = useState(false);
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState(1);
 
   // Owner Review Notes input
   const [decisionNoteInput, setDecisionNoteInput] = useState("");
+  const [pendingNoteAction, setPendingNoteAction] = useState<
+    "PERLU_PERBAIKAN" | "DITOLAK" | null
+  >(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingNoteAction) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !submitting) {
+        setPendingNoteAction(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [pendingNoteAction, submitting]);
 
   const loadData = useCallback(async () => {
     try {
@@ -120,10 +146,12 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
           setSupplierName(p.supplierName);
           setPurchaseDate(new Date(p.purchaseDate).toISOString().slice(0, 10));
           setFundingSource(p.fundingSource);
-          setCaptureMethod(p.captureMethod);
+          setCaptureMethod(p.captureMethod || (p.receiptImageData ? "DIGITAL_UPLOAD" : "TANPA_NOTA"));
           setReceiptImageData(p.receiptImageData || "");
           setApprovalStatus(p.approvalStatus);
-          setAiValidationStatus(p.aiValidationStatus);
+          setAiValidationStatus(
+            p.aiValidationStatus || (p.receiptImageData ? "BELUM_DICEK" : "TANPA_NOTA")
+          );
           setOwnerNotes(p.ownerNotes || "");
           setSubmittedByName(p.submittedBy?.name || "Pegawai");
           setSubmittedById(p.submittedById || "");
@@ -132,8 +160,10 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
             try {
               setAiResult(JSON.parse(p.aiAnalysisJson));
             } catch {
-              // ignore
+              setAiResult(null);
             }
+          } else {
+            setAiResult(null);
           }
 
           if (Array.isArray(p.items) && p.items.length > 0) {
@@ -164,6 +194,7 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
                   sellUnit: it.sellUnit || it.unit,
                   unitCost: it.unitCost,
                   sellPrice: it.sellPrice || 0,
+                  showSplitOption: (it.conversionRatio || 1) > 1,
                 })
               )
             );
@@ -206,6 +237,7 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
         sellUnit: "pcs",
         unitCost: 0,
         sellPrice: 0,
+        showSplitOption: false,
       },
     ]);
   };
@@ -238,23 +270,72 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
     );
   };
 
-  const handleDigitalFileChange = (file: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setReceiptImageData(reader.result);
+  const persistInspectReceiptUpdate = async (
+    nextDataUrl: string | null,
+    nextCapture: "LIVE_CAMERA" | "DIGITAL_UPLOAD" | "TANPA_NOTA"
+  ) => {
+    if (isCreateMode || !purchaseId) return;
+    setSavingReceipt(true);
+    try {
+      const res = await fetch("/api/purchases/receipt", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          purchaseId,
+          receiptImageData: nextDataUrl,
+          captureMethod: nextCapture,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || "Gagal memperbarui lampiran nota.", "error");
+        return;
       }
-    };
-    reader.readAsDataURL(file);
+      setReceiptImageData(nextDataUrl || "");
+      setCaptureMethod(nextCapture);
+      setAiResult(null);
+      setAiError(null);
+      setAiValidationStatus(nextDataUrl ? "BELUM_DICEK" : "TANPA_NOTA");
+      showToast(
+        nextDataUrl
+          ? "Lampiran nota berhasil diperbarui."
+          : "Lampiran nota berhasil dihapus.",
+        "success"
+      );
+    } catch {
+      showToast("Gagal menghubungi server saat memperbarui nota.", "error");
+    } finally {
+      setSavingReceipt(false);
+    }
   };
 
-  const handleRunAiPreview = async () => {
+  const handleDigitalFileChange = async (file: File | null, isFromInspect = false) => {
+    if (!file) return;
+    try {
+      const result = await compressReceiptFileToDataUrl(file);
+      if (result.error || !result.dataUrl) {
+        showToast(result.error || "Gagal memproses berkas nota.", "error");
+        return;
+      }
+      if (isFromInspect && !isCreateMode && purchaseId) {
+        await persistInspectReceiptUpdate(result.dataUrl, "DIGITAL_UPLOAD");
+        return;
+      }
+      setReceiptImageData(result.dataUrl);
+      setCaptureMethod("DIGITAL_UPLOAD");
+      showToast(`Nota digital "${file.name}" dilampirkan.`, "success");
+    } catch {
+      showToast("Gagal memproses berkas nota.", "error");
+    }
+  };
+
+  const handleRunAiCheck = async () => {
     if (!receiptImageData) {
-      showToast("Unggah atau jepret foto nota terlebih dahulu untuk dipindai AI.", "error");
+      showToast("Lampirkan foto nota fisik atau file nota digital terlebih dahulu.", "error");
       return;
     }
     setScanningAi(true);
+    setAiError(null);
     try {
       const res = await fetch("/api/purchases/analyze", {
         method: "POST",
@@ -266,6 +347,7 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
           purchaseDate,
           totalAmount: totalCalculated,
           receiptImageData,
+          captureMethod: captureMethod === "TANPA_NOTA" ? "DIGITAL_UPLOAD" : captureMethod,
           items: items.map((it) => ({
             itemName: it.itemName,
             quantity: Number(it.quantity),
@@ -277,35 +359,48 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        showToast(data.error || "Gagal memindai nota dengan AI.", "error");
+        const msg = data.error || "Gagal memeriksa nota dengan AI.";
+        setAiError(msg);
+        showToast(msg, "error");
         return;
       }
       setAiResult(data.analysis);
       setAiValidationStatus(data.analysis.status);
-      showToast("Pemindaian Nota AI selesai.", "info");
+      if (data.analysis?.status === "GAGAL_CEK") {
+        showToast("AI Gemini belum tersambung saat ini. Coba cek ulang.", "info");
+      } else if (data.analysis?.status === "SESUAI") {
+        showToast("Hasil cek AI: cocok dengan nota.", "success");
+      } else {
+        showToast("Hasil cek AI: ada yang berbeda atau perlu dicek.", "info");
+      }
     } catch {
-      showToast("Gagal menghubungi layanan AI.", "error");
+      const msg = "Gagal menghubungi layanan AI Gemini. Coba beberapa saat lagi.";
+      setAiError(msg);
+      showToast(msg, "error");
     } finally {
       setScanningAi(false);
     }
   };
 
   const handleSubmitPurchase = async () => {
-    if (!invoiceNumber.trim() || !supplierName.trim()) {
-      showToast("Nomor nota dan nama pemasok wajib diisi.", "error");
-      setStep(1);
+    if (!supplierName.trim()) {
+      showToast("Nama toko atau pemasok wajib diisi.", "error");
       return;
     }
+    const resolvedInvoice =
+      invoiceNumber.trim() || `NOTA-${purchaseDate.replace(/-/g, "")}-${Math.floor(100 + Math.random() * 900)}`;
+
     if (items.some((i) => !i.itemName.trim() || i.quantity <= 0)) {
-      showToast("Pastikan seluruh nama barang dan jumlah pembelian telah diisi benar.", "error");
-      setStep(2);
+      showToast("Pastikan nama barang dan jumlah beli sudah diisi benar.", "error");
       return;
     }
-    if (!receiptImageData) {
-      showToast("Bukti foto atau berkas nota wajib dilampirkan.", "error");
-      setStep(3);
-      return;
-    }
+
+    const hasReceipt = Boolean(receiptImageData && receiptImageData.trim().length > 10);
+    const resolvedCapture = hasReceipt
+      ? captureMethod === "TANPA_NOTA"
+        ? "DIGITAL_UPLOAD"
+        : captureMethod
+      : "TANPA_NOTA";
 
     setSubmitting(true);
     try {
@@ -314,12 +409,12 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: isCreateMode ? undefined : purchaseId,
-          invoiceNumber,
+          invoiceNumber: resolvedInvoice,
           supplierName,
           purchaseDate,
           fundingSource,
-          captureMethod,
-          receiptImageData,
+          captureMethod: resolvedCapture,
+          receiptImageData: hasReceipt ? receiptImageData : null,
           totalAmount: totalCalculated,
           items: items.map((it) => ({
             productId: it.productId,
@@ -343,7 +438,7 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
       }
 
       showToast(
-        `Pengajuan Pembelian #${data.purchase.invoiceNumber} berhasil dikirim (Validasi AI: ${data.purchase.aiValidationStatus}).`,
+        `Pengajuan pembelian #${data.purchase.invoiceNumber} berhasil dikirim.`,
         "success"
       );
       router.push(`/pembelian/${data.purchase.id}`);
@@ -388,10 +483,12 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
 
       showToast(
         decision === "DISETUJUI"
-          ? "Pembelian Disetujui! Stok inventaris, produk baru, dan laporan pengeluaran otomatis diperbarui."
+          ? "Pembelian disetujui! Stok barang dan laporan langsung diperbarui."
           : `Status pembelian diperbarui menjadi ${decision.replace("_", " ")}.`,
         "success"
       );
+      setPendingNoteAction(null);
+      setDecisionNoteInput("");
       await loadData();
     } catch {
       showToast("Gagal menghubungi server.", "error");
@@ -403,163 +500,141 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
   return (
     <AppShell defaultCollapsed={true}>
       {(session) => {
+        const isAdmin = isStoreAdmin(session.user.role);
         const canApprove =
           session.permissions.pembelian?.canApprove &&
           (session.user.role === "PEMILIK" ||
             session.user.role === "MANAJER" ||
             submittedById !== session.user.id);
+        const hasReceipt = Boolean(receiptImageData && receiptImageData.trim().length > 10);
+        const canEditReceipt =
+          (approvalStatus === "MENUNGGU_PERSETUJUAN" || approvalStatus === "PERLU_PERBAIKAN") &&
+          (isAdmin || submittedById === session.user.id);
+        const receiptSourceLabel = !hasReceipt
+          ? null
+          : captureMethod === "LIVE_CAMERA"
+          ? "Nota Fisik"
+          : "Nota Digital";
+
+        const normalizedAiReport =
+          isAdmin && aiResult
+            ? normalizePurchaseAiResult(aiResult, {
+                supplierName,
+                invoiceNumber,
+                purchaseDate,
+                totalAmount: totalCalculated,
+                items: items.map((it) => ({
+                  itemName: it.itemName,
+                  quantity: Number(it.quantity),
+                  unit: it.unit,
+                  unitCost: Number(it.unitCost),
+                })),
+              })
+            : null;
 
         return (
-          <div className="space-y-6 pb-24">
-            {/* TOP BAR: Breadcrumb, Title, Funding Source & Status Badges */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div className="space-y-6 pb-28">
+            {/* TOP BAR */}
+            <div className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="space-y-1">
                   <Link
                     href="/pembelian"
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-[#334E6B] hover:underline"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-[#202531] hover:underline"
                   >
                     <ArrowLeft size={14} weight="bold" aria-hidden="true" />
                     <span>Kembali ke Daftar Pembelian</span>
                   </Link>
-                  <h1 className="text-xl font-extrabold text-slate-900">
+                  <h1 className="text-xl font-extrabold text-[#202531]">
                     {isCreateMode
-                      ? "Form Input Pembelian & Validasi Nota AI"
-                      : `Pemeriksaan Pembelian #${invoiceNumber} (${supplierName})`}
+                      ? "Catat Pembelian Barang"
+                      : viewMode === "INPUT"
+                      ? `Perbaiki Pengajuan #${invoiceNumber}`
+                      : `Tinjauan Pembelian #${invoiceNumber} (${supplierName})`}
                   </h1>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   {!isCreateMode && (
                     <>
-                      <StatusBadge status={aiValidationStatus} />
+                      {isAdmin ? (
+                        <StatusBadge status={aiValidationStatus} />
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#EBEBEB] border border-[#202531]/15 text-[11px] font-bold text-[#202531]">
+                          <Receipt size={12} weight="bold" aria-hidden="true" />
+                          <span>{receiptSourceLabel || "Tanpa Nota"}</span>
+                        </span>
+                      )}
                       <StatusBadge status={approvalStatus} />
                     </>
                   )}
-                  {!isCreateMode && approvalStatus !== "DISETUJUI" && (
-                    <div className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200">
+                  {!isCreateMode &&
+                    (approvalStatus === "MENUNGGU_PERSETUJUAN" ||
+                      approvalStatus === "PERLU_PERBAIKAN") && (
+                      <div className="inline-flex p-1 rounded-xl bg-[#F8FAFC] border border-[#202531]/15">
                       <button
                         type="button"
                         onClick={() => setViewMode("INSPECT")}
-                        className={`px-3 py-1.5 min-h-[34px] rounded-lg text-xs font-bold cursor-pointer ${
+                        className={`px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-bold cursor-pointer ${
                           viewMode === "INSPECT"
-                            ? "bg-[#334E6B] text-white"
-                            : "text-slate-700"
+                            ? "bg-[#202531] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
                         }`}
                       >
-                        Mode Pemeriksaan (2 Kolom)
+                        Tinjau Nota
                       </button>
                       <button
                         type="button"
                         onClick={() => setViewMode("INPUT")}
-                        className={`px-3 py-1.5 min-h-[34px] rounded-lg text-xs font-bold cursor-pointer ${
+                        className={`px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-bold cursor-pointer ${
                           viewMode === "INPUT"
-                            ? "bg-[#334E6B] text-white"
-                            : "text-slate-700"
+                            ? "bg-[#202531] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
                         }`}
                       >
-                        Mode Input / Perbaikan
+                        Ubah Data
                       </button>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Banner Catatan Pemilik when status === PERLU_PERBAIKAN */}
               {ownerNotes && (
                 <div
                   role="alert"
                   className="p-4 rounded-xl bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#B45309] space-y-1"
                 >
-                  <p className="font-extrabold">Catatan Pemilik (Perlu Perbaikan / Evaluasi):</p>
+                  <p className="font-extrabold">Catatan Pemilik / Manajer:</p>
                   <p className="font-medium">{ownerNotes}</p>
                 </div>
               )}
             </div>
 
             {loading ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-600">
-                Memuat detail pembelian & hasil analisis AI...
+              <div className="bg-white rounded-2xl border border-[#202531]/15 p-10 text-center text-xs text-[#525866]">
+                Memuat detail pembelian...
               </div>
             ) : viewMode === "INPUT" ? (
-              /* MODE INPUT PEGAWAI (3-Step Stepper) */
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-6">
-                {/* Stepper Navigation */}
-                <div
-                  role="tablist"
-                  aria-label="Langkah input pembelian"
-                  className="grid grid-cols-1 sm:grid-cols-3 gap-2.5"
-                >
-                  {(
-                    [
-                      { num: 1, title: "1. Info Pembelian & Sumber Dana" },
-                      { num: 2, title: "2. Daftar Barang & Konversi Satuan" },
-                      { num: 3, title: "3. Unggah Bukti Nota & Pindai AI" },
-                    ] as const
-                  ).map((s) => (
-                    <button
-                      key={s.num}
-                      type="button"
-                      role="tab"
-                      aria-selected={step === s.num}
-                      onClick={() => setStep(s.num)}
-                      className={`p-3.5 min-h-[48px] rounded-xl text-left text-xs font-extrabold border transition-colors cursor-pointer ${
-                        step === s.num
-                          ? "bg-[#334E6B] text-white border-[#334E6B]"
-                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                      }`}
-                    >
-                      {s.title}
-                    </button>
-                  ))}
-                </div>
+              /* MODE INPUT PEGAWAI (1 Halaman Sederhana & Jelas, Tanpa AI) */
+              <div className="space-y-6">
+                {/* Bagian 1: Info Belanja */}
+                <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4">
+                  <div>
+                    <h2 className="text-base font-extrabold text-[#202531]">
+                      1. Info Belanja
+                    </h2>
+                    <p className="text-xs text-[#525866]">
+                      Isi nama toko tempat membeli barang, tanggal nota, dan asal uang belanjanya.
+                    </p>
+                  </div>
 
-                {/* STEP 1: Info Pembelian */}
-                {step === 1 && (
-                  <div className="space-y-4 max-w-2xl">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label
-                          htmlFor="purch-inv"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Nomor Nota / Struk Pembelian
-                        </label>
-                        <input
-                          id="purch-inv"
-                          type="text"
-                          required
-                          value={invoiceNumber}
-                          onChange={(e) => setInvoiceNumber(e.target.value)}
-                          placeholder="Contoh: INV-2026-089"
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-sm font-mono text-slate-900"
-                        />
-                      </div>
-
-                      <div>
-                        <label
-                          htmlFor="purch-date"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Tanggal Transaksi Nota
-                        </label>
-                        <input
-                          id="purch-date"
-                          type="date"
-                          required
-                          value={purchaseDate}
-                          onChange={(e) => setPurchaseDate(e.target.value)}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-sm text-slate-900"
-                        />
-                      </div>
-                    </div>
-
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label
                         htmlFor="purch-supplier"
-                        className="block text-xs font-bold text-slate-700 mb-1"
+                        className="block text-xs font-bold text-[#202531] mb-1"
                       >
-                        Nama Toko / Pemasok (Supplier)
+                        Nama Toko / Pemasok
                       </label>
                       <input
                         id="purch-supplier"
@@ -567,716 +642,572 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
                         required
                         value={supplierName}
                         onChange={(e) => setSupplierName(e.target.value)}
-                        placeholder="Masukkan nama toko atau pemasok barang"
-                        className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-sm text-slate-900"
+                        placeholder="Contoh: Toko Sembako Maju"
+                        className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-sm text-[#202531]"
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <p className="text-xs font-bold text-slate-700">
-                        Kondisi / Sumber Dana Pembelian
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setFundingSource("DANA_TOKO")}
-                          className={`p-4 rounded-xl border text-left space-y-1 transition-colors cursor-pointer ${
-                            fundingSource === "DANA_TOKO"
-                              ? "bg-[#E8EEF4] border-[#334E6B] text-[#334E6B]"
-                              : "bg-white border-slate-200 text-slate-700"
-                          }`}
-                        >
-                          <p className="text-xs font-extrabold">
-                            1. Belanja Pegawai dengan Dana Toko
-                          </p>
-                          <p className="text-[11px] opacity-90">
-                            Pemilik memberikan uang kepada pegawai untuk membeli barang & melampirkan nota.
-                          </p>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setFundingSource("BELANJA_PEMILIK")}
-                          className={`p-4 rounded-xl border text-left space-y-1 transition-colors cursor-pointer ${
-                            fundingSource === "BELANJA_PEMILIK"
-                              ? "bg-[#E8EEF4] border-[#334E6B] text-[#334E6B]"
-                              : "bg-white border-slate-200 text-slate-700"
-                          }`}
-                        >
-                          <p className="text-xs font-extrabold">
-                            2. Penerimaan Barang Belanja Pemilik
-                          </p>
-                          <p className="text-[11px] opacity-90">
-                            Pemilik membeli barang langsung, pegawai mencatat penerimaan barang ke sistem.
-                          </p>
-                        </button>
-                      </div>
+                    <div>
+                      <label
+                        htmlFor="purch-date"
+                        className="block text-xs font-bold text-[#202531] mb-1"
+                      >
+                        Tanggal Belanja
+                      </label>
+                      <input
+                        id="purch-date"
+                        type="date"
+                        required
+                        value={purchaseDate}
+                        onChange={(e) => setPurchaseDate(e.target.value)}
+                        className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-sm text-[#202531]"
+                      />
                     </div>
 
-                    <div className="pt-2">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label
+                          htmlFor="purch-inv"
+                          className="block text-xs font-bold text-[#202531]"
+                        >
+                          Nomor Nota (jika ada)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setInvoiceNumber(
+                              `NOTA-${purchaseDate.replace(/-/g, "")}-${Math.floor(100 + Math.random() * 900)}`
+                            )
+                          }
+                          className="text-[11px] font-bold text-[#006B69] hover:underline cursor-pointer"
+                        >
+                          Buat Otomatis
+                        </button>
+                      </div>
+                      <input
+                        id="purch-inv"
+                        type="text"
+                        value={invoiceNumber}
+                        onChange={(e) => setInvoiceNumber(e.target.value)}
+                        placeholder="Contoh: INV-001 (boleh otomatis)"
+                        className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-sm font-mono text-[#202531]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-[#202531]">Uang yang Dipakai</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl">
                       <button
                         type="button"
-                        onClick={() => setStep(2)}
-                        className="px-5 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] cursor-pointer"
+                        onClick={() => setFundingSource("DANA_TOKO")}
+                        className={`p-3.5 rounded-xl border text-left space-y-0.5 transition-colors cursor-pointer ${
+                          fundingSource === "DANA_TOKO"
+                            ? "bg-[#E6FBFB] border-[#01DAD7] text-[#202531]"
+                            : "bg-[#F8FAFC] border-[#202531]/15 text-[#202531]"
+                        }`}
                       >
-                        Lanjut ke Daftar Barang →
+                        <p className="text-xs font-extrabold">Uang Kas Toko</p>
+                        <p className="text-[11px] text-[#525866]">
+                          Belanja pakai uang toko atau kasir.
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFundingSource("BELANJA_PEMILIK")}
+                        className={`p-3.5 rounded-xl border text-left space-y-0.5 transition-colors cursor-pointer ${
+                          fundingSource === "BELANJA_PEMILIK"
+                            ? "bg-[#E6FBFB] border-[#01DAD7] text-[#202531]"
+                            : "bg-[#F8FAFC] border-[#202531]/15 text-[#202531]"
+                        }`}
+                      >
+                        <p className="text-xs font-extrabold">Uang Pemilik</p>
+                        <p className="text-[11px] text-[#525866]">
+                          Barang dibeli pemilik, pegawai mencatat barang masuk.
+                        </p>
                       </button>
                     </div>
                   </div>
-                )}
+                </section>
 
-                {/* STEP 2: Daftar Barang */}
-                {step === 2 && (
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h2 className="text-sm font-extrabold text-slate-900">
-                          Rincian Barang yang Dibeli
-                        </h2>
-                        <p className="text-xs text-slate-600">
-                          Pilih barang dari katalog atau klik + Tambah Produk Baru untuk mendaftarkan barang baru sekaligus
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
+                {/* Bagian 2: Daftar Barang yang Dibeli */}
+                <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h2 className="text-base font-extrabold text-[#202531]">
+                        2. Barang yang Dibeli
+                      </h2>
+                      <p className="text-xs text-[#525866]">
+                        Masukkan nama barang, jumlah, dan harga beli per satuan sesuai struk.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {products.length > 0 && (
                         <button
                           type="button"
                           onClick={() => handleAddRow(false)}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-slate-800 hover:bg-slate-100 cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer"
                         >
                           <Plus size={14} weight="bold" aria-hidden="true" />
-                          <span>Pilih Produk Katalog</span>
+                          <span>Pilih Barang Lama</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleAddRow(true)}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] cursor-pointer"
-                        >
-                          <Plus size={14} weight="bold" aria-hidden="true" />
-                          <span>+ Tambah Produk Baru</span>
-                        </button>
-                      </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleAddRow(true)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] cursor-pointer"
+                      >
+                        <Plus size={14} weight="bold" aria-hidden="true" />
+                        <span>Tambah Barang Baru</span>
+                      </button>
                     </div>
+                  </div>
 
-                    <div className="space-y-3">
-                      {items.map((row, idx) => (
-                        <div
-                          key={row.rowKey}
-                          className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-extrabold text-[#334E6B]">
-                              Baris Barang #{idx + 1}{" "}
-                              {row.isNewProduct ? "(Produk Baru Inline)" : "(Produk Terdaftar)"}
-                            </span>
-                            {items.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveRow(row.rowKey)}
-                                className="inline-flex items-center gap-1 text-xs font-bold text-[#9F1239] hover:underline cursor-pointer"
-                              >
-                                <Trash size={14} weight="bold" aria-hidden="true" />
-                                <span>Hapus Baris</span>
-                              </button>
-                            )}
-                          </div>
+                  <div className="space-y-3">
+                    {items.map((row, idx) => (
+                      <div
+                        key={row.rowKey}
+                        className="p-4 rounded-xl border border-[#202531]/15 bg-[#F8FAFC] space-y-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-[#202531]">
+                            Barang #{idx + 1}{" "}
+                            {row.isNewProduct ? "(Barang Baru)" : "(Dari Katalog)"}
+                          </span>
+                          {items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveRow(row.rowKey)}
+                              className="inline-flex items-center gap-1 px-2.5 min-h-[36px] rounded-lg text-xs font-bold text-[#D41448] hover:bg-[#FFF0F4] cursor-pointer"
+                            >
+                              <Trash size={14} weight="bold" aria-hidden="true" />
+                              <span>Hapus</span>
+                            </button>
+                          )}
+                        </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
-                            {!row.isNewProduct && products.length > 0 ? (
-                              <div className="md:col-span-2">
-                                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                  Pilih Produk Katalog
-                                </label>
-                                <select
-                                  value={row.productId || ""}
-                                  onChange={(e) =>
-                                    handleSelectExistingProduct(row.rowKey, e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-semibold bg-white"
-                                >
-                                  <option value="">-- Pilih Produk --</option>
-                                  {products.map((p) => (
-                                    <option key={p.id} value={p.id}>
-                                      {p.name} ({p.purchaseUnit})
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            ) : (
-                              <div className="md:col-span-2">
-                                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                  Nama Barang
-                                </label>
-                                <input
-                                  type="text"
-                                  value={row.itemName}
-                                  onChange={(e) =>
-                                    setItems((prev) =>
-                                      prev.map((r) =>
-                                        r.rowKey === row.rowKey
-                                          ? { ...r, itemName: e.target.value }
-                                          : r
-                                      )
-                                    )
-                                  }
-                                  placeholder="Nama barang pada nota"
-                                  className="w-full px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs bg-white"
-                                />
-                              </div>
-                            )}
-
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Jumlah Beli
-                              </label>
-                              <input
-                                type="number"
-                                min={0.01}
-                                step="any"
-                                value={row.quantity}
-                                onChange={(e) =>
-                                  setItems((prev) =>
-                                    prev.map((r) =>
-                                      r.rowKey === row.rowKey
-                                        ? { ...r, quantity: Number(e.target.value) }
-                                        : r
-                                    )
-                                  )
-                                }
-                                className="w-full px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-mono bg-white"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Satuan Beli
+                        <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                          {!row.isNewProduct && products.length > 0 ? (
+                            <div className="md:col-span-2">
+                              <label className="block text-[11px] font-bold text-[#202531] mb-1">
+                                Pilih Barang
                               </label>
                               <select
-                                value={row.unit}
+                                value={row.productId || ""}
                                 onChange={(e) =>
-                                  setItems((prev) =>
-                                    prev.map((r) =>
-                                      r.rowKey === row.rowKey
-                                        ? { ...r, unit: e.target.value }
-                                        : r
-                                    )
-                                  )
+                                  handleSelectExistingProduct(row.rowKey, e.target.value)
                                 }
-                                className="w-full px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-semibold bg-white"
+                                className="w-full px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-semibold bg-white text-[#202531]"
                               >
-                                {units.map((u) => (
-                                  <option key={u.id} value={u.name}>
-                                    {u.name} ({u.group})
+                                <option value="">-- Pilih Barang --</option>
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name} ({p.purchaseUnit})
                                   </option>
                                 ))}
                               </select>
                             </div>
-
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Harga Beli / Satuan (Rp)
+                          ) : (
+                            <div className="md:col-span-2">
+                              <label className="block text-[11px] font-bold text-[#202531] mb-1">
+                                Nama Barang
                               </label>
                               <input
-                                type="number"
-                                min={0}
-                                value={row.unitCost}
+                                type="text"
+                                value={row.itemName}
                                 onChange={(e) =>
                                   setItems((prev) =>
                                     prev.map((r) =>
                                       r.rowKey === row.rowKey
-                                        ? { ...r, unitCost: Number(e.target.value) }
+                                        ? { ...r, itemName: e.target.value }
                                         : r
                                     )
                                   )
                                 }
-                                className="w-full px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-mono bg-white"
+                                placeholder="Contoh: Gula Pasir 1kg"
+                                className="w-full px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs bg-white text-[#202531]"
                               />
                             </div>
-
-                            <div>
-                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                                Subtotal Baris
-                              </label>
-                              <div className="px-3 py-2 min-h-[40px] rounded-xl bg-slate-100 border border-slate-200 text-xs font-mono font-extrabold text-slate-900 flex items-center">
-                                {formatRupiah(Math.round(row.quantity * row.unitCost))}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Optional Pecah Satuan conversion for new product inline */}
-                          {row.isNewProduct && (
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200/80">
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                                  Rasio Konversi (1 {row.unit} = berapa satuan jual?)
-                                </label>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={row.conversionRatio}
-                                  onChange={(e) =>
-                                    setItems((prev) =>
-                                      prev.map((r) =>
-                                        r.rowKey === row.rowKey
-                                          ? { ...r, conversionRatio: Number(e.target.value) || 1 }
-                                          : r
-                                      )
-                                    )
-                                  }
-                                  placeholder="1 (Contoh: 1 dus = 24 botol)"
-                                  className="w-full px-3 py-1.5 min-h-[36px] rounded-lg border border-slate-300 text-xs font-mono bg-white"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                                  Satuan Jual / Stok Terkecil
-                                </label>
-                                <select
-                                  value={row.sellUnit}
-                                  onChange={(e) =>
-                                    setItems((prev) =>
-                                      prev.map((r) =>
-                                        r.rowKey === row.rowKey
-                                          ? { ...r, sellUnit: e.target.value }
-                                          : r
-                                      )
-                                    )
-                                  }
-                                  className="w-full px-3 py-1.5 min-h-[36px] rounded-lg border border-slate-300 text-xs bg-white"
-                                >
-                                  {units.map((u) => (
-                                    <option key={u.id} value={u.name}>
-                                      {u.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                                  Rencana Harga Jual per {row.sellUnit} (Rp)
-                                </label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={row.sellPrice}
-                                  onChange={(e) =>
-                                    setItems((prev) =>
-                                      prev.map((r) =>
-                                        r.rowKey === row.rowKey
-                                          ? { ...r, sellPrice: Number(e.target.value) }
-                                          : r
-                                      )
-                                    )
-                                  }
-                                  className="w-full px-3 py-1.5 min-h-[36px] rounded-lg border border-slate-300 text-xs font-mono bg-white"
-                                />
-                              </div>
-                            </div>
                           )}
-                        </div>
-                      ))}
-                    </div>
 
-                    <div className="p-4 rounded-xl bg-[#E8EEF4] border border-slate-300 flex items-center justify-between">
-                      <span className="text-xs font-extrabold text-[#334E6B]">
-                        Total Nilai Pembelian Diinput
-                      </span>
-                      <span className="text-lg font-extrabold font-mono text-[#334E6B]">
-                        {formatRupiah(totalCalculated)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setStep(1)}
-                        className="px-4 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs font-bold text-slate-700 cursor-pointer"
-                      >
-                        ← Kembali
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setStep(3)}
-                        className="px-5 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] cursor-pointer"
-                      >
-                        Lanjut ke Unggah Bukti Nota →
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* STEP 3: Unggah Bukti Nota & AI Validation */}
-                {step === 3 && (
-                  <div className="space-y-5">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Method 1: Nota Fisik (Live Camera Capture) */}
-                      <div
-                        className={`p-4 rounded-2xl border space-y-3 ${
-                          captureMethod === "LIVE_CAMERA"
-                            ? "border-[#334E6B] bg-[#E8EEF4]/40"
-                            : "border-slate-200 bg-white"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-slate-900">
-                            A. Foto Nota Fisik (Kamera Langsung)
-                          </span>
-                          <StatusBadge
-                            status="AMAN"
-                            customLabel="Anti-Manipulasi Galeri"
-                          />
-                        </div>
-                        <p className="text-xs text-slate-600">
-                          Wajib menggunakan kamera langsung aplikasi untuk nota kertas fisik guna mencegah manipulasi gambar galeri.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCaptureMethod("LIVE_CAMERA");
-                            setCameraModalOpen(true);
-                          }}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-bold hover:bg-[#24384E] cursor-pointer"
-                        >
-                          <Camera size={18} weight="bold" aria-hidden="true" />
-                          <span>Buka Kamera & Jepret Nota Fisik</span>
-                        </button>
-                      </div>
-
-                      {/* Method 2: Nota Digital (File/Gallery for electronic receipts) */}
-                      <div
-                        className={`p-4 rounded-2xl border space-y-3 ${
-                          captureMethod === "DIGITAL_UPLOAD"
-                            ? "border-[#334E6B] bg-[#E8EEF4]/40"
-                            : "border-slate-200 bg-white"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-slate-900">
-                            B. Unggah Nota Digital (Struk Elektronik)
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-600">
-                          Gunakan untuk nota PDF/gambar hasil unduhan dari transfer atau e-commerce resmi pemasok.
-                        </p>
-                        <label className="w-full flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl border border-slate-300 bg-white text-slate-800 text-xs font-bold hover:bg-slate-50 cursor-pointer">
-                          <FileArrowUp size={18} weight="bold" aria-hidden="true" />
-                          <span>Pilih Berkas Struk Elektronik</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              setCaptureMethod("DIGITAL_UPLOAD");
-                              handleDigitalFileChange(e.target.files?.[0] || null);
-                            }}
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Preview & AI Scan Trigger */}
-                    {receiptImageData && (
-                      <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50 space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <p className="text-xs font-extrabold text-slate-900">
-                              Pratinjau Bukti Nota Terlampir ({captureMethod})
-                            </p>
-                            <p className="text-[11px] text-slate-600">
-                              Jalankan pemeriksaan AI untuk membandingkan isi nota dengan daftar barang sebelum dikirim
-                            </p>
+                            <label className="block text-[11px] font-bold text-[#202531] mb-1">
+                              Jumlah Beli
+                            </label>
+                            <input
+                              type="number"
+                              min={0.01}
+                              step="any"
+                              value={row.quantity}
+                              onChange={(e) =>
+                                setItems((prev) =>
+                                  prev.map((r) =>
+                                    r.rowKey === row.rowKey
+                                      ? { ...r, quantity: Number(e.target.value) }
+                                      : r
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-mono bg-white text-[#202531]"
+                            />
                           </div>
-                          <button
-                            type="button"
-                            disabled={scanningAi}
-                            onClick={handleRunAiPreview}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#0F766E] text-white text-xs font-bold hover:opacity-95 disabled:opacity-50 cursor-pointer"
-                          >
-                            <Sparkle size={16} weight="fill" aria-hidden="true" />
-                            <span>
-                              {scanningAi
-                                ? "Memindai Nota dengan Gemini AI..."
-                                : "Pindai & Validasi Nota dengan AI"}
-                            </span>
-                          </button>
-                        </div>
 
-                        <div className="max-h-80 overflow-auto rounded-xl border border-slate-300 bg-slate-900 p-2 flex justify-center">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={receiptImageData}
-                            alt="Pratinjau bukti nota pembelian"
-                            width={600}
-                            height={450}
-                            className="max-h-72 w-auto object-contain rounded"
-                          />
-                        </div>
-
-                        {scanningAi && (
-                          <div className="p-4 rounded-xl bg-white border border-slate-200 animate-pulse space-y-2">
-                            <div className="h-4 w-48 bg-slate-200 rounded" />
-                            <div className="h-3 w-full bg-slate-200 rounded" />
-                            <div className="h-3 w-3/4 bg-slate-200 rounded" />
-                          </div>
-                        )}
-
-                        {aiResult && !scanningAi && (
-                          <div className="p-4 rounded-xl bg-white border border-slate-200 space-y-2 text-xs">
-                            <div className="flex items-center justify-between">
-                              <span className="font-extrabold text-slate-900">
-                                Hasil Pra-Pemeriksaan Gemini AI
-                              </span>
-                              <StatusBadge status={aiResult.status} />
-                            </div>
-                            <p className="text-slate-700">{aiResult.neutralEvaluationSummary}</p>
-                            <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1.5">
-                              <Info size={14} weight="bold" aria-hidden="true" />
-                              <span>{NEUTRAL_AI_DISCLAIMER}</span>
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* MODE PEMERIKSAAN PEMILIK (2 Kolom Sejajar) */
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                {/* LEFT COLUMN: Zoomable Receipt Preview + AI Analysis Card */}
-                <div className="space-y-4">
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h2 className="text-base font-extrabold text-slate-900">
-                          Bukti Foto / Dokumen Nota
-                        </h2>
-                        <p className="text-xs text-slate-600">
-                          Metode Unggah:{" "}
-                          {captureMethod === "LIVE_CAMERA"
-                            ? "Kamera Langsung Aplikasi (Live Capture)"
-                            : "Unggahan Nota Digital"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setZoomLevel((z) => Math.max(0.75, z - 0.25))}
-                          aria-label="Perkecil gambar nota"
-                          className="w-9 h-9 rounded-lg border border-slate-300 flex items-center justify-center text-slate-700 hover:bg-slate-100 cursor-pointer"
-                        >
-                          <MagnifyingGlassMinus size={16} weight="bold" aria-hidden="true" />
-                        </button>
-                        <span className="text-xs font-mono font-bold px-2">
-                          {Math.round(zoomLevel * 100)}%
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setZoomLevel((z) => Math.min(2.5, z + 0.25))}
-                          aria-label="Perbesar gambar nota"
-                          className="w-9 h-9 rounded-lg border border-slate-300 flex items-center justify-center text-slate-700 hover:bg-slate-100 cursor-pointer"
-                        >
-                          <MagnifyingGlassPlus size={16} weight="bold" aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="overflow-auto max-h-96 rounded-xl bg-slate-900 border border-slate-300 p-3 flex items-center justify-center">
-                      {receiptImageData ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={receiptImageData}
-                          alt={`Bukti nota pembelian ${invoiceNumber}`}
-                          width={640}
-                          height={480}
-                          style={{ transform: `scale(${zoomLevel})`, transformOrigin: "top center" }}
-                          className="max-w-full h-auto object-contain transition-transform"
-                        />
-                      ) : (
-                        <p className="text-xs text-slate-300 py-12">
-                          Tidak ada gambar nota terlampir.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Kartu Hasil Analisis AI */}
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Sparkle size={20} weight="fill" className="text-[#0F766E]" aria-hidden="true" />
-                        <h2 className="text-base font-extrabold text-slate-900">
-                          Hasil Analisis Validasi Nota AI
-                        </h2>
-                      </div>
-                      <StatusBadge status={aiValidationStatus} />
-                    </div>
-
-                    {/* Neutral Guardrail Disclaimer */}
-                    <div className="p-3 rounded-xl bg-[#F0FDFA] border border-[#99F6E4] text-xs text-[#0F766E] flex items-start gap-2">
-                      <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
-                      <span className="font-semibold">{NEUTRAL_AI_DISCLAIMER}</span>
-                    </div>
-
-                    {aiResult ? (
-                      <div className="space-y-3 text-xs">
-                        <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
                           <div>
-                            <p className="text-[11px] text-slate-500">Toko Terbaca AI</p>
-                            <p className="font-bold text-slate-900 mt-0.5">
-                              {aiResult.extractedSupplier || "-"}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] text-slate-500">Tanggal Terbaca</p>
-                            <p className="font-bold text-slate-900 mt-0.5">
-                              {aiResult.extractedDate || "-"}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[11px] text-slate-500">Total Terbaca AI</p>
-                            <p className="font-mono font-extrabold text-[#334E6B] mt-0.5">
-                              {aiResult.extractedTotal !== null
-                                ? formatRupiah(aiResult.extractedTotal)
-                                : "-"}
-                            </p>
-                          </div>
-                        </div>
-
-                        <p className="text-slate-800 font-medium">
-                          <strong>Ringkasan Evaluasi:</strong> {aiResult.neutralEvaluationSummary}
-                        </p>
-
-                        {aiResult.editSuspicionReason && (
-                          <div className="p-3 rounded-xl bg-[#FFF1F2] border border-[#FECDD3] text-[#9F1239]">
-                            <strong>Catatan Indikasi Visual Nota:</strong> {aiResult.editSuspicionReason}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-600">
-                        Klik tombol Pindai Ulang AI untuk memuat rincian ekstraksi nota.
-                      </p>
-                    )}
-
-                    <button
-                      type="button"
-                      disabled={scanningAi}
-                      onClick={handleRunAiPreview}
-                      className="inline-flex items-center gap-2 px-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
-                    >
-                      <Sparkle size={14} weight="bold" aria-hidden="true" />
-                      <span>{scanningAi ? "Memindai..." : "Jalankan Ulang Pemeriksaan AI"}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* RIGHT COLUMN: Employee Input Breakdown for Side-by-Side Comparison */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                    <div>
-                      <h2 className="text-base font-extrabold text-slate-900">
-                        Rincian Barang yang Diinput Pegawai
-                      </h2>
-                      <p className="text-xs text-slate-600">
-                        Pengaju: <strong>{submittedByName || session.user.name}</strong> • Tanggal:{" "}
-                        {formatDateJakarta(purchaseDate)}
-                      </p>
-                    </div>
-                    <StatusBadge status={fundingSource} />
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase text-slate-600">
-                          <th className="py-3 px-3">Nama Barang</th>
-                          <th className="py-3 px-3 text-right">Jumlah & Satuan</th>
-                          <th className="py-3 px-3 text-right">Harga Satuan</th>
-                          <th className="py-3 px-3 text-right">Subtotal</th>
-                          <th className="py-3 px-3">Evaluasi Baris</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {items.map((it, idx) => {
-                          const rowSub = Math.round(it.quantity * it.unitCost);
-                          const aiRow = aiResult?.items?.[idx];
-                          const hasRowIssue = aiRow && aiRow.matchesInput === false;
-
-                          return (
-                            <tr
-                              key={it.rowKey}
-                              className={hasRowIssue ? "bg-[#FFF1F2]/60" : ""}
+                            <label className="block text-[11px] font-bold text-[#202531] mb-1">
+                              Satuan
+                            </label>
+                            <select
+                              value={row.unit}
+                              onChange={(e) =>
+                                setItems((prev) =>
+                                  prev.map((r) =>
+                                    r.rowKey === row.rowKey
+                                      ? { ...r, unit: e.target.value }
+                                      : r
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-semibold bg-white text-[#202531]"
                             >
-                              <td className="py-3 px-3">
-                                <p className="font-bold text-slate-900">{it.itemName}</p>
-                                {it.conversionRatio > 1 && (
-                                  <p className="text-[11px] text-slate-600">
-                                    Konversi: 1 {it.unit} = {it.conversionRatio} {it.sellUnit}
-                                  </p>
-                                )}
-                              </td>
-                              <td className="py-3 px-3 text-right font-mono">
-                                {formatNumber(it.quantity)} {it.unit}
-                              </td>
-                              <td className="py-3 px-3 text-right font-mono">
-                                {formatRupiah(it.unitCost)}
-                              </td>
-                              <td className="py-3 px-3 text-right font-mono font-extrabold text-slate-900">
-                                {formatRupiah(rowSub)}
-                              </td>
-                              <td className="py-3 px-3">
-                                {hasRowIssue ? (
-                                  <span className="text-[11px] font-bold text-[#9F1239]">
-                                    {aiRow?.discrepancyNote || "Perlu diperiksa"}
-                                  </span>
-                                ) : (
-                                  <StatusBadge status="SESUAI" />
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                              {units.map((u) => (
+                                <option key={u.id} value={u.name}>
+                                  {u.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#202531] mb-1">
+                              Harga Beli / {row.unit} (Rp)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={row.unitCost}
+                              onChange={(e) =>
+                                setItems((prev) =>
+                                  prev.map((r) =>
+                                    r.rowKey === row.rowKey
+                                      ? { ...r, unitCost: Number(e.target.value) }
+                                      : r
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-mono bg-white text-[#202531]"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-[#202531] mb-1">
+                              Subtotal
+                            </label>
+                            <div className="px-3 py-2 min-h-[44px] rounded-xl bg-[#EBEBEB] border border-[#202531]/15 text-xs font-mono font-extrabold tabular-nums text-[#202531] flex items-center">
+                              {formatRupiah(Math.round(row.quantity * row.unitCost))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {row.isNewProduct && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setItems((prev) =>
+                                  prev.map((r) =>
+                                    r.rowKey === row.rowKey
+                                      ? { ...r, showSplitOption: !r.showSplitOption }
+                                      : r
+                                  )
+                                )
+                              }
+                              className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#525866] hover:text-[#202531] cursor-pointer"
+                            >
+                              {row.showSplitOption ? (
+                                <CaretUp size={13} weight="bold" aria-hidden="true" />
+                              ) : (
+                                <CaretDown size={13} weight="bold" aria-hidden="true" />
+                              )}
+                              <span>
+                                Opsional: Atur harga jual atau isi dus/kemasan (contoh: 1 dus = 24 botol)
+                              </span>
+                            </button>
+
+                            {row.showSplitOption && (
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2.5 mt-2 border-t border-[#202531]/10">
+                                <div>
+                                  <label className="block text-[11px] font-bold text-[#525866] mb-1">
+                                    Isi per 1 {row.unit} (berapa satuan jual?)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={row.conversionRatio}
+                                    onChange={(e) =>
+                                      setItems((prev) =>
+                                        prev.map((r) =>
+                                          r.rowKey === row.rowKey
+                                            ? { ...r, conversionRatio: Number(e.target.value) || 1 }
+                                            : r
+                                        )
+                                      )
+                                    }
+                                    className="w-full px-3 py-1.5 min-h-[40px] rounded-lg border border-[#202531]/20 text-xs font-mono bg-white text-[#202531]"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[11px] font-bold text-[#525866] mb-1">
+                                    Satuan Jual Terkecil
+                                  </label>
+                                  <select
+                                    value={row.sellUnit}
+                                    onChange={(e) =>
+                                      setItems((prev) =>
+                                        prev.map((r) =>
+                                          r.rowKey === row.rowKey
+                                            ? { ...r, sellUnit: e.target.value }
+                                            : r
+                                        )
+                                      )
+                                    }
+                                    className="w-full px-3 py-1.5 min-h-[40px] rounded-lg border border-[#202531]/20 text-xs bg-white text-[#202531]"
+                                  >
+                                    {units.map((u) => (
+                                      <option key={u.id} value={u.name}>
+                                        {u.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[11px] font-bold text-[#525866] mb-1">
+                                    Harga Jual per {row.sellUnit} (Rp)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={row.sellPrice}
+                                    onChange={(e) =>
+                                      setItems((prev) =>
+                                        prev.map((r) =>
+                                          r.rowKey === row.rowKey
+                                            ? { ...r, sellPrice: Number(e.target.value) }
+                                            : r
+                                        )
+                                      )
+                                    }
+                                    className="w-full px-3 py-1.5 min-h-[40px] rounded-lg border border-[#202531]/20 text-xs font-mono bg-white text-[#202531]"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-                    <span className="text-xs font-extrabold text-slate-700">
-                      Total Nilai Nota Diinput Pegawai
+                  <div className="p-4 rounded-xl bg-[#EBEBEB] border border-[#202531]/15 flex items-center justify-between">
+                    <span className="text-xs font-extrabold text-[#202531]">
+                      Total Nilai Belanja
                     </span>
-                    <span className="text-lg font-extrabold font-mono text-[#334E6B]">
+                    <span className="text-lg font-extrabold font-mono tabular-nums text-[#202531]">
                       {formatRupiah(totalCalculated)}
                     </span>
                   </div>
+                </section>
 
-                  {/* Owner Evaluation Notes Input */}
-                  {canApprove && approvalStatus !== "DISETUJUI" && (
-                    <div className="space-y-2 pt-2 border-t border-slate-200">
-                      <label
-                        htmlFor="owner-decision-notes"
-                        className="block text-xs font-bold text-slate-700"
-                      >
-                        Catatan Evaluasi Pemilik (Wajib diisi jika Minta Perbaikan atau Tolak)
-                      </label>
-                      <textarea
-                        id="owner-decision-notes"
-                        rows={2}
-                        value={decisionNoteInput}
-                        onChange={(e) => setDecisionNoteInput(e.target.value)}
-                        placeholder="Tuliskan catatan pemeriksaan atau instruksi perbaikan untuk pegawai..."
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs text-slate-900"
+                {/* Bagian 3: Lampiran Nota (Opsional, Tanpa AI) */}
+                <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4">
+                  <div className="space-y-1">
+                    <h2 className="text-base font-extrabold text-[#202531]">
+                      3. Lampiran Nota (Opsional)
+                    </h2>
+                    <p className="text-xs text-[#525866]">
+                      Tambahkan foto nota fisik atau file nota digital jika tersedia. Anda tetap dapat mengirim pengajuan tanpa nota.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setCameraModalOpen(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] cursor-pointer"
+                    >
+                      <Camera size={18} weight="bold" aria-hidden="true" />
+                      <span>Foto Nota Fisik</span>
+                    </button>
+
+                    <label className="inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl border border-[#202531]/20 bg-white text-[#202531] text-xs font-bold hover:bg-[#EBEBEB] cursor-pointer">
+                      <UploadSimple size={18} weight="bold" aria-hidden="true" />
+                      <span>Unggah Nota Digital</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,application/pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          handleDigitalFileChange(e.target.files?.[0] || null, false);
+                          e.target.value = "";
+                        }}
                       />
-                    </div>
+                    </label>
+                  </div>
+
+                  <p className="text-[11px] text-[#525866]">
+                    Format JPG, PNG, WEBP, atau PDF (maks. 2 MB).
+                  </p>
+
+                  {hasReceipt && (
+                    <ReceiptViewer
+                      receiptImageData={receiptImageData}
+                      sourceLabel={
+                        captureMethod === "LIVE_CAMERA" ? "Nota Fisik" : "Nota Digital"
+                      }
+                      altText={`Pratinjau lampiran nota ${invoiceNumber || "pembelian"}`}
+                      compact
+                      canReplace
+                      onOpenCamera={() => setCameraModalOpen(true)}
+                      onUploadFile={(file) => handleDigitalFileChange(file, false)}
+                      onRemove={() => {
+                        setReceiptImageData("");
+                        setCaptureMethod("TANPA_NOTA");
+                      }}
+                    />
                   )}
+                </section>
+              </div>
+            ) : (
+              /* MODE TINJAUAN (2 Kolom Sejajar di Desktop) */
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* KIRI: Pembaca Nota Berkejelasan Tinggi */}
+                <div className="lg:col-span-6 lg:sticky lg:top-6 space-y-4">
+                  <ReceiptViewer
+                    receiptImageData={receiptImageData}
+                    sourceLabel={receiptSourceLabel}
+                    altText={`Lampiran nota pembelian ${invoiceNumber}`}
+                    canAttachManual={canEditReceipt}
+                    canReplace={canEditReceipt}
+                    replacing={savingReceipt}
+                    onOpenCamera={canEditReceipt ? () => setCameraModalOpen(true) : undefined}
+                    onUploadFile={
+                      canEditReceipt ? (file) => handleDigitalFileChange(file, true) : undefined
+                    }
+                    onRemove={
+                      canEditReceipt
+                        ? () => {
+                            void persistInspectReceiptUpdate(null, "TANPA_NOTA");
+                          }
+                        : undefined
+                    }
+                  />
+                </div>
+
+                {/* KANAN: Panel Cek AI (Paling atas untuk Admin) + Daftar Barang + Keputusan */}
+                <div className="lg:col-span-6 space-y-5">
+                  {isAdmin && (
+                    <ReceiptAiCheckPanel
+                      hasReceipt={hasReceipt}
+                      report={normalizedAiReport}
+                      loading={scanningAi}
+                      errorMessage={aiError}
+                      onRunCheck={handleRunAiCheck}
+                    />
+                  )}
+
+                  <div className="bg-white rounded-2xl border border-[#202531]/15 p-5 space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#202531]/10 pb-3">
+                      <div>
+                        <h2 className="text-base font-extrabold text-[#202531]">
+                          Daftar Barang yang Diinput Pegawai
+                        </h2>
+                        <p className="text-xs text-[#525866]">
+                          Oleh <strong className="text-[#202531]">{submittedByName || session.user.name}</strong> •{" "}
+                          {formatDateJakarta(purchaseDate)}
+                        </p>
+                      </div>
+                      <StatusBadge status={fundingSource} />
+                    </div>
+
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-[#202531]/10 bg-[#F8FAFC] text-[11px] font-bold uppercase text-[#525866]">
+                            <th className="py-3 px-3">Nama Barang</th>
+                            <th className="py-3 px-3 text-right">Jumlah</th>
+                            <th className="py-3 px-3 text-right">Harga Beli</th>
+                            <th className="py-3 px-3 text-right">Subtotal</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#202531]/10">
+                          {items.map((it) => {
+                            const rowSub = Math.round(it.quantity * it.unitCost);
+                            return (
+                              <tr key={it.rowKey}>
+                                <td className="py-3 px-3">
+                                  <p className="font-bold text-[#202531]">{it.itemName}</p>
+                                  {it.conversionRatio > 1 && (
+                                    <p className="text-[11px] text-[#525866]">
+                                      1 {it.unit} isi {it.conversionRatio} {it.sellUnit}
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono tabular-nums text-[#202531]">
+                                  {formatNumber(it.quantity)} {it.unit}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono tabular-nums text-[#202531]">
+                                  {formatRupiah(it.unitCost)}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono font-extrabold tabular-nums text-[#202531]">
+                                  {formatRupiah(rowSub)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="sm:hidden space-y-2">
+                      {items.map((it) => {
+                        const rowSub = Math.round(it.quantity * it.unitCost);
+                        return (
+                          <div
+                            key={it.rowKey}
+                            className="p-3 rounded-xl bg-[#F8FAFC] border border-[#202531]/10 text-xs space-y-1"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-[#202531]">{it.itemName}</span>
+                              <span className="font-mono font-extrabold tabular-nums text-[#202531]">
+                                {formatRupiah(rowSub)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] font-mono text-[#525866]">
+                              {formatNumber(it.quantity)} {it.unit} x {formatRupiah(it.unitCost)}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-[#EBEBEB] border border-[#202531]/15 flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-[#202531]">
+                        Total Belanja Diinput
+                      </span>
+                      <span className="text-lg font-extrabold font-mono tabular-nums text-[#202531]">
+                        {formatRupiah(totalCalculated)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
             {/* STICKY BOTTOM ACTION BAR */}
-            <div className="fixed bottom-16 md:bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 px-4 md:px-8 py-3.5 shadow-lg flex flex-wrap items-center justify-between gap-3">
+            <div className="fixed bottom-16 md:bottom-0 left-0 right-0 z-30 bg-white border-t border-[#202531]/15 px-4 md:px-8 py-3.5 shadow-lg flex flex-wrap items-center justify-between gap-3">
               <div className="text-xs">
-                <span className="text-slate-600">Total Nilai Pengajuan: </span>
-                <strong className="font-mono text-sm text-[#334E6B]">
+                <span className="text-[#525866]">Total Belanja: </span>
+                <strong className="font-mono text-sm tabular-nums text-[#202531]">
                   {formatRupiah(totalCalculated)}
                 </strong>
               </div>
@@ -1286,16 +1217,17 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
                   <button
                     type="button"
                     disabled={submitting}
+                    aria-busy={submitting}
                     onClick={handleSubmitPurchase}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] disabled:opacity-50 cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
                   >
                     <PaperPlaneRight size={16} weight="bold" aria-hidden="true" />
                     <span>
                       {submitting
-                        ? "Mengirim & Memvalidasi..."
+                        ? "Mengirim..."
                         : isCreateMode
                         ? "Kirim Pengajuan Pembelian"
-                        : "Kirim Perbaikan Pembelian"}
+                        : "Kirim Perbaikan"}
                     </span>
                   </button>
                 ) : (
@@ -1306,17 +1238,20 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
                         type="button"
                         disabled={submitting}
                         onClick={() => handleOwnerDecision("DISETUJUI")}
-                        className="inline-flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#166534] text-white text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
                       >
                         <CheckCircle size={16} weight="bold" aria-hidden="true" />
-                        <span>Terima (Sesuai) & Tambah Stok</span>
+                        <span>Setujui &amp; Tambah Stok</span>
                       </button>
 
                       <button
                         type="button"
                         disabled={submitting}
-                        onClick={() => handleOwnerDecision("PERLU_PERBAIKAN")}
-                        className="inline-flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#B45309] text-white text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                        onClick={() => {
+                          setDecisionNoteInput("");
+                          setPendingNoteAction("PERLU_PERBAIKAN");
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#FFFBEB] border border-[#FDE68A] text-[#B45309] text-xs font-extrabold hover:opacity-90 disabled:opacity-50 cursor-pointer"
                       >
                         <WarningCircle size={16} weight="bold" aria-hidden="true" />
                         <span>Minta Perbaikan</span>
@@ -1325,11 +1260,14 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
                       <button
                         type="button"
                         disabled={submitting}
-                        onClick={() => handleOwnerDecision("DITOLAK")}
-                        className="inline-flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#9F1239] text-white text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                        onClick={() => {
+                          setDecisionNoteInput("");
+                          setPendingNoteAction("DITOLAK");
+                        }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-xl bg-[#FFF0F4] border border-[#FF2A63]/35 text-[#D41448] text-xs font-extrabold hover:bg-[#FFE0E8] disabled:opacity-50 cursor-pointer"
                       >
                         <XCircle size={16} weight="bold" aria-hidden="true" />
-                        <span>Tolak Pengajuan</span>
+                        <span>Tolak</span>
                       </button>
                     </>
                   )
@@ -1340,8 +1278,100 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
             <CameraCaptureModal
               isOpen={cameraModalOpen}
               onClose={() => setCameraModalOpen(false)}
-              onCapture={(dataUrl) => setReceiptImageData(dataUrl)}
+              onCapture={(dataUrl) => {
+                if (viewMode === "INSPECT" && !isCreateMode && purchaseId) {
+                  void persistInspectReceiptUpdate(dataUrl, "LIVE_CAMERA");
+                  return;
+                }
+                setReceiptImageData(dataUrl);
+                setCaptureMethod("LIVE_CAMERA");
+                setAiResult(null);
+                setAiError(null);
+                showToast("Foto nota fisik dilampirkan.", "success");
+              }}
             />
+
+            {mounted &&
+              pendingNoteAction &&
+              createPortal(
+                <div
+                  className="fixed inset-0 z-[85] !m-0 bg-[#202531]/60 flex items-center justify-center p-4"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="purchase-note-modal-title"
+                >
+                  <div className="w-full max-w-md rounded-2xl bg-white border border-[#202531]/15 shadow-2xl p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3
+                          id="purchase-note-modal-title"
+                          className="text-base font-extrabold text-[#202531]"
+                        >
+                          {pendingNoteAction === "DITOLAK"
+                            ? "Alasan Penolakan Pembelian"
+                            : "Catatan Perbaikan untuk Pegawai"}
+                        </h3>
+                        <p className="text-xs text-[#525866] mt-0.5">
+                          {pendingNoteAction === "DITOLAK"
+                            ? "Jelaskan singkat alasan penolakan agar pegawai tahu penyebabnya."
+                            : "Tuliskan bagian nota atau harga yang perlu diperbaiki pegawai."}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => setPendingNoteAction(null)}
+                        aria-label="Tutup dialog catatan"
+                        className="min-w-[36px] min-h-[36px] rounded-xl flex items-center justify-center text-[#525866] hover:bg-[#EBEBEB] cursor-pointer"
+                      >
+                        <X size={18} weight="bold" aria-hidden="true" />
+                      </button>
+                    </div>
+
+                    <textarea
+                      id="owner-decision-notes"
+                      autoFocus
+                      rows={3}
+                      value={decisionNoteInput}
+                      onChange={(e) => setDecisionNoteInput(e.target.value)}
+                      placeholder="Contoh: Harga di nota Rp 18.000, mohon diperbaiki..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-[#202531]/20 bg-white text-xs text-[#202531]"
+                    />
+
+                    <div className="flex items-center justify-end gap-2.5">
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => {
+                          setPendingNoteAction(null);
+                          setDecisionNoteInput("");
+                        }}
+                        className="px-4 min-h-[44px] rounded-xl border border-[#202531]/20 bg-white text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting || !decisionNoteInput.trim()}
+                        aria-busy={submitting}
+                        onClick={() => handleOwnerDecision(pendingNoteAction)}
+                        className={`inline-flex items-center gap-1.5 px-4 min-h-[44px] rounded-xl text-xs font-extrabold text-white hover:opacity-95 disabled:opacity-50 cursor-pointer ${
+                          pendingNoteAction === "DITOLAK" ? "bg-[#D41448]" : "bg-[#202531]"
+                        }`}
+                      >
+                        <span>
+                          {submitting
+                            ? "Menyimpan..."
+                            : pendingNoteAction === "DITOLAK"
+                            ? "Konfirmasi Tolak"
+                            : "Kirim Permintaan Perbaikan"}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )}
           </div>
         );
       }}

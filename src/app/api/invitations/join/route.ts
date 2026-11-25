@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { attachSessionCookie, createSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import {
+  formatRoleLabel,
   getDefaultRedirectForRole,
   getRolePermissionsMap,
   normalizeInviteCode,
@@ -154,7 +155,7 @@ export async function POST(request: Request) {
         {
           roomId: invitation.roomId,
           title: `Anggota Baru Bergabung (@${updatedUser.username})`,
-          message: `${updatedUser.name} bergabung ke ruangan "${invitation.room.name}" sebagai ${assignedRole}.`,
+          message: `${updatedUser.name} bergabung ke ruangan "${invitation.room.name}" sebagai ${formatRoleLabel(assignedRole)}.`,
           severity: "INFO",
           category: "SISTEM",
           targetRole: null,

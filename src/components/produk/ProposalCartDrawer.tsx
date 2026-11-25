@@ -3,15 +3,18 @@
 import React, { useState } from "react";
 import { SlideDrawer } from "@/components/ui/SlideDrawer";
 import { CameraCaptureModal } from "@/components/ui/CameraCaptureModal";
+import { ReceiptViewer } from "@/components/ui/ReceiptViewer";
 import { useToast } from "@/components/layout/AppShell";
 import { formatNumber, formatRupiah } from "@/lib/format";
+import { compressReceiptFileToDataUrl } from "@/lib/receipt-client";
 import {
   Camera,
+  CaretDown,
+  CaretUp,
+  ClipboardText,
   CookingPot,
-  FilePdf,
   PaperPlaneTilt,
   Plus,
-  ShoppingCartSimple,
   Trash,
   UploadSimple,
 } from "@phosphor-icons/react";
@@ -26,47 +29,6 @@ interface ProposalCartDrawerProps {
   onOpenAddMaterial: () => void;
   onOpenAddProduct: () => void;
   onSubmitted: () => Promise<void> | void;
-}
-
-async function compressImageFileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Gagal membaca file."));
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : "";
-      if (!dataUrl || file.type === "application/pdf") {
-        resolve(dataUrl);
-        return;
-      }
-      const img = new Image();
-      img.onerror = () => resolve(dataUrl);
-      img.onload = () => {
-        const maxDim = 1280;
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          if (width >= height) {
-            height = Math.round((height / width) * maxDim);
-            width = maxDim;
-          } else {
-            width = Math.round((width / height) * maxDim);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          resolve(dataUrl);
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
-      };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
-  });
 }
 
 export function ProposalCartDrawer({
@@ -84,9 +46,13 @@ export function ProposalCartDrawer({
   const [batchNote, setBatchNote] = useState("");
   const [receiptImageData, setReceiptImageData] = useState<string | null>(null);
   const [receiptSource, setReceiptSource] = useState<"FISIK" | "DIGITAL" | null>(null);
-  const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const estimatedTotalCapital = items.reduce((sum, item) => {
     if (item.stockMethod === "RESEP") return sum;
@@ -95,19 +61,14 @@ export function ProposalCartDrawer({
 
   const handleDigitalUpload = async (file: File | null) => {
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024 && file.type === "application/pdf") {
-      showToast("Ukuran PDF maksimal 2 MB.", "error");
-      return;
-    }
     try {
-      const dataUrl = await compressImageFileToDataUrl(file);
-      if (dataUrl.length > 2_750_000) {
-        showToast("Ukuran file setelah diproses masih melebihi batas 2 MB.", "error");
+      const result = await compressReceiptFileToDataUrl(file);
+      if (result.error || !result.dataUrl) {
+        showToast(result.error || "Gagal memproses berkas nota.", "error");
         return;
       }
-      setReceiptImageData(dataUrl);
+      setReceiptImageData(result.dataUrl);
       setReceiptSource("DIGITAL");
-      setReceiptFileName(file.name);
       showToast(`Nota digital "${file.name}" dilampirkan.`, "success");
     } catch {
       showToast("Gagal memproses berkas nota.", "error");
@@ -116,7 +77,7 @@ export function ProposalCartDrawer({
 
   const handleSubmitBatch = async () => {
     if (items.length === 0) {
-      showToast("Keranjang pengajuan masih kosong.", "error");
+      showToast("Daftar pengajuan masih kosong.", "error");
       return;
     }
 
@@ -171,7 +132,6 @@ export function ProposalCartDrawer({
       setBatchNote("");
       setReceiptImageData(null);
       setReceiptSource(null);
-      setReceiptFileName(null);
       onClearCart();
       onClose();
       await onSubmitted();
@@ -182,15 +142,13 @@ export function ProposalCartDrawer({
     }
   };
 
-  const isPdfReceipt = receiptImageData?.startsWith("data:application/pdf");
-
   return (
     <>
       <SlideDrawer
         isOpen={isOpen}
         onClose={onClose}
-        title={`Keranjang Pengajuan (${items.length} Item)`}
-        subtitle="Kirim beberapa bahan baku, produk, dan resep sekaligus dalam satu paket agar mudah diperiksa Manajer/Pemilik."
+        title={`Daftar Pengajuan (${items.length} Item)`}
+        subtitle="Kumpulkan beberapa bahan baku, produk, dan resep baru, lalu kirim semuanya sekaligus ke Manajer/Pemilik."
         widthClass="max-w-xl"
       >
         <div className="space-y-5">
@@ -205,7 +163,7 @@ export function ProposalCartDrawer({
               className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] cursor-pointer"
             >
               <CookingPot size={15} weight="bold" aria-hidden="true" />
-              <span>+ Tambah Bahan</span>
+              <span>Tambah Bahan</span>
             </button>
             <button
               type="button"
@@ -216,21 +174,21 @@ export function ProposalCartDrawer({
               className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 bg-white text-[#202531] text-xs font-bold hover:bg-[#EBEBEB] cursor-pointer"
             >
               <Plus size={15} weight="bold" aria-hidden="true" />
-              <span>+ Tambah Menu / Produk</span>
+              <span>Tambah Menu / Produk</span>
             </button>
           </div>
 
-          {/* Daftar Item dalam Keranjang */}
+          {/* Daftar Item dalam Pengajuan */}
           {items.length === 0 ? (
             <div className="p-8 rounded-2xl border border-dashed border-[#202531]/20 bg-[#EBEBEB]/40 text-center space-y-2">
-              <ShoppingCartSimple
+              <ClipboardText
                 size={32}
                 weight="duotone"
                 className="mx-auto text-[#525866]"
                 aria-hidden="true"
               />
               <p className="text-sm font-bold text-[#202531]">
-                Keranjang pengajuan masih kosong.
+                Daftar pengajuan masih kosong.
               </p>
               <p className="text-xs text-[#525866]">
                 Tambahkan bahan baku atau menu/produk baru lalu kirim semuanya sekaligus.
@@ -243,90 +201,159 @@ export function ProposalCartDrawer({
                   ? "Bahan Baku"
                   : item.stockMethod === "RESEP"
                   ? "Menu Resep"
-                  : "Produk Jual";
+                  : "Barang Jadi";
                 const itemEstCost =
                   item.stockMethod === "RESEP"
                     ? 0
                     : Math.round(item.costPrice * Math.max(0, item.currentStock));
+                const ratio = item.conversionRatio > 1 ? item.conversionRatio : 1;
+                const isPackaged = item.stockMethod !== "RESEP" && ratio > 1;
+                const packCount = isPackaged
+                  ? item.packCount ?? Number((item.currentStock / ratio).toFixed(2))
+                  : item.currentStock;
+                const packPrice = isPackaged
+                  ? item.packPrice ?? Math.round(item.costPrice * ratio)
+                  : item.costPrice;
+                const unitLabel = getUnitDisplayLabel(item.sellUnit);
+                const isExpanded = Boolean(expandedIds[item.clientTempId]);
+                const summaryQtyLabel =
+                  item.stockMethod === "RESEP"
+                    ? "Menu Resep"
+                    : isPackaged
+                    ? `${formatNumber(packCount)} ${item.purchaseUnit || "kemasan"}`
+                    : `${formatNumber(item.currentStock)} ${unitLabel}`;
 
                 return (
                   <div
                     key={item.clientTempId}
-                    className="p-3.5 rounded-2xl bg-white border border-[#202531]/15 flex items-start justify-between gap-3"
+                    className="p-3 rounded-2xl bg-white border border-[#202531]/15"
                   >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono text-[11px] font-bold text-[#525866]">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="font-mono text-[11px] font-bold text-[#525866] shrink-0">
                           #{idx + 1}
                         </span>
                         <span className="text-sm font-extrabold text-[#202531] truncate">
                           {item.name}
                         </span>
-                        <span className="px-2 py-0.5 rounded-md bg-[#EBEBEB] text-[#202531] text-[11px] font-bold">
-                          {kindLabel}
+                        <span className="px-2 py-0.5 rounded-md bg-[#F8FAFC] border border-[#202531]/10 text-[11px] font-mono font-semibold text-[#525866] shrink-0">
+                          {summaryQtyLabel}
                         </span>
                       </div>
 
-                      <p className="text-xs text-[#525866]">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => toggleExpand(item.clientTempId)}
+                          className="inline-flex items-center gap-1 px-2.5 min-h-[36px] rounded-lg border border-[#202531]/15 bg-[#F8FAFC] text-[11px] font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer"
+                        >
+                          <span>{isExpanded ? "Tutup" : "Lihat lengkap"}</span>
+                          {isExpanded ? (
+                            <CaretUp size={13} weight="bold" aria-hidden="true" />
+                          ) : (
+                            <CaretDown size={13} weight="bold" aria-hidden="true" />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => onRemoveItem(item.clientTempId)}
+                          aria-label={`Hapus ${item.name} dari daftar pengajuan`}
+                          className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg border border-[#FF2A63]/30 bg-[#FFF0F4] text-[#D41448] hover:bg-[#FFE0E8] shrink-0 cursor-pointer"
+                        >
+                          <Trash size={15} weight="bold" aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="mt-2.5 pt-2.5 border-t border-[#202531]/10 space-y-1.5 text-xs text-[#525866]">
+                        <div>
+                          <span className="inline-block px-2 py-0.5 rounded bg-[#EBEBEB] text-[#202531] text-[11px] font-bold">
+                            {kindLabel}
+                          </span>
+                        </div>
+
                         {item.stockMethod === "RESEP" ? (
-                          <>
+                          <p>
                             Harga jual{" "}
-                            <strong className="font-mono text-[#202531]">
+                            <strong className="font-mono tabular-nums text-[#202531]">
                               {formatRupiah(item.sellPrice)}
                             </strong>{" "}
-                            • Modal resep{" "}
-                            <strong className="font-mono text-[#202531]">
+                            • Modal bahan{" "}
+                            <strong className="font-mono tabular-nums text-[#202531]">
                               {formatRupiah(item.costPrice)}
                             </strong>
-                          </>
+                          </p>
+                        ) : isPackaged ? (
+                          <div className="space-y-1">
+                            <p>
+                              (isi {formatNumber(ratio)} {unitLabel}) •{" "}
+                              <strong className="font-mono tabular-nums text-[#202531]">
+                                {formatRupiah(packPrice)}/{item.purchaseUnit || "kemasan"}
+                              </strong>
+                              {itemEstCost > 0 && (
+                                <>
+                                  {" "}
+                                  • Total{" "}
+                                  <strong className="font-mono tabular-nums text-[#202531]">
+                                    {formatRupiah(itemEstCost)}
+                                  </strong>
+                                </>
+                              )}
+                            </p>
+                            <p className="text-[11px] text-[#525866]">
+                              Stok masuk:{" "}
+                              <strong className="font-mono tabular-nums text-[#202531]">
+                                {formatNumber(item.currentStock)} {unitLabel}
+                              </strong>
+                              {!item.isRawMaterial && item.sellPrice > 0
+                                ? ` • Harga jual: ${formatRupiah(item.sellPrice)}`
+                                : ""}
+                            </p>
+                          </div>
                         ) : (
-                          <>
-                            Stok awal{" "}
-                            <strong className="font-mono text-[#202531]">
-                              {formatNumber(item.currentStock)} {getUnitDisplayLabel(item.sellUnit)}
+                          <p>
+                            Jumlah{" "}
+                            <strong className="font-mono tabular-nums text-[#202531]">
+                              {formatNumber(item.currentStock)} {unitLabel}
                             </strong>{" "}
-                            • Modal/unit{" "}
-                            <strong className="font-mono text-[#202531]">
-                              {formatRupiah(item.costPrice)}
+                            • Harga beli{" "}
+                            <strong className="font-mono tabular-nums text-[#202531]">
+                              {formatRupiah(item.costPrice)}/{unitLabel}
                             </strong>
                             {itemEstCost > 0 && (
                               <>
                                 {" "}
-                                (Total{" "}
-                                <strong className="font-mono text-[#202531]">
+                                • Total{" "}
+                                <strong className="font-mono tabular-nums text-[#202531]">
                                   {formatRupiah(itemEstCost)}
                                 </strong>
-                                )
                               </>
                             )}
-                          </>
-                        )}
-                      </p>
-
-                      {item.stockMethod === "RESEP" &&
-                        item.variants &&
-                        item.variants[0]?.ingredients &&
-                        item.variants[0].ingredients.length > 0 && (
-                          <p className="text-[11px] text-[#525866]">
-                            Bahan:{" "}
-                            {item.variants[0].ingredients
-                              .map(
-                                (ig) =>
-                                  `${ig.materialName || "Bahan"} ${formatNumber(ig.quantity)} ${getUnitDisplayLabel(ig.unit)}`
-                              )
-                              .join(", ")}
+                            {!item.isRawMaterial && item.sellPrice > 0
+                              ? ` • Harga jual: ${formatRupiah(item.sellPrice)}`
+                              : ""}
                           </p>
                         )}
-                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => onRemoveItem(item.clientTempId)}
-                      aria-label={`Hapus ${item.name} dari keranjang`}
-                      className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] text-[#D41448] hover:bg-[#FFE0E8] shrink-0 cursor-pointer"
-                    >
-                      <Trash size={16} weight="bold" aria-hidden="true" />
-                    </button>
+                        {item.stockMethod === "RESEP" &&
+                          item.variants &&
+                          item.variants[0]?.ingredients &&
+                          item.variants[0].ingredients.length > 0 && (
+                            <p className="text-[11px] text-[#525866]">
+                              Bahan:{" "}
+                              {item.variants[0].ingredients
+                                .map(
+                                  (ig) =>
+                                    `${ig.materialName || "Bahan"} ${formatNumber(ig.quantity)} ${getUnitDisplayLabel(ig.unit)}`
+                                )
+                                .join(", ")}
+                            </p>
+                          )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -336,7 +363,7 @@ export function ProposalCartDrawer({
                   <span className="font-bold text-[#202531]">
                     Total Estimasi Nilai Belanja/Stok Awal
                   </span>
-                  <span className="font-mono text-sm font-extrabold text-[#202531]">
+                  <span className="font-mono text-sm font-extrabold tabular-nums text-[#202531]">
                     {formatRupiah(estimatedTotalCapital)}
                   </span>
                 </div>
@@ -344,15 +371,15 @@ export function ProposalCartDrawer({
             </div>
           )}
 
-          {/* Informasi Pemasok & Nota (Opsional untuk Pemeriksaan AI) */}
+          {/* Lampiran Nota (Opsional) - Tanpa Referensi AI untuk Pegawai */}
           {items.length > 0 && (
             <div className="p-4 rounded-2xl bg-[#F8FAFC] border border-[#202531]/15 space-y-3.5">
               <div>
                 <p className="text-xs font-extrabold text-[#202531]">
-                  Nota Belanja &amp; Catatan (Opsional)
+                  Lampiran Nota (Opsional)
                 </p>
-                <p className="text-[11px] text-[#525866] mt-0.5">
-                  Lampirkan foto nota fisik atau file nota digital agar Manajer/Pemilik dapat memindai kesesuaiannya dengan AI.
+                <p className="text-[11px] text-[#525866] mt-0.5 leading-relaxed">
+                  Tambahkan foto nota fisik atau file nota digital jika tersedia. Anda tetap dapat mengirim pengajuan tanpa nota.
                 </p>
               </div>
 
@@ -370,7 +397,7 @@ export function ProposalCartDrawer({
                     value={supplierName}
                     onChange={(e) => setSupplierName(e.target.value)}
                     placeholder="Contoh: Toko Bahan Kue Maju"
-                    className="w-full px-3 h-10 rounded-xl border border-[#202531]/20 bg-white text-xs text-[#202531]"
+                    className="w-full px-3 h-11 rounded-xl border border-[#202531]/20 bg-white text-xs text-[#202531]"
                   />
                 </div>
                 <div>
@@ -386,70 +413,55 @@ export function ProposalCartDrawer({
                     value={batchNote}
                     onChange={(e) => setBatchNote(e.target.value)}
                     placeholder="Contoh: Stok belanja pagi"
-                    className="w-full px-3 h-10 rounded-xl border border-[#202531]/20 bg-white text-xs text-[#202531]"
+                    className="w-full px-3 h-11 rounded-xl border border-[#202531]/20 bg-white text-xs text-[#202531]"
                   />
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCameraOpen(true)}
-                  className="inline-flex items-center gap-2 px-3.5 min-h-[44px] rounded-xl bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer"
-                >
-                  <Camera size={16} weight="bold" aria-hidden="true" />
-                  <span>Foto Nota Fisik</span>
-                </button>
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCameraOpen(true)}
+                    className="inline-flex items-center gap-2 px-3.5 min-h-[44px] rounded-xl bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer"
+                  >
+                    <Camera size={16} weight="bold" aria-hidden="true" />
+                    <span>Foto Nota Fisik</span>
+                  </button>
 
-                <label className="inline-flex items-center gap-2 px-3.5 min-h-[44px] rounded-xl bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer">
-                  <UploadSimple size={16} weight="bold" aria-hidden="true" />
-                  <span>Unggah Nota Digital (Gambar/PDF)</span>
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,application/pdf"
-                    className="hidden"
-                    onChange={(e) => handleDigitalUpload(e.target.files?.[0] || null)}
-                  />
-                </label>
+                  <label className="inline-flex items-center gap-2 px-3.5 min-h-[44px] rounded-xl bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer">
+                    <UploadSimple size={16} weight="bold" aria-hidden="true" />
+                    <span>Unggah Nota Digital</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        handleDigitalUpload(e.target.files?.[0] || null);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                <p className="text-[11px] text-[#525866]">
+                  Format JPG, PNG, WEBP, atau PDF (maks. 2 MB).
+                </p>
               </div>
 
               {receiptImageData && (
-                <div className="p-3 rounded-xl bg-white border border-[#202531]/15 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {isPdfReceipt ? (
-                      <div className="w-12 h-12 rounded-lg bg-[#FFF0F4] border border-[#FF2A63]/30 text-[#D41448] flex items-center justify-center shrink-0">
-                        <FilePdf size={22} weight="bold" aria-hidden="true" />
-                      </div>
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={receiptImageData}
-                        alt="Pratinjau lampiran nota"
-                        className="w-12 h-12 rounded-lg object-cover border border-[#202531]/15 shrink-0"
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-[#202531] truncate">
-                        {receiptFileName ||
-                          (receiptSource === "FISIK" ? "Foto Nota Fisik" : "Berkas Nota Digital")}
-                      </p>
-                      <p className="text-[11px] text-[#525866]">
-                        {receiptSource === "FISIK" ? "Sumber: Kamera Nota Fisik" : "Sumber: Nota Digital"}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReceiptImageData(null);
-                      setReceiptSource(null);
-                      setReceiptFileName(null);
-                    }}
-                    className="px-3 min-h-[40px] rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] text-[#D41448] text-xs font-bold cursor-pointer"
-                  >
-                    Hapus Nota
-                  </button>
-                </div>
+                <ReceiptViewer
+                  receiptImageData={receiptImageData}
+                  sourceLabel={receiptSource === "FISIK" ? "Nota Fisik" : "Nota Digital"}
+                  altText="Pratinjau lampiran nota pengajuan"
+                  compact
+                  canReplace
+                  onOpenCamera={() => setCameraOpen(true)}
+                  onUploadFile={handleDigitalUpload}
+                  onRemove={() => {
+                    setReceiptImageData(null);
+                    setReceiptSource(null);
+                  }}
+                />
               )}
             </div>
           )}
@@ -490,11 +502,9 @@ export function ProposalCartDrawer({
         onCapture={(dataUrl) => {
           setReceiptImageData(dataUrl);
           setReceiptSource("FISIK");
-          setReceiptFileName("Foto-Nota-Fisik.jpg");
-          showToast("Foto nota fisik siap dikirim bersama pengajuan.", "success");
+          showToast("Foto nota fisik dilampirkan.", "success");
         }}
       />
     </>
   );
 }
-

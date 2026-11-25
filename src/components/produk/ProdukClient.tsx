@@ -21,8 +21,8 @@ import {
   Eye,
   Trash,
   Warning,
-  ShoppingCartSimple,
-  Sparkle,
+  ClipboardText,
+  FileMagnifyingGlass,
   Receipt,
   Info,
 } from "@phosphor-icons/react";
@@ -83,7 +83,7 @@ export function ProdukClient({
   const [reviewingBatch, setReviewingBatch] =
     useState<GroupedProductRequestBatch<ProductRequestItem> | null>(null);
 
-  // Keranjang Pengajuan (khusus Gudang & Kasir+Gudang sebelum dikirim ke Manajer/Pemilik)
+  // Daftar Pengajuan (khusus Gudang & Kasir+Gudang sebelum dikirim ke Manajer/Pemilik)
   const [proposalCart, setProposalCart] = useState<ProposalCartItem[]>([]);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const activeCartRoomRef = useRef<string | null>(null);
@@ -168,14 +168,14 @@ export function ProdukClient({
       );
       if (dupInCart) {
         showToast(
-          `"${item.name}" sudah ada di Keranjang Pengajuan. Hapus item lama jika ingin menggantinya.`,
+          `"${item.name}" sudah ada di Daftar Pengajuan. Hapus item lama jika ingin menggantinya.`,
           "info"
         );
         return;
       }
       setProposalCart((prev) => [...prev, item]);
       showToast(
-        `"${item.name}" dimasukkan ke Keranjang Pengajuan (${proposalCart.length + 1} item).`,
+        `"${item.name}" ditambahkan ke Daftar Pengajuan (${proposalCart.length + 1} item).`,
         "success"
       );
     },
@@ -417,7 +417,7 @@ export function ProdukClient({
                       className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2a3140] transition-colors duration-150 cursor-pointer"
                     >
                       <CookingPot size={17} weight="bold" aria-hidden="true" />
-                      <span>+ Tambah Bahan Baku</span>
+                      <span>Tambah Bahan Baku</span>
                     </button>
                     <button
                       type="button"
@@ -425,7 +425,7 @@ export function ProdukClient({
                       className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity duration-150 cursor-pointer"
                     >
                       <Plus size={17} weight="bold" aria-hidden="true" />
-                      <span>{isAdmin ? "+ Tambah Menu / Produk" : "+ Ajukan Menu / Produk"}</span>
+                      <span>{isAdmin ? "Tambah Menu / Produk" : "Ajukan Menu / Produk"}</span>
                     </button>
                     {!isAdmin && (
                       <button
@@ -433,8 +433,8 @@ export function ProdukClient({
                         onClick={() => setCartDrawerOpen(true)}
                         className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl border border-[#202531]/25 bg-white text-[#202531] text-xs font-extrabold hover:bg-[#EBEBEB] transition-colors cursor-pointer"
                       >
-                        <ShoppingCartSimple size={17} weight="bold" aria-hidden="true" />
-                        <span>Keranjang ({proposalCart.length})</span>
+                        <ClipboardText size={17} weight="bold" aria-hidden="true" />
+                        <span>Daftar Pengajuan ({proposalCart.length})</span>
                       </button>
                     )}
                   </div>
@@ -878,8 +878,8 @@ export function ProdukClient({
                   </h2>
                   <p className="text-xs text-[#525866] mt-0.5">
                     {isAdmin
-                      ? "Tinjau paket barang sekaligus, pindai kesesuaian dengan nota lewat AI bila perlu, lalu setujui 1 kali klik."
-                      : "Setiap paket pengajuan akan aktif di katalog setelah disetujui Pemilik atau Manajer."}
+                      ? "Tinjau paket barang, periksa lampiran nota dengan jelas, dan gunakan cek AI Gemini bila diperlukan."
+                      : "Setiap paket pengajuan akan aktif setelah disetujui Pemilik/Manajer. Selama masih menunggu, Anda bisa membuka detail untuk menambah atau mengganti foto nota."}
                   </p>
                 </div>
 
@@ -926,20 +926,32 @@ export function ProdukClient({
                                   </span>
                                 </span>
                               )}
-                              {batch.aiScanResult && (
+                              {isAdmin && batch.aiScanResult && (
                                 <span
                                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold ${
                                     batch.aiScanResult.status === "SESUAI"
-                                      ? "bg-[#01DAD7]/20 text-[#202531] border border-[#008F8C]/30"
-                                      : "bg-[#FFF0F4] text-[#D41448] border border-[#FF2A63]/30"
+                                      ? "bg-[#E6FBFB] text-[#006B69] border border-[#01DAD7]"
+                                      : batch.aiScanResult.status === "ADA_SELISIH" ||
+                                        batch.aiScanResult.status === "GAGAL_CEK"
+                                      ? "bg-[#FFFBEB] text-[#B45309] border border-[#FDE68A]"
+                                      : "bg-[#FFF0F4] text-[#D41448] border border-[#FF2A63]/35"
                                   }`}
                                 >
-                                  <Sparkle size={12} weight="fill" aria-hidden="true" />
+                                  <FileMagnifyingGlass size={12} weight="bold" aria-hidden="true" />
                                   <span>
                                     {batch.aiScanResult.status === "SESUAI"
-                                      ? "AI: Sesuai Nota"
-                                      : "AI: Ada Selisih"}
+                                      ? "AI: Cocok Nota"
+                                      : batch.aiScanResult.status === "GAGAL_CEK"
+                                      ? "AI Belum Tersambung"
+                                      : batch.aiScanResult.status === "ADA_SELISIH"
+                                      ? "AI: Ada yang Berbeda"
+                                      : "AI: Perlu Cek Visual"}
                                   </span>
+                                </span>
+                              )}
+                              {isAdmin && batch.receiptImageData && !batch.aiScanResult && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#EBEBEB] border border-[#202531]/15 text-[11px] font-bold text-[#202531]">
+                                  Belum Dicek AI
                                 </span>
                               )}
                             </div>
@@ -949,6 +961,12 @@ export function ProdukClient({
                                 const env = parseProductRequestEnvelope(item.variantsJson);
                                 const initStock =
                                   item.stockMethod !== "RESEP" ? env.initialStock ?? 0 : 0;
+                                const ratio =
+                                  item.conversionRatio > 1 ? item.conversionRatio : 1;
+                                const displayQty =
+                                  ratio > 1
+                                    ? `${formatNumber(Number((initStock / ratio).toFixed(2)))} ${item.purchaseUnit || "kemasan"}`
+                                    : `${formatNumber(initStock)} ${getUnitDisplayLabel(item.sellUnit)}`;
                                 return (
                                   <span
                                     key={item.id}
@@ -956,7 +974,7 @@ export function ProdukClient({
                                   >
                                     {item.name}
                                     {initStock > 0
-                                      ? ` (${formatNumber(initStock)} ${getUnitDisplayLabel(item.sellUnit)})`
+                                      ? ` (${displayQty})`
                                       : item.stockMethod === "RESEP"
                                       ? " (Resep)"
                                       : ""}
@@ -1006,6 +1024,8 @@ export function ProdukClient({
                               <span>
                                 {isAdmin && batch.pendingCount > 0
                                   ? "Tinjau Paket & Putuskan"
+                                  : batch.pendingCount > 0
+                                  ? "Lihat & Ganti Nota"
                                   : "Lihat Detail Paket"}
                               </span>
                             </button>
@@ -1024,6 +1044,7 @@ export function ProdukClient({
               isOpen={Boolean(reviewingBatch)}
               onClose={() => setReviewingBatch(null)}
               isAdmin={isAdmin}
+              currentUserId={session.user.id}
               onCompleted={async () => {
                 invalidateCache("/api/dashboard");
                 const [, updatedReqs] = await Promise.all([
@@ -1104,7 +1125,7 @@ export function ProdukClient({
               }}
             />
 
-            {/* DRAWER KERANJANG PENGAJUAN GUDANG / KASIR+GUDANG */}
+            {/* DRAWER DAFTAR PENGAJUAN GUDANG / KASIR+GUDANG */}
             {!isAdmin && canCreate && (
               <ProposalCartDrawer
                 isOpen={cartDrawerOpen}
@@ -1124,7 +1145,7 @@ export function ProdukClient({
               />
             )}
 
-            {/* STICKY KERANJANG PENGAJUAN BAR */}
+            {/* STICKY DAFTAR PENGAJUAN BAR */}
             {portalMounted &&
               !isAdmin &&
               canCreate &&
@@ -1134,11 +1155,11 @@ export function ProdukClient({
                   <div className="pointer-events-auto w-full md:w-auto max-w-xl rounded-2xl bg-[#202531] text-white px-4 py-3 shadow-2xl border border-white/10 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-xl bg-[#01DAD7] text-[#202531] flex items-center justify-center font-extrabold shrink-0">
-                        <ShoppingCartSimple size={20} weight="bold" aria-hidden="true" />
+                        <ClipboardText size={20} weight="bold" aria-hidden="true" />
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-extrabold text-white">
-                          Keranjang Pengajuan: {proposalCart.length} Item Siap Kirim
+                          Daftar Pengajuan: {proposalCart.length} Item Siap Kirim
                         </p>
                         <p className="text-[11px] text-[#EBEBEB]/80 truncate max-w-[260px]">
                           {proposalCart.map((c) => c.name).join(", ")}
@@ -1151,7 +1172,7 @@ export function ProdukClient({
                       onClick={() => setCartDrawerOpen(true)}
                       className="px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 shrink-0 cursor-pointer"
                     >
-                      Lihat Keranjang &amp; Kirim
+                      Lihat Daftar &amp; Kirim
                     </button>
                   </div>
                 </div>,

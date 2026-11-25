@@ -12,7 +12,7 @@ import {
   CaretDown,
   CaretUp,
   Trash,
-  ShoppingCartSimple,
+  ClipboardText,
 } from "@phosphor-icons/react";
 import {
   getUnitDisplayLabel,
@@ -36,26 +36,26 @@ interface RawMaterialDrawerProps {
 }
 
 const COMMON_MATERIAL_UNITS = [
+  { value: "g", label: "gram (padat/bubuk)" },
   { value: "ml", label: "ml (cair)" },
-  { value: "g", label: "gram (bubuk/padat)" },
-  { value: "pcs", label: "pcs (buah/gelas)" },
+  { value: "pcs", label: "pcs (satuan)" },
 ];
 
 const MATERIAL_PRESETS = [
   {
-    label: "Susu Ultra Milk 1000 ml",
-    name: "Susu Ultra Milk",
-    packSize: 1000,
-    unit: "ml",
-    packPrice: 20000,
-    packCount: 1,
-  },
-  {
-    label: "Gula Pasir 1000 gram",
+    label: "Gula Pasir 1 kg",
     name: "Gula Pasir",
     packSize: 1000,
     unit: "g",
     packPrice: 18000,
+    packCount: 1,
+  },
+  {
+    label: "Susu UHT 1 liter",
+    name: "Susu Ultra Milk",
+    packSize: 1000,
+    unit: "ml",
+    packPrice: 20000,
     packCount: 1,
   },
   {
@@ -92,13 +92,13 @@ export function RawMaterialDrawer({
 
   const [name, setName] = useState("");
   const [packSize, setPackSize] = useState<number>(1000);
-  const [unit, setUnit] = useState<string>("ml");
+  const [unit, setUnit] = useState<string>("g");
   const [useOtherUnit, setUseOtherUnit] = useState(false);
   const [packPrice, setPackPrice] = useState<number>(0);
   const [packCount, setPackCount] = useState<number>(1);
   const [directTotalStock, setDirectTotalStock] = useState<number>(1000);
 
-  // Pengaturan tambahan (terlipat agar ramah pemula)
+  // Pengaturan tambahan (terlipat agar sederhana)
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [sku, setSku] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -130,7 +130,7 @@ export function RawMaterialDrawer({
     } else {
       setName("");
       setPackSize(1000);
-      setUnit("ml");
+      setUnit("g");
       setUseOtherUnit(false);
       setPackPrice(0);
       setPackCount(1);
@@ -144,13 +144,17 @@ export function RawMaterialDrawer({
 
   const safePackSize = Math.max(1, Number(packSize) || 1);
   const safePackPrice = Math.max(0, Number(packPrice) || 0);
+  const safePackCount = Math.max(0, Number(packCount) || 0);
   const computedTotalStock = editingProduct
     ? Math.max(0, Number(directTotalStock) || 0)
-    : Number((Math.max(0, Number(packCount) || 0) * safePackSize).toFixed(2));
+    : Number((safePackCount * safePackSize).toFixed(2));
+  const totalPurchaseCost = Math.round(safePackCount * safePackPrice);
   const rawCostPerUnit = safePackPrice / safePackSize;
   const savedCostPerUnit =
     safePackPrice > 0 ? Math.max(1, Math.round(rawCostPerUnit)) : 0;
   const unitLabel = getUnitDisplayLabel(unit);
+
+  const quickPackSizes = unit === "pcs" ? [1, 12, 24, 50] : [250, 500, 1000];
 
   const applyPreset = (preset: (typeof MATERIAL_PRESETS)[number]) => {
     setName(preset.name);
@@ -221,7 +225,7 @@ export function RawMaterialDrawer({
         currentStock: payload.currentStock,
         minStockAlert: payload.minStockAlert,
         packSize: safePackSize,
-        packCount: Math.max(0, Number(packCount) || 0),
+        packCount: safePackCount,
         packPrice: safePackPrice,
       });
       onClose();
@@ -269,7 +273,7 @@ export function RawMaterialDrawer({
       isOpen={isOpen}
       onClose={onClose}
       title={editingProduct ? `Ubah Bahan Baku: ${editingProduct.name}` : "Tambah Bahan Baku"}
-      subtitle="Cukup isi ukuran kemasan dan harga aslinya. Pemecahan takaran dilakukan nanti saat membuat resep."
+      subtitle="Masukkan nama bahan, isi 1 kemasannya, lalu harga beli dan jumlah kemasannya."
       widthClass="max-w-xl"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -278,17 +282,17 @@ export function RawMaterialDrawer({
             <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
             <p>
               {onAddToCart
-                ? "Item ini akan dimasukkan ke Keranjang Pengajuan. Anda bisa menambahkan beberapa barang/resep lalu mengirim semuanya sekaligus."
-                : "Bahan baku yang Anda masukkan akan masuk antrean Menunggu Persetujuan sebelum aktif dipakai di resep."}
+                ? "Bahan ini akan masuk ke Daftar Pengajuan. Anda bisa menambah bahan atau menu lain lalu mengirimnya sekaligus."
+                : "Bahan baku yang Anda masukkan akan menunggu persetujuan Pemilik atau Manajer."}
             </p>
           </div>
         )}
 
-        {/* Contoh Cepat 1-Klik untuk Pemula */}
+        {/* Contoh Cepat 1-Klik */}
         {!editingProduct && (
           <div className="space-y-2">
-            <p className="text-xs font-bold text-slate-700">
-              Baru mulai? Klik contoh untuk mengisi cepat:
+            <p className="text-xs font-bold text-[#525866]">
+              Contoh cepat (klik jika ingin mengisi otomatis):
             </p>
             <div className="flex flex-wrap gap-2">
               {MATERIAL_PRESETS.map((preset) => (
@@ -296,7 +300,7 @@ export function RawMaterialDrawer({
                   key={preset.label}
                   type="button"
                   onClick={() => applyPreset(preset)}
-                  className="px-3 py-2 min-h-[38px] rounded-xl bg-slate-100 hover:bg-[#01DAD7]/20 hover:text-[#202531] border border-[#202531]/15 hover:border-[#01DAD7] text-xs font-semibold text-slate-800 transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531]"
+                  className="px-3 py-2 min-h-[40px] rounded-xl bg-[#F8FAFC] hover:bg-[#E6FBFB] text-[#202531] border border-[#202531]/15 hover:border-[#01DAD7] text-xs font-semibold transition-colors duration-150 cursor-pointer"
                 >
                   {preset.label}
                 </button>
@@ -305,10 +309,10 @@ export function RawMaterialDrawer({
           </div>
         )}
 
-        {/* 1. Nama Bahan Baku */}
+        {/* 1. Nama Bahan */}
         <div className="space-y-1.5">
-          <label htmlFor="mat-name" className="block text-sm font-bold text-slate-900">
-            1. Nama Bahan Baku
+          <label htmlFor="mat-name" className="block text-sm font-bold text-[#202531]">
+            1. Nama Bahan
           </label>
           <input
             id="mat-name"
@@ -316,23 +320,79 @@ export function RawMaterialDrawer({
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Contoh: Susu Ultra Milk, Gula Pasir, Teh Bubuk"
-            className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm text-slate-900 bg-white focus:border-[#202531] focus:ring-2 focus:ring-[#202531]/15"
+            placeholder="Contoh: Gula Pasir, Susu UHT, Beras, Cup Gelas"
+            className="w-full px-3.5 h-11 rounded-xl border border-[#202531]/20 text-sm text-[#202531] bg-white focus:border-[#202531]"
           />
         </div>
 
-        {/* 2. Isi per Kemasan & Satuan */}
-        <div className="space-y-2">
-          <label htmlFor="mat-pack-size" className="block text-sm font-bold text-slate-900">
-            2. Isi 1 Kemasan Berapa?
+        {/* 2. Satuan & Isi 1 Kemasan */}
+        <div className="space-y-2.5">
+          <label htmlFor="mat-pack-size" className="block text-sm font-bold text-[#202531]">
+            2. Satuan &amp; Isi 1 Kemasan
           </label>
-          <p className="text-xs text-slate-600">
-            Lihat ukuran di kemasan aslinya. Misalnya 1 kotak Susu Ultra Milk isinya{" "}
-            <strong>1000 ml</strong>, atau 1 bungkus gula isinya <strong>1000 gram</strong>.
+          <p className="text-xs text-[#525866]">
+            Pilih satuan bahannya (gram untuk bubuk/beras/gula, ml untuk cairan, pcs untuk gelas/buah), lalu isi ukuran 1 kemasannya.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-            <div className="sm:col-span-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {COMMON_MATERIAL_UNITS.map((opt) => {
+              const active = !useOtherUnit && unit === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setUseOtherUnit(false);
+                    setUnit(opt.value);
+                    if (opt.value === "pcs" && packSize === 1000) {
+                      setPackSize(1);
+                    }
+                  }}
+                  className={`px-2.5 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer ${
+                    active
+                      ? "bg-[#202531] text-white border-[#202531]"
+                      : "bg-[#F8FAFC] text-[#202531] border-[#202531]/20 hover:bg-[#EBEBEB]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setUseOtherUnit((prev) => !prev)}
+              className={`px-2.5 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer ${
+                useOtherUnit
+                  ? "bg-[#202531] text-white border-[#202531]"
+                  : "bg-[#F8FAFC] text-[#525866] border-[#202531]/20 hover:bg-[#EBEBEB]"
+              }`}
+            >
+              Lainnya
+            </button>
+          </div>
+
+          {useOtherUnit && (
+            <div className="pt-1">
+              <label htmlFor="mat-other-unit" className="block text-xs font-bold text-[#525866] mb-1">
+                Pilih satuan lain
+              </label>
+              <select
+                id="mat-other-unit"
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                className="w-full px-3.5 h-11 rounded-xl border border-[#202531]/20 text-xs font-semibold text-[#202531] bg-white cursor-pointer"
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.name}>
+                    {u.label || u.name} ({u.group})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <div className="flex-1 min-w-[140px]">
               <input
                 id="mat-pack-size"
                 type="number"
@@ -344,79 +404,48 @@ export function RawMaterialDrawer({
                   const nextSize = Math.max(1, Number(e.target.value) || 1);
                   setPackSize(nextSize);
                   if (!editingProduct) {
-                    setDirectTotalStock(nextSize * packCount);
+                    setDirectTotalStock(nextSize * safePackCount);
                     setMinStockAlert(Math.max(1, Math.round(nextSize * 0.2)));
                   }
                 }}
                 aria-label="Jumlah isi per kemasan"
-                className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#202531]"
+                className="w-full px-3.5 h-11 rounded-xl border border-[#202531]/20 text-sm font-mono font-bold text-[#202531] bg-white"
               />
             </div>
-
-            <div className="sm:col-span-7 flex flex-wrap gap-1.5">
-              {COMMON_MATERIAL_UNITS.map((opt) => {
-                const active = !useOtherUnit && unit === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => {
-                      setUseOtherUnit(false);
-                      setUnit(opt.value);
-                    }}
-                    className={`flex-1 min-w-[76px] px-3 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
-                      active
-                        ? "bg-[#202531] text-white border-[#202531]"
-                        : "bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100"
-                    }`}
-                  >
-                    {opt.value === "g" ? "gram" : opt.value}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => setUseOtherUnit((prev) => !prev)}
-                className={`px-3 min-h-[44px] rounded-xl text-xs font-bold border transition-colors duration-150 cursor-pointer ${
-                  useOtherUnit
-                    ? "bg-[#202531] text-white border-[#202531]"
-                    : "bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100"
-                }`}
-              >
-                Lainnya
-              </button>
+            <span className="text-xs font-bold text-[#202531]">{unitLabel} / kemasan</span>
+            <div className="flex items-center gap-1.5">
+              {quickPackSizes.map((sz) => (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => {
+                    setPackSize(sz);
+                    if (!editingProduct) {
+                      setDirectTotalStock(sz * safePackCount);
+                      setMinStockAlert(Math.max(1, Math.round(sz * 0.2)));
+                    }
+                  }}
+                  className={`px-2.5 min-h-[38px] rounded-lg border text-xs font-mono font-bold cursor-pointer ${
+                    packSize === sz
+                      ? "bg-[#E6FBFB] border-[#01DAD7] text-[#006B69]"
+                      : "bg-white border-[#202531]/20 text-[#202531] hover:bg-[#EBEBEB]"
+                  }`}
+                >
+                  {formatNumber(sz)}
+                </button>
+              ))}
             </div>
           </div>
-
-          {useOtherUnit && (
-            <div className="pt-1">
-              <label htmlFor="mat-other-unit" className="block text-xs font-bold text-slate-700 mb-1">
-                Pilih satuan lain
-              </label>
-              <select
-                id="mat-other-unit"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 bg-white cursor-pointer"
-              >
-                {units.map((u) => (
-                  <option key={u.id} value={u.name}>
-                    {u.label || u.name} ({u.group})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
         </div>
 
-        {/* 3. Harga Asli Beli 1 Kemasan */}
+        {/* 3. Harga Beli 1 Kemasan */}
         <div className="space-y-1.5">
-          <label htmlFor="mat-pack-price" className="block text-sm font-bold text-slate-900">
-            3. Harga Beli Asli (untuk 1 Kemasan {formatNumber(safePackSize)} {unitLabel})
+          <label htmlFor="mat-pack-price" className="block text-sm font-bold text-[#202531]">
+            3. Harga Beli 1 Kemasan (isi {formatNumber(safePackSize)} {unitLabel})
           </label>
           <div className="relative">
             <span
-              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-600 select-none"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-[#525866] select-none"
               aria-hidden="true"
             >
               Rp
@@ -428,27 +457,27 @@ export function RawMaterialDrawer({
               required
               value={packPrice}
               onChange={(e) => setPackPrice(Math.max(0, Number(e.target.value) || 0))}
-              placeholder="20000"
-              className="w-full pl-11 pr-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-bold text-slate-900 bg-white focus:border-[#202531]"
+              placeholder="18000"
+              className="w-full pl-11 pr-3.5 h-11 rounded-xl border border-[#202531]/20 text-sm font-mono font-bold text-[#202531] bg-white"
             />
           </div>
-          <p className="text-xs text-slate-600">
-            Masukkan harga asli 1 kotak/bungkus sesuai struk belanja Anda.
+          <p className="text-xs text-[#525866]">
+            Masukkan harga beli 1 bungkus / kotak / botol sesuai yang tertulis di nota.
           </p>
         </div>
 
-        {/* 4. Stok yang Dimasukkan / Sisa Stok */}
+        {/* 4. Jumlah Kemasan / Sisa Stok */}
         {!editingProduct ? (
           <div className="space-y-2">
-            <label htmlFor="mat-pack-count" className="block text-sm font-bold text-slate-900">
-              4. Berapa Kemasan yang Ada di Stok Sekarang?
+            <label htmlFor="mat-pack-count" className="block text-sm font-bold text-[#202531]">
+              4. Berapa Kemasan yang Dibeli?
             </label>
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
                 aria-label="Kurangi jumlah kemasan"
                 onClick={() => setPackCount((prev) => Math.max(0, Number((prev - 1).toFixed(2))))}
-                className="w-11 h-11 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-800 flex items-center justify-center cursor-pointer"
+                className="w-11 h-11 rounded-xl border border-[#202531]/20 bg-[#F8FAFC] hover:bg-[#EBEBEB] text-[#202531] flex items-center justify-center cursor-pointer"
               >
                 <Minus size={18} weight="bold" aria-hidden="true" />
               </button>
@@ -459,24 +488,24 @@ export function RawMaterialDrawer({
                 step="any"
                 value={packCount}
                 onChange={(e) => setPackCount(Math.max(0, Number(e.target.value) || 0))}
-                className="w-28 text-center h-11 rounded-xl border border-slate-300 text-base font-mono font-extrabold text-slate-900 bg-white"
+                className="w-24 text-center h-11 rounded-xl border border-[#202531]/20 text-base font-mono font-extrabold text-[#202531] bg-white"
               />
               <button
                 type="button"
                 aria-label="Tambah jumlah kemasan"
                 onClick={() => setPackCount((prev) => Number((prev + 1).toFixed(2)))}
-                className="w-11 h-11 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-800 flex items-center justify-center cursor-pointer"
+                className="w-11 h-11 rounded-xl border border-[#202531]/20 bg-[#F8FAFC] hover:bg-[#EBEBEB] text-[#202531] flex items-center justify-center cursor-pointer"
               >
                 <Plus size={18} weight="bold" aria-hidden="true" />
               </button>
-              <span className="text-xs font-bold text-slate-700">
-                kemasan ({formatNumber(computedTotalStock)} {unitLabel})
+              <span className="text-xs font-bold text-[#202531]">
+                kemasan (total {formatNumber(computedTotalStock)} {unitLabel})
               </span>
             </div>
           </div>
         ) : (
           <div className="space-y-2">
-            <label htmlFor="mat-edit-stock" className="block text-sm font-bold text-slate-900">
+            <label htmlFor="mat-edit-stock" className="block text-sm font-bold text-[#202531]">
               4. Sisa Stok Saat Ini ({unitLabel})
             </label>
             <div className="flex flex-wrap items-center gap-2">
@@ -487,12 +516,12 @@ export function RawMaterialDrawer({
                 step="any"
                 value={directTotalStock}
                 onChange={(e) => setDirectTotalStock(Math.max(0, Number(e.target.value) || 0))}
-                className="flex-1 min-w-[140px] px-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-extrabold text-slate-900 bg-white"
+                className="flex-1 min-w-[140px] px-3.5 h-11 rounded-xl border border-[#202531]/20 text-sm font-mono font-extrabold text-[#202531] bg-white"
               />
               <button
                 type="button"
                 onClick={() => setDirectTotalStock((prev) => Number((prev + safePackSize).toFixed(2)))}
-                className="px-3.5 min-h-[44px] rounded-xl bg-[#01DAD7]/20 text-[#202531] border border-[#01DAD7] hover:bg-[#01DAD7]/35 text-xs font-bold cursor-pointer"
+                className="px-3.5 min-h-[44px] rounded-xl bg-[#E6FBFB] text-[#006B69] border border-[#01DAD7] hover:opacity-90 text-xs font-bold cursor-pointer"
               >
                 +1 Kemasan (+{formatNumber(safePackSize)} {unitLabel})
               </button>
@@ -500,51 +529,52 @@ export function RawMaterialDrawer({
           </div>
         )}
 
-        {/* Ringkasan Otomatis Ramah Pemula */}
-        <div className="p-4 rounded-2xl bg-[#EBEBEB]/60 border border-[#202531]/15 space-y-2.5">
-          <p className="text-xs font-extrabold text-[#202531]">
-            Ringkasan Otomatis (Siap Dipecah di Resep)
-          </p>
-          <div className="grid grid-cols-2 gap-3 text-xs">
+        {/* Ringkasan Hitungan Sederhana */}
+        <div className="p-4 rounded-2xl bg-[#F8FAFC] border border-[#202531]/15 space-y-2.5">
+          <p className="text-xs font-extrabold text-[#202531]">Ringkasan Otomatis</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
             <div className="p-3 rounded-xl bg-white border border-[#202531]/15">
-              <p className="text-slate-600">Total Stok Bahan</p>
-              <p className="text-base font-extrabold font-mono text-slate-900 mt-0.5 tabular-nums">
-                {formatNumber(computedTotalStock)} {unitLabel}
+              <p className="text-[#525866]">Total Belanja</p>
+              <p className="text-base font-extrabold font-mono text-[#202531] mt-0.5 tabular-nums">
+                {formatRupiah(totalPurchaseCost)}
+              </p>
+              <p className="text-[11px] text-[#525866] mt-0.5">
+                {formatNumber(safePackCount)} kemasan x {formatRupiah(safePackPrice)}
               </p>
             </div>
             <div className="p-3 rounded-xl bg-white border border-[#202531]/15">
-              <p className="text-slate-600">Modal per 1 {unitLabel}</p>
+              <p className="text-[#525866]">Stok Masuk ke Gudang</p>
               <p className="text-base font-extrabold font-mono text-[#202531] mt-0.5 tabular-nums">
-                {formatRupiah(savedCostPerUnit)} / {unitLabel}
+                {formatNumber(computedTotalStock)} {unitLabel}
+              </p>
+              <p className="text-[11px] text-[#525866] mt-0.5">
+                Modal {formatRupiah(savedCostPerUnit)} / {unitLabel}
               </p>
             </div>
           </div>
-          <p className="text-xs text-[#202531]">
-            Nanti saat membuat menu seperti <strong>Kopi Susu</strong> atau <strong>Teh Manis</strong>, Anda cukup pilih bahan ini lalu masukkan berapa {unitLabel} yang dipakai per gelas.
-          </p>
         </div>
 
-        {/* Pengaturan Tambahan (Progressive Disclosure) */}
-        <div className="border-t border-slate-200 pt-3">
+        {/* Pengaturan Tambahan (Opsional) */}
+        <div className="border-t border-[#202531]/10 pt-3">
           <button
             type="button"
             aria-expanded={showAdvanced}
             onClick={() => setShowAdvanced((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 py-1.5 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-[#525866] hover:text-[#202531] py-1.5 cursor-pointer"
           >
             {showAdvanced ? (
               <CaretUp size={15} weight="bold" aria-hidden="true" />
             ) : (
               <CaretDown size={15} weight="bold" aria-hidden="true" />
             )}
-            <span>Pengaturan Tambahan (Kode SKU, Kategori, Batas Stok Menipis)</span>
+            <span>Pengaturan Tambahan (Opsional: Kode Barang, Kategori, Batas Stok)</span>
           </button>
 
           {showAdvanced && (
-            <div className="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+            <div className="mt-3 p-3.5 rounded-xl bg-[#F8FAFC] border border-[#202531]/15 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="mat-sku" className="block text-xs font-bold text-slate-700 mb-1">
+                  <label htmlFor="mat-sku" className="block text-xs font-bold text-[#202531] mb-1">
                     Kode SKU (Otomatis)
                   </label>
                   <input
@@ -552,11 +582,11 @@ export function RawMaterialDrawer({
                     type="text"
                     value={sku}
                     onChange={(e) => setSku(e.target.value)}
-                    className="w-full px-3 h-10 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 bg-white"
+                    className="w-full px-3 h-10 rounded-xl border border-[#202531]/20 text-xs font-mono text-[#202531] bg-white"
                   />
                 </div>
                 <div>
-                  <label htmlFor="mat-min-alert" className="block text-xs font-bold text-slate-700 mb-1">
+                  <label htmlFor="mat-min-alert" className="block text-xs font-bold text-[#202531] mb-1">
                     Ingatkan jika sisa stok di bawah ({unitLabel})
                   </label>
                   <input
@@ -566,19 +596,19 @@ export function RawMaterialDrawer({
                     step="any"
                     value={minStockAlert}
                     onChange={(e) => setMinStockAlert(Math.max(0, Number(e.target.value) || 0))}
-                    className="w-full px-3 h-10 rounded-xl border border-slate-300 text-xs font-mono text-slate-900 bg-white"
+                    className="w-full px-3 h-10 rounded-xl border border-[#202531]/20 text-xs font-mono text-[#202531] bg-white"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="mat-cat" className="block text-xs font-bold text-slate-700 mb-1">
+                <label htmlFor="mat-cat" className="block text-xs font-bold text-[#202531] mb-1">
                   Kategori Penyimpanan
                 </label>
                 <select
                   id="mat-cat"
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full px-3 h-10 rounded-xl border border-slate-300 text-xs font-semibold text-slate-900 bg-white cursor-pointer"
+                  className="w-full px-3 h-10 rounded-xl border border-[#202531]/20 text-xs font-semibold text-[#202531] bg-white cursor-pointer"
                 >
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -600,20 +630,20 @@ export function RawMaterialDrawer({
               className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity duration-150 cursor-pointer"
             >
               {!editingProduct && !isAdmin && onAddToCart ? (
-                <ShoppingCartSimple size={18} weight="bold" aria-hidden="true" />
+                <ClipboardText size={18} weight="bold" aria-hidden="true" />
               ) : (
                 <FloppyDisk size={18} weight="bold" aria-hidden="true" />
               )}
               <span>
                 {submitting
-                  ? "Menyimpan Bahan Baku..."
+                  ? "Menyimpan..."
                   : editingProduct
-                  ? "Simpan Perubahan Bahan Baku"
+                  ? "Simpan Perubahan"
                   : isAdmin
                   ? "Simpan Bahan Baku"
                   : onAddToCart
-                  ? "Masukkan ke Keranjang Pengajuan"
-                  : "Kirim Usulan Bahan Baku"}
+                  ? "Masukkan ke Daftar Pengajuan"
+                  : "Kirim Pengajuan Bahan"}
               </span>
             </button>
 
@@ -638,4 +668,3 @@ export function RawMaterialDrawer({
     </SlideDrawer>
   );
 }
-

@@ -6,7 +6,12 @@ import { AppShell, useToast } from "@/components/layout/AppShell";
 import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTimeJakarta } from "@/lib/format";
-import { isStoreAdmin } from "@/lib/rbac-shared";
+import { formatRoleLabel, isStoreAdmin } from "@/lib/rbac-shared";
+import {
+  formatActionTypeLabel,
+  formatAuditChangePair,
+  formatNotificationText,
+} from "@/lib/audit-format";
 import {
   BellRinging,
   ClockCounterClockwise,
@@ -127,10 +132,10 @@ export default function AktivitasPage() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h1 className="text-xl font-extrabold text-slate-900">
-                    Notifikasi & Log Aktivitas (Audit Trail Permanen)
+                    Notifikasi &amp; Riwayat Aktivitas
                   </h1>
                   <p className="text-xs text-slate-600 mt-1">
-                    Pusat tindak lanjut peringatan penting dan rekam jejak seluruh aktivitas pengguna yang permanen (tidak dapat dihapus)
+                    Pantau pemberitahuan penting dan catatan lengkap setiap kegiatan toko.
                   </p>
                 </div>
 
@@ -189,7 +194,7 @@ export default function AktivitasPage() {
                       className="px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-slate-800 bg-white"
                     >
                       <option value="">Semua Jenis Aktivitas</option>
-                      <option value="PEMBELIAN">Pembelian & Validasi AI</option>
+                      <option value="PEMBELIAN">Pembelian &amp; Nota</option>
                       <option value="PENJUALAN">Penjualan Kasir</option>
                       <option value="PERUBAHAN_TRANSAKSI">Perubahan Transaksi</option>
                       <option value="PERUBAHAN_STOK">Perubahan Stok</option>
@@ -255,60 +260,96 @@ export default function AktivitasPage() {
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-200">
-                    {filteredAudit.map((log) => (
-                      <div
-                        key={log.id}
-                        className="p-4 hover:bg-slate-50 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
-                      >
-                        <div className="space-y-1.5 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-slate-600">
-                              {formatDateTimeJakarta(log.createdAt)}
-                            </span>
-                            <span className="px-2 py-0.5 rounded bg-[#EBEBEB] text-[#202531] text-[11px] font-extrabold">
-                              {log.actorName} ({log.actorRole})
-                            </span>
-                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-bold">
-                              {log.actionType}
-                            </span>
-                            {log.approvalState && (
-                              <StatusBadge status={log.approvalState} />
+                    {filteredAudit.map((log) => {
+                      const isAdmin = isStoreAdmin(session.user.role);
+                      const { beforeItems, afterItems } = formatAuditChangePair(
+                        log.beforeData,
+                        log.afterData,
+                        { isAdmin }
+                      );
+
+                      return (
+                        <div
+                          key={log.id}
+                          className="p-4 hover:bg-slate-50 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                        >
+                          <div className="space-y-2 flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-xs font-bold text-slate-600">
+                                {formatDateTimeJakarta(log.createdAt)}
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-[#EBEBEB] text-[#202531] text-[11px] font-extrabold">
+                                {log.actorName} ({formatRoleLabel(log.actorRole)})
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-bold">
+                                {formatActionTypeLabel(log.actionType)}
+                              </span>
+                              {log.approvalState && (
+                                <StatusBadge status={log.approvalState} />
+                              )}
+                            </div>
+
+                            <p className="text-xs font-bold text-slate-900">
+                              {log.actionSummary}
+                            </p>
+
+                            {(beforeItems.length > 0 || afterItems.length > 0) && (
+                              <div className="space-y-1.5 pt-0.5">
+                                {beforeItems.length > 0 && (
+                                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                    <span className="font-bold text-[#525866] mr-0.5">
+                                      Sebelum:
+                                    </span>
+                                    {beforeItems.map((entry) => (
+                                      <span
+                                        key={`before-${entry.key}`}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F8FAFC] border border-[#202531]/10 text-[#525866]"
+                                      >
+                                        <span className="font-semibold">{entry.label}:</span>
+                                        <span className="font-bold text-[#202531]">
+                                          {entry.value}
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {afterItems.length > 0 && (
+                                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                    <span className="font-bold text-[#202531] mr-0.5">
+                                      {beforeItems.length > 0 ? "Sesudah:" : "Detail:"}
+                                    </span>
+                                    {afterItems.map((entry) => (
+                                      <span
+                                        key={`after-${entry.key}`}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F8FAFC] border border-[#202531]/15 text-[#525866]"
+                                      >
+                                        <span className="font-semibold">{entry.label}:</span>
+                                        <span className="font-bold text-[#202531]">
+                                          {entry.value}
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
 
-                          <p className="text-xs font-bold text-slate-900">
-                            {log.actionSummary}
-                          </p>
-
-                          {(log.beforeData || log.afterData) && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[11px] font-mono">
-                              {log.beforeData && (
-                                <div className="p-2 rounded-lg bg-slate-100 text-slate-700 truncate">
-                                  <strong>Sebelum:</strong> {log.beforeData}
-                                </div>
-                              )}
-                              {log.afterData && (
-                                <div className="p-2 rounded-lg bg-[#EBEBEB] text-[#202531] truncate">
-                                  <strong>Sesudah:</strong> {log.afterData}
-                                </div>
-                              )}
+                          {log.linkUrl && (
+                            <div className="shrink-0">
+                              <Link
+                                href={log.linkUrl}
+                                className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-[#202531] hover:bg-slate-100"
+                              >
+                                <span>Lihat Detail Terkait</span>
+                                <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
+                              </Link>
                             </div>
                           )}
                         </div>
-
-                        {log.linkUrl && (
-                          <div className="shrink-0">
-                            <Link
-                              href={log.linkUrl}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold text-[#202531] hover:bg-slate-100"
-                            >
-                              <span>Lihat Detail Terkait</span>
-                              <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
-                            </Link>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -333,14 +374,18 @@ export default function AktivitasPage() {
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-extrabold text-slate-900">{n.title}</span>
+                          <span className="text-xs font-extrabold text-slate-900">
+                            {formatNotificationText(n.title)}
+                          </span>
                           {!n.isRead && (
                             <span className="px-2 py-0.5 rounded-full bg-[#FF2A63] text-white text-[10px] font-bold">
                               Baru
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-700">{n.message}</p>
+                        <p className="text-xs text-slate-700">
+                          {formatNotificationText(n.message)}
+                        </p>
                         <p className="text-[11px] text-slate-500">
                           {formatDateTimeJakarta(n.createdAt)}
                         </p>

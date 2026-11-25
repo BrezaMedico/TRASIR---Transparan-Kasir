@@ -28,10 +28,15 @@ import {
 import { POST as reviewProductRequest } from "../src/app/api/product-requests/[id]/review/route";
 import { POST as reviewProductBatch } from "../src/app/api/product-requests/batch-review/route";
 import { POST as analyzeProductBatch } from "../src/app/api/product-requests/analyze/route";
+import { PATCH as updateProductRequestReceipt } from "../src/app/api/product-requests/receipt/route";
 import { GET as listSales, POST as createSale } from "../src/app/api/sales/route";
 import { POST as handleSaleAmendment } from "../src/app/api/sales/amendments/route";
 import { GET as getShifts, POST as postShift } from "../src/app/api/shifts/route";
-import { GET as getPurchases } from "../src/app/api/purchases/route";
+import { GET as getPurchases, POST as createPurchase } from "../src/app/api/purchases/route";
+import { POST as analyzePurchase } from "../src/app/api/purchases/analyze/route";
+import { PATCH as updatePurchaseReceipt } from "../src/app/api/purchases/receipt/route";
+import { POST as reviewPurchase } from "../src/app/api/purchases/review/route";
+import { NEUTRAL_AI_DISCLAIMER } from "../src/lib/gemini";
 import { GET as getInventory } from "../src/app/api/inventory/route";
 import { POST as createInvitation } from "../src/app/api/invitations/route";
 import { DELETE as revokeInvitation } from "../src/app/api/invitations/[id]/route";
@@ -1160,7 +1165,7 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
 
     const category = await prisma.category.findFirstOrThrow({ where: { roomId } });
 
-    // Kasir dilarang mengirim keranjang pengajuan barang (403)
+    // Kasir dilarang mengirim daftar pengajuan barang (403)
     activeSessionToken = kasirToken;
     const kasirBatchBlocked = await submitProductRequestBatch(
       jsonReq("http://localhost/api/product-requests", "POST", {
@@ -1181,7 +1186,7 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     );
     expect(kasirBatchBlocked.status).toBe(403);
 
-    // Gudang mengirim 1 paket berisi Bahan Baku + Produk Jual + Resep (memakai clientTempId bahan baku di keranjang) + Nota Fisik
+    // Gudang mengirim 1 paket berisi Bahan Baku + Produk Jual + Resep (memakai clientTempId bahan baku di daftar pengajuan) + Nota Fisik
     activeSessionToken = gudangToken;
     const sampleReceipt = "data:image/png;base64,iVBORw0KGgo=";
 
@@ -1280,6 +1285,34 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     expect(analyzeJson.analysis.items).toHaveLength(3);
     expect(analyzeJson.analysis.items[2].matchStatus).toBe("RESEP_NON_NOTA");
 
+    // Gudang mengganti foto nota saat masih menunggu persetujuan -> diizinkan (200) & mereset hasil AI lama
+    const updatedSampleReceipt = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+    activeSessionToken = gudangToken;
+    const replaceBatchReceiptRes = await updateProductRequestReceipt(
+      jsonReq("http://localhost/api/product-requests/receipt", "PATCH", {
+        batchId,
+        receiptImageData: updatedSampleReceipt,
+        receiptSource: "DIGITAL",
+      })
+    );
+    expect(replaceBatchReceiptRes.status).toBe(200);
+    const replaceBatchJson = await replaceBatchReceiptRes.json();
+    expect(replaceBatchJson.receiptImageData).toBe(updatedSampleReceipt);
+    expect(replaceBatchJson.receiptSource).toBe("DIGITAL");
+    expect(replaceBatchJson.aiScanResult).toBeNull();
+
+    // Pengguna lain selain pengaju/admin (Kasir) dilarang mengganti nota pengajuan (403)
+    activeSessionToken = kasirToken;
+    const kasirReplaceBlocked = await updateProductRequestReceipt(
+      jsonReq("http://localhost/api/product-requests/receipt", "PATCH", {
+        batchId,
+        receiptImageData: sampleReceipt,
+        receiptSource: "FISIK",
+      })
+    );
+    expect(kasirReplaceBlocked.status).toBe(403);
+
+    activeSessionToken = ownerToken;
     const approveBatchRes = await reviewProductBatch(
       jsonReq("http://localhost/api/product-requests/batch-review", "POST", {
         batchId,
@@ -1289,6 +1322,17 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     expect(approveBatchRes.status).toBe(200);
     const approveBatchJson = await approveBatchRes.json();
     expect(approveBatchJson.processedCount).toBe(3);
+
+    // Setelah pengajuan disetujui, penggantian nota ditolak (400)
+    activeSessionToken = gudangToken;
+    const replaceAfterApproveBlocked = await updateProductRequestReceipt(
+      jsonReq("http://localhost/api/product-requests/receipt", "PATCH", {
+        batchId,
+        receiptImageData: sampleReceipt,
+        receiptSource: "FISIK",
+      })
+    );
+    expect(replaceAfterApproveBlocked.status).toBe(400);
 
     // Pastikan bahan baku, produk jual, dan resep aktif dengan relasi materialId asli (bukan clientTempId)
     const activeCatalog = await (await listProducts()).json();
@@ -1348,5 +1392,133 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     );
     expect(rejectBatchRes.status).toBe(200);
     expect((await rejectBatchRes.json()).decision).toBe("DITOLAK");
+
+    // GUDANG mencatat pembelian TANPA nota (opsional) -> sukses dengan status TANPA_NOTA dan tanpa auto-AI
+    activeSessionToken = gudangToken;
+    const noReceiptPurchaseRes = await createPurchase(
+      jsonReq("http://localhost/api/purchases", "POST", {
+        invoiceNumber: "INV-OPT-001",
+        supplierName: "Agen Tanpa Nota",
+        purchaseDate: "2026-11-25",
+        fundingSource: "DANA_TOKO",
+        captureMethod: "TANPA_NOTA",
+        receiptImageData: null,
+        totalAmount: 50000,
+        items: [
+          {
+            itemName: "Gula Pasir 1kg",
+            quantity: 5,
+            unit: "kg",
+            unitCost: 10000,
+            subtotal: 50000,
+          },
+        ],
+      })
+    );
+    expect(noReceiptPurchaseRes.status).toBe(200);
+    const noReceiptPurchaseJson = await noReceiptPurchaseRes.json();
+    expect(noReceiptPurchaseJson.purchase.aiValidationStatus).toBe("TANPA_NOTA");
+    expect(noReceiptPurchaseJson.purchase.captureMethod).toBe("TANPA_NOTA");
+    expect(noReceiptPurchaseJson.purchase.receiptImageData).toBe("");
+    expect(noReceiptPurchaseJson.purchase.aiAnalysisJson).toBeNull();
+
+    // GUDANG mencatat pembelian DENGAN nota -> status BELUM_DICEK, AI tidak berjalan otomatis saat pegawai kirim
+    const withReceiptPurchaseRes = await createPurchase(
+      jsonReq("http://localhost/api/purchases", "POST", {
+        invoiceNumber: "INV-OPT-002",
+        supplierName: "Agen Dengan Nota",
+        purchaseDate: "2026-11-25",
+        fundingSource: "DANA_TOKO",
+        captureMethod: "DIGITAL_UPLOAD",
+        receiptImageData: sampleReceipt,
+        totalAmount: 100000,
+        items: [
+          {
+            itemName: "Minyak Goreng 2L",
+            quantity: 4,
+            unit: "pcs",
+            unitCost: 25000,
+            subtotal: 100000,
+          },
+        ],
+      })
+    );
+    expect(withReceiptPurchaseRes.status).toBe(200);
+    const withReceiptJson = await withReceiptPurchaseRes.json();
+    expect(withReceiptJson.purchase.aiValidationStatus).toBe("BELUM_DICEK");
+    expect(withReceiptJson.purchase.aiAnalysisJson).toBeNull();
+    const withReceiptId = withReceiptJson.purchase.id as string;
+
+    // GUDANG dilarang menjalankan cek AI pembelian (403)
+    const gudangAnalyzePurchaseBlocked = await analyzePurchase(
+      jsonReq("http://localhost/api/purchases/analyze", "POST", {
+        purchaseId: withReceiptId,
+      })
+    );
+    expect(gudangAnalyzePurchaseBlocked.status).toBe(403);
+
+    // PEMILIK menjalankan cek AI pembelian secara on-demand dan hasil tersimpan ke database
+    activeSessionToken = ownerToken;
+    const ownerAnalyzePurchaseRes = await analyzePurchase(
+      jsonReq("http://localhost/api/purchases/analyze", "POST", {
+        purchaseId: withReceiptId,
+      })
+    );
+    expect(ownerAnalyzePurchaseRes.status).toBe(200);
+    const ownerAnalyzeJson = await ownerAnalyzePurchaseRes.json();
+    expect(ownerAnalyzeJson.analysis.disclaimer).toBe(NEUTRAL_AI_DISCLAIMER);
+
+    const updatedPurchaseRow = await prisma.purchase.findUniqueOrThrow({
+      where: { id: withReceiptId },
+    });
+    expect(updatedPurchaseRow.aiValidationStatus).toBe(ownerAnalyzeJson.analysis.status);
+    expect(updatedPurchaseRow.aiAnalysisJson).toBeTruthy();
+
+    // Pengaju (GUDANG) boleh mengganti foto nota pembelian selama masih MENUNGGU_PERSETUJUAN -> status AI direset ke BELUM_DICEK
+    activeSessionToken = gudangToken;
+    const replacePurchaseReceiptRes = await updatePurchaseReceipt(
+      jsonReq("http://localhost/api/purchases/receipt", "PATCH", {
+        purchaseId: withReceiptId,
+        receiptImageData: updatedSampleReceipt,
+        captureMethod: "LIVE_CAMERA",
+      })
+    );
+    expect(replacePurchaseReceiptRes.status).toBe(200);
+    const replacePurchaseJson = await replacePurchaseReceiptRes.json();
+    expect(replacePurchaseJson.purchase.receiptImageData).toBe(updatedSampleReceipt);
+    expect(replacePurchaseJson.purchase.captureMethod).toBe("LIVE_CAMERA");
+    expect(replacePurchaseJson.purchase.aiValidationStatus).toBe("BELUM_DICEK");
+    expect(replacePurchaseJson.purchase.aiAnalysisJson).toBeNull();
+
+    // Pengguna lain non-admin (KASIR) dilarang mengganti nota pembelian (403)
+    activeSessionToken = kasirToken;
+    const kasirReplacePurchaseBlocked = await updatePurchaseReceipt(
+      jsonReq("http://localhost/api/purchases/receipt", "PATCH", {
+        purchaseId: withReceiptId,
+        receiptImageData: sampleReceipt,
+        captureMethod: "DIGITAL_UPLOAD",
+      })
+    );
+    expect(kasirReplacePurchaseBlocked.status).toBe(403);
+
+    // Pemilik menyetujui pembelian, setelah itu foto nota terkunci dan tidak bisa diganti lagi (400)
+    activeSessionToken = ownerToken;
+    const approvePurchaseRes = await reviewPurchase(
+      jsonReq("http://localhost/api/purchases/review", "POST", {
+        purchaseId: withReceiptId,
+        decision: "DISETUJUI",
+      })
+    );
+    expect(approvePurchaseRes.status).toBe(200);
+
+    activeSessionToken = gudangToken;
+    const replaceApprovedPurchaseBlocked = await updatePurchaseReceipt(
+      jsonReq("http://localhost/api/purchases/receipt", "PATCH", {
+        purchaseId: withReceiptId,
+        receiptImageData: sampleReceipt,
+        captureMethod: "DIGITAL_UPLOAD",
+      })
+    );
+    expect(replaceApprovedPurchaseBlocked.status).toBe(400);
   });
 });

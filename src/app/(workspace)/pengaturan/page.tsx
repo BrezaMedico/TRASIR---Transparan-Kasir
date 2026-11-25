@@ -545,7 +545,7 @@ export default function PengaturanPage() {
                       >
                         <div>
                           <h2 className="text-base font-extrabold text-slate-900">
-                            + Tambah Akun Pegawai Baru
+                            Tambah Akun Pegawai Baru
                           </h2>
                           <p className="text-xs text-slate-600">
                             Setiap pegawai wajib memiliki akun individu sesuai jabatannya

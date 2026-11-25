@@ -14,8 +14,9 @@ import {
   Warning,
   CaretDown,
   CaretUp,
+  Minus,
   Plus,
-  ShoppingCartSimple,
+  ClipboardText,
 } from "@phosphor-icons/react";
 import {
   getDefaultRecipeQty,
@@ -456,59 +457,59 @@ export function ProductDrawer({
             <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
             <p>
               {onAddToCart
-                ? "Menu/produk akan dimasukkan ke Keranjang Pengajuan agar bisa dikirim bersamaan dengan bahan baku dan nota."
+                ? "Menu/produk akan dimasukkan ke Daftar Pengajuan agar bisa dikirim bersamaan dengan bahan baku dan nota."
                 : "Produk yang Anda kirim akan berstatus Menunggu Persetujuan dan aktif di Kasir setelah disetujui Pemilik atau Manajer."}
             </p>
           </div>
         )}
 
-        {/* Pilihan 2 Jenis Produk Jual Ramah Pemula */}
+        {/* Pilihan 2 Jenis Produk Jual Ramah Orang Awam */}
         <div className="space-y-2">
-          <p className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">
+          <p className="text-xs font-extrabold text-[#202531]">
             Jenis Produk yang Ingin Dijual
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setProductKind("RECIPE")}
-              className={`p-3.5 rounded-2xl border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
-                productKind === "RECIPE"
-                  ? "bg-[#202531] text-white border-[#202531]"
-                  : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
-              }`}
-            >
-              <div className="flex items-center gap-2 font-extrabold text-sm">
-                <CookingPot size={18} weight="duotone" aria-hidden="true" />
-                <span>Menu Racikan / Resep</span>
-              </div>
-              <p
-                className={`text-xs mt-1 ${
-                  productKind === "RECIPE" ? "text-slate-200" : "text-slate-600"
-                }`}
-              >
-                Misalnya Kopi Susu atau Es Teh Manis. Stok bahan baku otomatis dipecah tiap gelas terjual.
-              </p>
-            </button>
-
             <button
               type="button"
               onClick={() => setProductKind("READY")}
               className={`p-3.5 rounded-2xl border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
                 productKind === "READY"
                   ? "bg-[#202531] text-white border-[#202531]"
-                  : "bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100"
+                  : "bg-[#F8FAFC] text-[#202531] border-[#202531]/15 hover:bg-[#EBEBEB]"
               }`}
             >
               <div className="flex items-center gap-2 font-extrabold text-sm">
                 <Package size={18} weight="duotone" aria-hidden="true" />
-                <span>Produk Langsung Jual</span>
+                <span>Barang Jadi (Langsung Jual)</span>
               </div>
               <p
                 className={`text-xs mt-1 ${
-                  productKind === "READY" ? "text-slate-200" : "text-slate-600"
+                  productKind === "READY" ? "text-slate-200" : "text-[#525866]"
                 }`}
               >
-                Misalnya Air Mineral, Roti, atau Snack kemasan. Stok langsung berkurang 1 saat terjual.
+                Air mineral, roti, snack. Beli lalu langsung dijual.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setProductKind("RECIPE")}
+              className={`p-3.5 rounded-2xl border text-left transition-colors duration-150 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#202531] ${
+                productKind === "RECIPE"
+                  ? "bg-[#202531] text-white border-[#202531]"
+                  : "bg-[#F8FAFC] text-[#202531] border-[#202531]/15 hover:bg-[#EBEBEB]"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-extrabold text-sm">
+                <CookingPot size={18} weight="duotone" aria-hidden="true" />
+                <span>Menu Racikan (Pakai Resep)</span>
+              </div>
+              <p
+                className={`text-xs mt-1 ${
+                  productKind === "RECIPE" ? "text-slate-200" : "text-[#525866]"
+                }`}
+              >
+                Kopi susu, es teh, makanan. Bahan otomatis terpotong saat laku.
               </p>
             </button>
           </div>
@@ -649,48 +650,81 @@ export function ProductDrawer({
             </div>
 
             {/* Stok Sekarang */}
-            <div className="p-4 rounded-2xl bg-[#EBEBEB]/60 border border-[#202531]/15 space-y-3">
+            <div className="p-4 rounded-2xl bg-[#F8FAFC] border border-[#202531]/15 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <label htmlFor="ready-stock" className="text-sm font-bold text-[#202531]">
                   {editingProduct
-                    ? `Stok Tersedia Sekarang (${getUnitDisplayLabel(sellUnit)})`
+                    ? `Sisa Stok Sekarang (${getUnitDisplayLabel(sellUnit)})`
                     : `Jumlah Stok Awal (${getUnitDisplayLabel(sellUnit)})`}
                 </label>
                 <div className="flex items-center gap-1.5">
-                  {[10, 25, 50].map((inc) => (
+                  {[5, 10, 25].map((inc) => (
                     <button
                       key={inc}
                       type="button"
                       onClick={() =>
                         setCurrentStock((prev) => Math.max(0, (Number(prev) || 0) + inc))
                       }
-                      className="px-2.5 min-h-[34px] rounded-lg bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#01DAD7]/20 cursor-pointer"
+                      className="px-2.5 min-h-[36px] rounded-lg bg-white border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#E6FBFB] cursor-pointer"
                     >
                       +{inc}
                     </button>
                   ))}
                 </div>
               </div>
-              <input
-                id="ready-stock"
-                type="number"
-                min={0}
-                step="any"
-                value={currentStock}
-                onChange={(e) => setCurrentStock(Math.max(0, Number(e.target.value) || 0))}
-                className="w-full px-3.5 h-11 rounded-xl border border-slate-300 text-sm font-mono font-extrabold text-slate-900 bg-white"
-              />
-              {sellPrice > 0 && (
-                <p
-                  className={`text-xs font-bold ${
-                    readyProfit < 0 ? "text-[#D41448]" : "text-[#202531]"
-                  }`}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Kurangi stok awal"
+                  onClick={() =>
+                    setCurrentStock((prev) => Math.max(0, Number(((Number(prev) || 0) - 1).toFixed(2))))
+                  }
+                  className="w-11 h-11 rounded-xl border border-[#202531]/20 bg-white hover:bg-[#EBEBEB] text-[#202531] flex items-center justify-center shrink-0 cursor-pointer"
                 >
-                  {readyProfit < 0
-                    ? `Perhatian: Harga jual lebih rendah ${formatRupiah(Math.abs(readyProfit))} dari harga modal.`
-                    : `Estimasi untung kotor: ${formatRupiah(readyProfit)} per ${getUnitDisplayLabel(sellUnit)}`}
-                </p>
-              )}
+                  <Minus size={18} weight="bold" aria-hidden="true" />
+                </button>
+                <input
+                  id="ready-stock"
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={currentStock}
+                  onChange={(e) => setCurrentStock(Math.max(0, Number(e.target.value) || 0))}
+                  className="flex-1 text-center px-3.5 h-11 rounded-xl border border-[#202531]/20 text-base font-mono font-extrabold text-[#202531] bg-white"
+                />
+                <button
+                  type="button"
+                  aria-label="Tambah stok awal"
+                  onClick={() =>
+                    setCurrentStock((prev) => Number(((Number(prev) || 0) + 1).toFixed(2)))
+                  }
+                  className="w-11 h-11 rounded-xl border border-[#202531]/20 bg-white hover:bg-[#EBEBEB] text-[#202531] flex items-center justify-center shrink-0 cursor-pointer"
+                >
+                  <Plus size={18} weight="bold" aria-hidden="true" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
+                <div className="p-2.5 rounded-xl bg-white border border-[#202531]/10">
+                  <span className="text-[#525866] block">Total Nilai Belanja</span>
+                  <span className="font-mono font-extrabold text-sm text-[#202531] tabular-nums">
+                    {formatRupiah(Math.round((Number(currentStock) || 0) * (Number(costPrice) || 0)))}
+                  </span>
+                </div>
+                {sellPrice > 0 && (
+                  <div className="p-2.5 rounded-xl bg-white border border-[#202531]/10">
+                    <span className="text-[#525866] block">Untung Kotor / {getUnitDisplayLabel(sellUnit)}</span>
+                    <span
+                      className={`font-mono font-extrabold text-sm tabular-nums ${
+                        readyProfit < 0 ? "text-[#D41448]" : "text-[#006B69]"
+                      }`}
+                    >
+                      {readyProfit < 0
+                        ? `Rugi ${formatRupiah(Math.abs(readyProfit))}`
+                        : formatRupiah(readyProfit)}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -877,7 +911,7 @@ export function ProductDrawer({
                         )}
                         <span>
                           {mat.name}
-                          {queuedMaterialIdSet.has(mat.id) ? " (Di Keranjang)" : ""}
+                          {queuedMaterialIdSet.has(mat.id) ? " (Di Daftar Pengajuan)" : ""}
                         </span>
                         <span
                           className={`font-mono text-[11px] ${
@@ -1122,7 +1156,7 @@ export function ProductDrawer({
             ) : (
               <CaretDown size={15} weight="bold" aria-hidden="true" />
             )}
-            <span>Pengaturan Tambahan (Kode SKU, Barcode, Kategori{productKind === "READY" ? ", Pecah Dus" : ""})</span>
+            <span>Pengaturan Tambahan (Opsional: Kode Barang, Barcode, Kategori{productKind === "READY" ? ", Pecah Dus" : ""})</span>
           </button>
 
           {showAdvanced && (
@@ -1251,7 +1285,7 @@ export function ProductDrawer({
               className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer"
             >
               {!editingProduct && !isAdmin && onAddToCart ? (
-                <ShoppingCartSimple size={18} weight="bold" aria-hidden="true" />
+                <ClipboardText size={18} weight="bold" aria-hidden="true" />
               ) : (
                 <FloppyDisk size={18} weight="bold" aria-hidden="true" />
               )}
@@ -1263,7 +1297,7 @@ export function ProductDrawer({
                   : isAdmin
                   ? "Simpan & Aktifkan di Kasir"
                   : onAddToCart
-                  ? "Masukkan ke Keranjang Pengajuan"
+                  ? "Masukkan ke Daftar Pengajuan"
                   : "Kirim Pengajuan Menu"}
               </span>
             </button>
