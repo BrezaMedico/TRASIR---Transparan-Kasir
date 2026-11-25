@@ -67,10 +67,14 @@ export function ProdukClient({
   const [loading, setLoading] = useState(!resolvedInitial);
   const [loadingRequests, setLoadingRequests] = useState(false);
 
-  // Filters
+  // Filters & Pagination (10 per langkah)
+  const PAGE_STEP = 10;
   const [search, setSearch] = useState("");
   const [methodFilter, setMethodFilter] = useState("ALL");
   const [reqStatusFilter, setReqStatusFilter] = useState("ALL");
+  const [catalogLimit, setCatalogLimit] = useState(PAGE_STEP);
+  const [materialsLimit, setMaterialsLimit] = useState(PAGE_STEP);
+  const [requestsLimit, setRequestsLimit] = useState(PAGE_STEP);
 
   // Drawers
   const [materialDrawerOpen, setMaterialDrawerOpen] = useState(false);
@@ -82,6 +86,13 @@ export function ProdukClient({
   // Review Batch Request Drawer
   const [reviewingBatch, setReviewingBatch] =
     useState<GroupedProductRequestBatch<ProductRequestItem> | null>(null);
+
+  // Batch delete confirmation dialog state
+  const [deletingBatch, setDeletingBatch] =
+    useState<GroupedProductRequestBatch<ProductRequestItem> | null>(null);
+  const [deletingBatchScope, setDeletingBatchScope] = useState<"FOR_ME" | "FOR_ALL" | null>(null);
+  const deleteBatchDialogRef = useRef<HTMLDialogElement | null>(null);
+  const deleteDialogPressedOutsideRef = useRef(false);
 
   // Daftar Pengajuan (khusus Gudang & Kasir+Gudang sebelum dikirim ke Manajer/Pemilik)
   const [proposalCart, setProposalCart] = useState<ProposalCartItem[]>([]);
@@ -95,10 +106,35 @@ export function ProdukClient({
   const [portalMounted, setPortalMounted] = useState(false);
 
   const skippedInitialFetch = useRef(Boolean(initialCatalog));
+  const tabButtonRefs = useRef<Partial<Record<"catalog" | "materials" | "requests", HTMLButtonElement | null>>>({});
 
   useEffect(() => {
     setPortalMounted(true);
   }, []);
+
+  useEffect(() => {
+    setCatalogLimit(PAGE_STEP);
+  }, [search, methodFilter]);
+
+  useEffect(() => {
+    setMaterialsLimit(PAGE_STEP);
+  }, [search]);
+
+  useEffect(() => {
+    setRequestsLimit(PAGE_STEP);
+  }, [search, reqStatusFilter]);
+
+  useEffect(() => {
+    const dialog = deleteBatchDialogRef.current;
+    if (!dialog) return;
+    if (deletingBatch) {
+      if (!dialog.open) {
+        dialog.showModal();
+      }
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [deletingBatch]);
 
   useEffect(() => {
     if (!portalMounted || !activeCartRoomRef.current || cartHydratedRef.current) return;
@@ -354,6 +390,46 @@ export function ProdukClient({
     }
   };
 
+  const handleConfirmDeleteBatch = async (scope: "FOR_ME" | "FOR_ALL") => {
+    if (!deletingBatch || deletingBatchScope) return;
+    setDeletingBatchScope(scope);
+    try {
+      const res = await fetch("/api/product-requests", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          batchId: deletingBatch.batchId,
+          requestIds: deletingBatch.items.map((item) => item.id),
+          scope,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || "Gagal menghapus pengajuan.", "error");
+        return;
+      }
+
+      const closedBatchId = deletingBatch.batchId;
+      setDeletingBatch(null);
+      if (reviewingBatch?.batchId === closedBatchId) {
+        setReviewingBatch(null);
+      }
+      showToast(
+        data.message ||
+          (scope === "FOR_ALL"
+            ? "Pengajuan berhasil dihapus untuk semua pengguna."
+            : "Pengajuan dihapus dari daftar tampilan Anda."),
+        "success"
+      );
+      invalidateCache("/api/products");
+      await Promise.all([loadRequests(), loadCatalog()]);
+    } catch {
+      showToast("Gagal menghubungi server.", "error");
+    } finally {
+      setDeletingBatchScope(null);
+    }
+  };
+
   return (
     <AppShell>
       {(session) => {
@@ -394,6 +470,106 @@ export function ProdukClient({
           );
         });
         const groupedBatches = groupProductRequestsIntoBatches(filteredRequests);
+        const visibleSellable = filteredSellable.slice(0, catalogLimit);
+        const visibleMaterials = filteredMaterials.slice(0, materialsLimit);
+        const visibleBatches = groupedBatches.slice(0, requestsLimit);
+
+        const renderPaginationFooter = (
+          shownCount: number,
+          totalCount: number,
+          nounLabel: string,
+          onShowMore: () => void,
+          onCollapse: () => void
+        ) => {
+          if (totalCount === 0) return null;
+          const remaining = totalCount - shownCount;
+          if (remaining <= 0 && totalCount <= PAGE_STEP) return null;
+
+          return (
+            <div className="px-4 sm:px-5 py-3.5 bg-[#F8FAFC] border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <p className="text-xs font-medium text-[#525866]">
+                Menampilkan <strong className="text-[#202531]">{shownCount}</strong> dari{" "}
+                <strong className="text-[#202531]">{totalCount}</strong> {nounLabel}
+              </p>
+              <div className="flex items-center gap-2">
+                {remaining > 0 ? (
+                  <button
+                    type="button"
+                    onClick={onShowMore}
+                    className="min-h-[44px] px-4 rounded-xl border border-[#202531]/20 bg-white hover:bg-[#EBEBEB] text-xs font-extrabold text-[#202531] cursor-pointer transition-colors"
+                  >
+                    Tampilkan {Math.min(PAGE_STEP, remaining)} Lagi
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onCollapse}
+                    className="min-h-[44px] px-3 rounded-xl text-xs font-bold text-[#525866] hover:text-[#202531] hover:bg-[#EBEBEB]/60 cursor-pointer transition-colors"
+                  >
+                    Ringkas ke {PAGE_STEP}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        const visibleTabs: Array<{
+          key: "catalog" | "materials" | "requests";
+          id: string;
+          label: string;
+          badgeCount?: number;
+        }> = [
+          {
+            key: "catalog",
+            id: "produk-tab-catalog",
+            label: `Menu & Produk Jual (${sellableProducts.length})`,
+          },
+          {
+            key: "materials",
+            id: "produk-tab-materials",
+            label: `Bahan Baku (${rawMaterialProducts.length})`,
+          },
+          ...(canAccessRequests
+            ? [
+                {
+                  key: "requests" as const,
+                  id: "produk-tab-requests",
+                  label: isAdmin ? "Persetujuan" : "Pengajuan Saya",
+                  badgeCount: pendingRequestsCount > 0 ? pendingRequestsCount : undefined,
+                },
+              ]
+            : []),
+        ];
+
+        const activateTab = (tabKey: "catalog" | "materials" | "requests") => {
+          setPageTab(tabKey);
+          if (tabKey === "requests") {
+            loadRequests();
+          }
+          const targetEl = tabButtonRefs.current[tabKey];
+          targetEl?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        };
+
+        const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+          const currentIdx = visibleTabs.findIndex((t) => t.key === effectiveTab);
+          if (currentIdx === -1) return;
+          let nextIdx: number | null = null;
+          if (e.key === "ArrowRight") {
+            nextIdx = (currentIdx + 1) % visibleTabs.length;
+          } else if (e.key === "ArrowLeft") {
+            nextIdx = (currentIdx - 1 + visibleTabs.length) % visibleTabs.length;
+          } else if (e.key === "Home") {
+            nextIdx = 0;
+          } else if (e.key === "End") {
+            nextIdx = visibleTabs.length - 1;
+          }
+          if (nextIdx === null) return;
+          e.preventDefault();
+          const nextTab = visibleTabs[nextIdx];
+          activateTab(nextTab.key);
+          tabButtonRefs.current[nextTab.key]?.focus();
+        };
 
         return (
           <div className="space-y-5">
@@ -414,7 +590,7 @@ export function ProdukClient({
                     <button
                       type="button"
                       onClick={openAddMaterial}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2a3140] transition-colors duration-150 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity duration-150 cursor-pointer"
                     >
                       <CookingPot size={17} weight="bold" aria-hidden="true" />
                       <span>Tambah Bahan Baku</span>
@@ -422,7 +598,7 @@ export function ProdukClient({
                     <button
                       type="button"
                       onClick={openAddProduct}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity duration-150 cursor-pointer"
+                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2a3140] transition-colors duration-150 cursor-pointer"
                     >
                       <Plus size={17} weight="bold" aria-hidden="true" />
                       <span>{isAdmin ? "Tambah Menu / Produk" : "Ajukan Menu / Produk"}</span>
@@ -448,76 +624,8 @@ export function ProdukClient({
                 )}
               </div>
 
-              {/* Tab Bersih */}
-              <div
-                role="tablist"
-                aria-label="Tab Produk dan Bahan Baku"
-                className="flex flex-wrap gap-2 pt-3 border-t border-[#202531]/10"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={effectiveTab === "catalog"}
-                  onClick={() => setPageTab("catalog")}
-                  className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
-                    effectiveTab === "catalog"
-                      ? "bg-[#202531] text-white"
-                      : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
-                  }`}
-                >
-                  <Package size={16} weight="bold" aria-hidden="true" />
-                  <span>Menu &amp; Produk Jual ({sellableProducts.length})</span>
-                </button>
-
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={effectiveTab === "materials"}
-                  onClick={() => setPageTab("materials")}
-                  className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
-                    effectiveTab === "materials"
-                      ? "bg-[#202531] text-white"
-                      : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
-                  }`}
-                >
-                  <CookingPot size={16} weight="bold" aria-hidden="true" />
-                  <span>Bahan Baku ({rawMaterialProducts.length})</span>
-                </button>
-
-                {canAccessRequests && (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={effectiveTab === "requests"}
-                    onClick={() => {
-                      setPageTab("requests");
-                      loadRequests();
-                    }}
-                    className={`inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer ${
-                      effectiveTab === "requests"
-                        ? "bg-[#202531] text-white"
-                        : "bg-[#EBEBEB] text-[#202531] hover:bg-[#DFDFE2]"
-                    }`}
-                  >
-                    <ClockCounterClockwise size={16} weight="bold" aria-hidden="true" />
-                    <span>{isAdmin ? "Persetujuan" : "Pengajuan Saya"}</span>
-                    {pendingRequestsCount > 0 && (
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold ${
-                          effectiveTab === "requests"
-                            ? "bg-[#01DAD7] text-[#202531]"
-                            : "bg-[#FF2A63] text-white"
-                        }`}
-                      >
-                        {pendingRequestsCount}
-                      </span>
-                    )}
-                  </button>
-                )}
-              </div>
-
               {/* Filter Pencarian Ringkas */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3.5 border-t border-[#202531]/10">
                 <div className="relative flex-1 max-w-md">
                   <MagnifyingGlass
                     size={16}
@@ -594,9 +702,71 @@ export function ProdukClient({
               </div>
             </div>
 
+            {/* Segmented Tab Bar Sejajar tepat di atas List Barang + Konten Tab */}
+            <div className="space-y-3">
+              <div className="bg-white rounded-2xl border border-[#202531]/12 p-1.5 shadow-sm">
+                <div
+                  role="tablist"
+                  aria-label="Kategori daftar produk dan bahan baku"
+                  {...({ focusgroup: "tablist nomemory" } as Record<string, string>)}
+                  className={`produk-tablist ${visibleTabs.length === 3 ? "produk-tablist-cols-3" : "produk-tablist-cols-2"}`}
+                  onKeyDown={handleTabKeyDown}
+                >
+                  {visibleTabs.map((tab) => {
+                    const isActive = effectiveTab === tab.key;
+                    const IconComp =
+                      tab.key === "catalog"
+                        ? Package
+                        : tab.key === "materials"
+                        ? CookingPot
+                        : ClockCounterClockwise;
+
+                    return (
+                      <button
+                        key={tab.key}
+                        ref={(el) => {
+                          tabButtonRefs.current[tab.key] = el;
+                        }}
+                        type="button"
+                        role="tab"
+                        id={tab.id}
+                        aria-selected={isActive}
+                        tabIndex={isActive ? 0 : -1}
+                        {...(isActive ? ({ focusgroupstart: "" } as Record<string, string>) : {})}
+                        onClick={() => activateTab(tab.key)}
+                        className="produk-tab inline-flex items-center justify-center gap-2 px-4 min-h-[46px] rounded-xl text-xs font-bold transition-colors duration-150 cursor-pointer"
+                      >
+                        <IconComp
+                          size={16}
+                          weight="bold"
+                          className={isActive ? "text-[#01DAD7] shrink-0" : "text-[#525866] shrink-0"}
+                          aria-hidden="true"
+                        />
+                        <span>{tab.label}</span>
+                        {tab.badgeCount !== undefined && (
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold ${
+                              isActive
+                                ? "bg-[#01DAD7] text-[#202531]"
+                                : "bg-[#D41448] text-white"
+                            }`}
+                          >
+                            {tab.badgeCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
             {/* TAB 1: MENU & PRODUK JUAL */}
             {effectiveTab === "catalog" && (
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div
+                role="tabpanel"
+                aria-labelledby="produk-tab-catalog"
+                className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+              >
                 {loading ? (
                   <div className="p-10 text-center text-xs text-slate-600">
                     Memuat daftar menu dan produk...
@@ -639,8 +809,9 @@ export function ProdukClient({
                     )}
                   </div>
                 ) : (
-                  <div className="divide-y divide-slate-200">
-                    {filteredSellable.map((prod) => {
+                  <>
+                    <div className="divide-y divide-slate-200">
+                      {visibleSellable.map((prod) => {
                       const isRecipe = prod.stockMethod === "RESEP";
                       const maxPortions = computeProductMaxPortions(prod, products);
                       const displaySellPrice =
@@ -743,14 +914,26 @@ export function ProdukClient({
                         </div>
                       );
                     })}
-                  </div>
+                    </div>
+                    {renderPaginationFooter(
+                      visibleSellable.length,
+                      filteredSellable.length,
+                      "menu & produk",
+                      () => setCatalogLimit((prev) => prev + PAGE_STEP),
+                      () => setCatalogLimit(PAGE_STEP)
+                    )}
+                  </>
                 )}
               </div>
             )}
 
             {/* TAB 2: BAHAN BAKU (RAMAH PEMULA) */}
             {effectiveTab === "materials" && (
-              <div className="space-y-4">
+              <div
+                role="tabpanel"
+                aria-labelledby="produk-tab-materials"
+                className="space-y-4"
+              >
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                   {loading ? (
                     <div className="p-10 text-center text-xs text-slate-600">
@@ -784,8 +967,9 @@ export function ProdukClient({
                       )}
                     </div>
                   ) : (
-                    <div className="divide-y divide-slate-200">
-                      {filteredMaterials.map((mat) => {
+                    <>
+                      <div className="divide-y divide-slate-200">
+                        {visibleMaterials.map((mat) => {
                         const uLabel = getUnitDisplayLabel(mat.sellUnit);
                         const packSize = mat.conversionRatio > 0 ? mat.conversionRatio : 1;
                         const packPrice = Math.round(mat.costPrice * packSize);
@@ -861,7 +1045,15 @@ export function ProdukClient({
                           </div>
                         );
                       })}
-                    </div>
+                      </div>
+                      {renderPaginationFooter(
+                        visibleMaterials.length,
+                        filteredMaterials.length,
+                        "bahan baku",
+                        () => setMaterialsLimit((prev) => prev + PAGE_STEP),
+                        () => setMaterialsLimit(PAGE_STEP)
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -869,7 +1061,11 @@ export function ProdukClient({
 
             {/* TAB 3: PERSETUJUAN PRODUK BARU (TERKELOMPOK PER PAKET) */}
             {effectiveTab === "requests" && canAccessRequests && (
-              <div className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4">
+              <div
+                role="tabpanel"
+                aria-labelledby="produk-tab-requests"
+                className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4"
+              >
                 <div>
                   <h2 className="text-base font-extrabold text-[#202531]">
                     {isAdmin
@@ -892,8 +1088,9 @@ export function ProdukClient({
                     Belum ada pengajuan pada kategori ini.
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {groupedBatches.map((batch) => {
+                  <>
+                    <div className="space-y-3">
+                      {visibleBatches.map((batch) => {
                       const leadRejectReason = batch.items.find(
                         (i) => i.status === "DITOLAK" && i.rejectionReason
                       )?.rejectionReason;
@@ -1010,7 +1207,7 @@ export function ProdukClient({
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
                             <button
                               type="button"
                               onClick={() => setReviewingBatch(batch)}
@@ -1029,14 +1226,36 @@ export function ProdukClient({
                                   : "Lihat Detail Paket"}
                               </span>
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingBatch(batch)}
+                              aria-label={`Hapus pengajuan ${batch.batchTitle}`}
+                              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] text-[#D41448] hover:bg-[#FFE0E8] text-xs font-bold cursor-pointer transition-colors"
+                            >
+                              <Trash size={14} weight="bold" aria-hidden="true" />
+                              <span>Hapus</span>
+                            </button>
                           </div>
                         </div>
                       );
                     })}
-                  </div>
+                    </div>
+                    {groupedBatches.length > PAGE_STEP && (
+                      <div className="rounded-xl overflow-hidden border border-slate-200">
+                        {renderPaginationFooter(
+                          visibleBatches.length,
+                          groupedBatches.length,
+                          "paket pengajuan",
+                          () => setRequestsLimit((prev) => prev + PAGE_STEP),
+                          () => setRequestsLimit(PAGE_STEP)
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
+            </div>
 
             {/* DRAWER TINJAUAN PAKET + CEK AI OPSIONAL */}
             <ProductBatchReviewDrawer
@@ -1280,6 +1499,130 @@ export function ProdukClient({
                   document.body
                 );
               })()}
+
+            {/* MODAL KONFIRMASI HAPUS PENGAJUAN PRODUK (NATIVE TOP-LAYER DIALOG) */}
+            <dialog
+              ref={deleteBatchDialogRef}
+              aria-labelledby="delete-batch-title"
+              {...({ closedby: deletingBatchScope ? "none" : "any" } as Record<string, string>)}
+              onCancel={(e) => {
+                if (deletingBatchScope) {
+                  e.preventDefault();
+                }
+              }}
+              onClose={() => {
+                if (deleteBatchDialogRef.current) {
+                  deleteBatchDialogRef.current.returnValue = "";
+                }
+                if (!deletingBatchScope) {
+                  setDeletingBatch(null);
+                }
+              }}
+              onPointerDown={(e) => {
+                const dialog = deleteBatchDialogRef.current;
+                if (!dialog) return;
+                const r = dialog.getBoundingClientRect();
+                deleteDialogPressedOutsideRef.current =
+                  e.clientX < r.left ||
+                  e.clientX > r.right ||
+                  e.clientY < r.top ||
+                  e.clientY > r.bottom;
+              }}
+              onPointerUp={(e) => {
+                const dialog = deleteBatchDialogRef.current;
+                if (!dialog || deletingBatchScope) return;
+                const r = dialog.getBoundingClientRect();
+                const releasedOutside =
+                  e.clientX < r.left ||
+                  e.clientX > r.right ||
+                  e.clientY < r.top ||
+                  e.clientY > r.bottom;
+                if (deleteDialogPressedOutsideRef.current && releasedOutside) {
+                  setDeletingBatch(null);
+                }
+                deleteDialogPressedOutsideRef.current = false;
+              }}
+              className="trasir-modal w-full max-w-md rounded-2xl bg-white border border-[#EBEBEB] shadow-2xl p-6 m-auto"
+            >
+              {deletingBatch && (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-[#FFF0F4] border border-[#FF2A63]/30 text-[#D41448] flex items-center justify-center shrink-0">
+                      <Trash size={22} weight="bold" aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <h1
+                        id="delete-batch-title"
+                        className="text-base font-bold text-[#202531] leading-snug"
+                      >
+                        {isAdmin
+                          ? `Hapus pengajuan "${deletingBatch.batchTitle}"?`
+                          : `Hapus pengajuan "${deletingBatch.batchTitle}" untuk saya?`}
+                      </h1>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        {isAdmin
+                          ? 'Pilih "Hapus untuk Saya" untuk menyembunyikan dari tampilan Anda saja, atau "Hapus untuk Semua" untuk menghapus permanen bagi seluruh tim. Produk yang sudah disetujui tetap aman di katalog.'
+                          : "Pengajuan ini hanya akan dihapus dari daftar tampilan Anda agar tidak menumpuk. Data untuk Pemilik/Manajer tetap aman."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      autoFocus
+                      disabled={Boolean(deletingBatchScope)}
+                      onClick={() => setDeletingBatch(null)}
+                      className="px-4 min-h-[44px] rounded-xl border border-[#EBEBEB] bg-white hover:bg-[#F7F8FA] text-xs font-bold text-[#202531] disabled:opacity-50 cursor-pointer transition-colors"
+                    >
+                      Batal
+                    </button>
+                    {isAdmin ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={Boolean(deletingBatchScope)}
+                          aria-busy={deletingBatchScope === "FOR_ME"}
+                          onClick={() => handleConfirmDeleteBatch("FOR_ME")}
+                          className="px-4 min-h-[44px] rounded-xl bg-[#EBEBEB] hover:bg-[#DFDFE2] text-xs font-bold text-[#202531] disabled:opacity-50 cursor-pointer transition-colors"
+                        >
+                          {deletingBatchScope === "FOR_ME" ? "Memproses..." : "Hapus untuk Saya"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={Boolean(deletingBatchScope)}
+                          aria-busy={deletingBatchScope === "FOR_ALL"}
+                          onClick={() => handleConfirmDeleteBatch("FOR_ALL")}
+                          className="inline-flex items-center justify-center gap-1.5 px-4 min-h-[44px] rounded-xl bg-[#D41448] hover:bg-[#b8103d] text-white text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors"
+                        >
+                          <Trash size={15} weight="bold" aria-hidden="true" />
+                          <span>
+                            {deletingBatchScope === "FOR_ALL"
+                              ? "Menghapus..."
+                              : "Hapus untuk Semua"}
+                          </span>
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={Boolean(deletingBatchScope)}
+                        aria-busy={deletingBatchScope === "FOR_ME"}
+                        onClick={() => handleConfirmDeleteBatch("FOR_ME")}
+                        className="inline-flex items-center justify-center gap-1.5 px-4 min-h-[44px] rounded-xl bg-[#D41448] hover:bg-[#b8103d] text-white text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors"
+                      >
+                        <Trash size={15} weight="bold" aria-hidden="true" />
+                        <span>
+                          {deletingBatchScope === "FOR_ME"
+                            ? "Menghapus..."
+                            : "Ya, Hapus untuk Saya"}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </dialog>
           </div>
         );
       }}

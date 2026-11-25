@@ -12,7 +12,14 @@ vi.mock("next/headers", () => ({
 }));
 
 import { prisma } from "../src/lib/prisma";
+import { createPasswordResetToken } from "../src/lib/auth";
 import { POST as registerUser } from "../src/app/api/auth/register/route";
+import { POST as loginUser } from "../src/app/api/auth/login/route";
+import { POST as forgotPasswordApi } from "../src/app/api/auth/forgot-password/route";
+import {
+  GET as verifyResetApi,
+  POST as resetPasswordApi,
+} from "../src/app/api/auth/reset-password/route";
 import { GET as getProfit } from "../src/app/api/profit/route";
 import { GET as getDashboard } from "../src/app/api/dashboard/route";
 import { GET as getReports } from "../src/app/api/reports/route";
@@ -24,6 +31,7 @@ import {
 import {
   GET as listProductRequests,
   POST as submitProductRequestBatch,
+  DELETE as deleteProductRequest,
 } from "../src/app/api/product-requests/route";
 import { POST as reviewProductRequest } from "../src/app/api/product-requests/[id]/review/route";
 import { POST as reviewProductBatch } from "../src/app/api/product-requests/batch-review/route";
@@ -1520,5 +1528,257 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
       })
     );
     expect(replaceApprovedPurchaseBlocked.status).toBe(400);
+  });
+
+  it("Scenario 28: Forgot Password request, single-use reset token validation, password update, and session invalidation", async () => {
+    const regOwner = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Budi Pemilik",
+        username: "budi_reset",
+        email: "budi@tokosehat.id",
+        password: "PasswordLama123",
+        roomName: "Toko Sehat",
+      })
+    );
+    expect(regOwner.status).toBe(201);
+    const ownerJson = await regOwner.json();
+
+    // Email yang tidak terdaftar tetap memberi respons generik 200 (anti-enumerasi)
+    const unknownEmailRes = await forgotPasswordApi(
+      jsonReq("http://localhost/api/auth/forgot-password", "POST", {
+        email: "tidakterdaftar@example.com",
+      })
+    );
+    expect(unknownEmailRes.status).toBe(200);
+
+    // Email terdaftar memicu pencatatan request reset password tanpa membocorkan token di test/prod response
+    const validReqRes = await forgotPasswordApi(
+      jsonReq("http://localhost/api/auth/forgot-password", "POST", {
+        email: "budi@tokosehat.id",
+      })
+    );
+    expect(validReqRes.status).toBe(200);
+    const validReqJson = await validReqRes.json();
+    expect(validReqJson.devPreviewUrl).toBeUndefined();
+
+    const dbUserBefore = await prisma.user.findUniqueOrThrow({
+      where: { id: ownerJson.user.id },
+    });
+    const resetToken = await createPasswordResetToken({
+      userId: dbUserBefore.id,
+      email: dbUserBefore.email,
+      tokenVersion: dbUserBefore.tokenVersion,
+      passwordHash: dbUserBefore.passwordHash,
+    });
+
+    const checkValidRes = await verifyResetApi(
+      new Request(`http://localhost/api/auth/reset-password?token=${encodeURIComponent(resetToken)}`)
+    );
+    expect(checkValidRes.status).toBe(200);
+    expect((await checkValidRes.json()).valid).toBe(true);
+
+    const doResetRes = await resetPasswordApi(
+      jsonReq("http://localhost/api/auth/reset-password", "POST", {
+        token: resetToken,
+        newPassword: "PasswordBaru456",
+      })
+    );
+    expect(doResetRes.status).toBe(200);
+
+    // Kata sandi lama tidak bisa login lagi
+    const oldLoginRes = await loginUser(
+      jsonReq("http://localhost/api/auth/login", "POST", {
+        identifier: "budi@tokosehat.id",
+        password: "PasswordLama123",
+      })
+    );
+    expect(oldLoginRes.status).toBe(401);
+
+    // Kata sandi baru berhasil login
+    const newLoginRes = await loginUser(
+      jsonReq("http://localhost/api/auth/login", "POST", {
+        identifier: "budi@tokosehat.id",
+        password: "PasswordBaru456",
+      })
+    );
+    expect(newLoginRes.status).toBe(200);
+
+    // Token yang sama otomatis hangus (single-use) setelah password berubah
+    const reuseRes = await resetPasswordApi(
+      jsonReq("http://localhost/api/auth/reset-password", "POST", {
+        token: resetToken,
+        newPassword: "PasswordKetiga789",
+      })
+    );
+    expect(reuseRes.status).toBe(400);
+  });
+
+  it("Scenario 29: Product request batch deletion (FOR_ME vs FOR_ALL RBAC, visibility isolation, and catalog safety)", async () => {
+    const regOwner = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Pemilik Hapus Pengajuan",
+        username: "owner_delreq",
+        password: "PasswordAman123",
+        roomName: "Toko Uji Hapus Pengajuan",
+      })
+    );
+    expect(regOwner.status).toBe(201);
+    const ownerJson = await regOwner.json();
+    const ownerToken = extractSessionToken(regOwner)!;
+    const roomId = ownerJson.user.roomId as string;
+
+    activeSessionToken = ownerToken;
+    const invMgr = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "MANAJER",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+    const invGudang = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "GUDANG",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+
+    const mgrToken = extractSessionToken(
+      await registerUser(
+        jsonReq("http://localhost/api/auth/register", "POST", {
+          mode: "JOIN_ROOM",
+          name: "Manajer Hapus",
+          username: "mgr_delreq",
+          password: "PasswordAman123",
+          inviteCode: invMgr,
+        })
+      )
+    )!;
+    const gudangToken = extractSessionToken(
+      await registerUser(
+        jsonReq("http://localhost/api/auth/register", "POST", {
+          mode: "JOIN_ROOM",
+          name: "Gudang Hapus",
+          username: "gudang_delreq",
+          password: "PasswordAman123",
+          inviteCode: invGudang,
+        })
+      )
+    )!;
+
+    const category = await prisma.category.findFirstOrThrow({ where: { roomId } });
+
+    activeSessionToken = gudangToken;
+    const batch1Res = await submitProductRequestBatch(
+      jsonReq("http://localhost/api/product-requests", "POST", {
+        batchTitle: "Paket Uji Hapus Satu",
+        items: [
+          {
+            sku: "DEL-REQ-01",
+            name: "Kopi Kemasan Uji",
+            categoryId: category.id,
+            stockMethod: "TETAP",
+            purchaseUnit: "pcs",
+            sellUnit: "pcs",
+            conversionRatio: 1,
+            costPrice: 5000,
+            sellPrice: 9000,
+          },
+        ],
+      })
+    );
+    expect(batch1Res.status).toBe(202);
+    const batch1Id = (await batch1Res.json()).batchId as string;
+
+    const batch2Res = await submitProductRequestBatch(
+      jsonReq("http://localhost/api/product-requests", "POST", {
+        batchTitle: "Paket Uji Hapus Dua",
+        items: [
+          {
+            sku: "DEL-REQ-02",
+            name: "Teh Kemasan Uji",
+            categoryId: category.id,
+            stockMethod: "TETAP",
+            purchaseUnit: "pcs",
+            sellUnit: "pcs",
+            conversionRatio: 1,
+            costPrice: 4000,
+            sellPrice: 7000,
+          },
+        ],
+      })
+    );
+    expect(batch2Res.status).toBe(202);
+    const batch2Id = (await batch2Res.json()).batchId as string;
+
+    // 1. Pegawai dilarang menghapus untuk semua orang (403)
+    const empForAllBlocked = await deleteProductRequest(
+      jsonReq("http://localhost/api/product-requests", "DELETE", {
+        batchId: batch1Id,
+        scope: "FOR_ALL",
+      })
+    );
+    expect(empForAllBlocked.status).toBe(403);
+
+    // 2. Pegawai menghapus Paket 1 hanya untuk dirinya sendiri (FOR_ME -> 200)
+    const empForMeRes = await deleteProductRequest(
+      jsonReq("http://localhost/api/product-requests", "DELETE", {
+        batchId: batch1Id,
+        scope: "FOR_ME",
+      })
+    );
+    expect(empForMeRes.status).toBe(200);
+
+    const empListAfter = await (await listProductRequests(new Request("http://localhost/api/product-requests"))).json();
+    expect(empListAfter.requests.some((r: { sku: string }) => r.sku === "DEL-REQ-01")).toBe(false);
+    expect(empListAfter.requests.some((r: { sku: string }) => r.sku === "DEL-REQ-02")).toBe(true);
+
+    // Pemilik masih tetap melihat Paket 1
+    activeSessionToken = ownerToken;
+    const ownerListBefore = await (await listProductRequests(new Request("http://localhost/api/product-requests"))).json();
+    expect(ownerListBefore.requests.some((r: { sku: string }) => r.sku === "DEL-REQ-01")).toBe(true);
+
+    // 3. Pemilik menghapus Paket 1 hanya untuk dirinya (FOR_ME) -> hilang dari Pemilik, masih tampil di Manajer
+    const ownerForMeRes = await deleteProductRequest(
+      jsonReq("http://localhost/api/product-requests", "DELETE", {
+        batchId: batch1Id,
+        scope: "FOR_ME",
+      })
+    );
+    expect(ownerForMeRes.status).toBe(200);
+
+    const ownerListAfterForMe = await (await listProductRequests(new Request("http://localhost/api/product-requests"))).json();
+    expect(ownerListAfterForMe.requests.some((r: { sku: string }) => r.sku === "DEL-REQ-01")).toBe(false);
+
+    activeSessionToken = mgrToken;
+    const mgrListAfterOwnerForMe = await (await listProductRequests(new Request("http://localhost/api/product-requests"))).json();
+    expect(mgrListAfterOwnerForMe.requests.some((r: { sku: string }) => r.sku === "DEL-REQ-01")).toBe(true);
+
+    // 4. Pemilik menghapus Paket 2 untuk semua pengguna (FOR_ALL) -> hilang permanen di DB & di semua peran
+    activeSessionToken = ownerToken;
+    const ownerForAllRes = await deleteProductRequest(
+      jsonReq("http://localhost/api/product-requests", "DELETE", {
+        batchId: batch2Id,
+        scope: "FOR_ALL",
+      })
+    );
+    expect(ownerForAllRes.status).toBe(200);
+
+    const remainingBatch2 = await prisma.productRequest.findMany({
+      where: { roomId, sku: "DEL-REQ-02" },
+    });
+    expect(remainingBatch2).toHaveLength(0);
+
+    activeSessionToken = gudangToken;
+    const empListFinal = await (await listProductRequests(new Request("http://localhost/api/product-requests"))).json();
+    expect(empListFinal.requests.some((r: { sku: string }) => r.sku === "DEL-REQ-02")).toBe(false);
   });
 });

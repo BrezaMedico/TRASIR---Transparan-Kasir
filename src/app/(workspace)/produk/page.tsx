@@ -1,15 +1,22 @@
 import React, { Suspense } from "react";
 import { getServerSessionSnapshot } from "@/lib/server-session";
 import { getCatalogPayload } from "@/lib/queries/catalog";
+import { isStoreAdmin } from "@/lib/rbac-shared";
 import { ProdukClient } from "@/components/produk/ProdukClient";
 import WorkspaceLoading from "../loading";
 
 export const dynamic = "force-dynamic";
 
-async function ProdukDataSection({ roomId }: { roomId: string }) {
+async function ProdukDataSection({
+  roomId,
+  viewer,
+}: {
+  roomId: string;
+  viewer: { userId: string; isAdmin: boolean };
+}) {
   let initialCatalog = null;
   try {
-    initialCatalog = await getCatalogPayload(roomId);
+    initialCatalog = await getCatalogPayload(roomId, viewer);
   } catch {
     initialCatalog = null;
   }
@@ -29,7 +36,10 @@ export default async function ProdukPage() {
 
   return (
     <Suspense fallback={<WorkspaceLoading />}>
-      <ProdukDataSection roomId={user.roomId} />
+      <ProdukDataSection
+        roomId={user.roomId}
+        viewer={{ userId: user.id, isAdmin: isStoreAdmin(user.role) }}
+      />
     </Suspense>
   );
 }

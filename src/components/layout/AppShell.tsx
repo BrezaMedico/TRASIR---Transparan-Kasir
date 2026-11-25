@@ -4,11 +4,6 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  SquaresFour,
-  Storefront,
-  Receipt,
-  Package,
-  ChartBar,
   BellRinging,
   SignOut,
   List,
@@ -19,7 +14,6 @@ import {
   CheckCircle,
   WarningCircle,
   ShieldCheck,
-  UsersThree,
 } from "@phosphor-icons/react";
 import { isStoreAdmin, type ModuleKey, type PermissionRow, type UserRole } from "@/lib/rbac-shared";
 import { clearAllClientCache } from "@/lib/client-cache";
@@ -116,23 +110,35 @@ export function useWorkspaceSession() {
   return useContext(WorkspaceSessionContext);
 }
 
+type NavIconKey =
+  | "dashboard"
+  | "kasir"
+  | "produk"
+  | "penjualan"
+  | "laporan"
+  | "pengguna"
+  | "aktivitas";
+
+function Nav3DIcon({ iconKey }: { iconKey: NavIconKey }) {
+  return <span aria-hidden="true" className={`nav-3d-icon nav-3d-icon-${iconKey} w-6 h-6`} />;
+}
+
 interface NavEntry {
-  key: ModuleKey | "pengguna";
+  key: NavIconKey;
   label: string;
   shortLabel: string;
   href: string;
   adminOnly?: boolean;
-  icon: React.ComponentType<{ size?: number; weight?: "regular" | "duotone" | "fill" | "bold" }>;
 }
 
 const NAV_ITEMS: NavEntry[] = [
-  { key: "dashboard", label: "Ringkasan", shortLabel: "Ringkasan", href: "/dashboard", icon: SquaresFour },
-  { key: "kasir", label: "Kasir", shortLabel: "Kasir", href: "/kasir", icon: Storefront },
-  { key: "produk", label: "Produk & Bahan", shortLabel: "Produk", href: "/produk", icon: Package },
-  { key: "penjualan", label: "Riwayat Transaksi", shortLabel: "Transaksi", href: "/penjualan", icon: Receipt },
-  { key: "laporan", label: "Laporan", shortLabel: "Laporan", href: "/laporan", icon: ChartBar },
-  { key: "pengguna", label: "Tim", shortLabel: "Tim", href: "/pengguna", adminOnly: true, icon: UsersThree },
-  { key: "aktivitas", label: "Aktivitas", shortLabel: "Aktivitas", href: "/aktivitas", icon: BellRinging },
+  { key: "dashboard", label: "Ringkasan", shortLabel: "Ringkasan", href: "/dashboard" },
+  { key: "kasir", label: "Kasir", shortLabel: "Kasir", href: "/kasir" },
+  { key: "produk", label: "Produk & Bahan", shortLabel: "Produk", href: "/produk" },
+  { key: "penjualan", label: "Riwayat Transaksi", shortLabel: "Transaksi", href: "/penjualan" },
+  { key: "laporan", label: "Laporan", shortLabel: "Laporan", href: "/laporan" },
+  { key: "pengguna", label: "Tim", shortLabel: "Tim", href: "/pengguna", adminOnly: true },
+  { key: "aktivitas", label: "Aktivitas", shortLabel: "Aktivitas", href: "/aktivitas" },
 ];
 
 const ROLE_BADGE_LABEL: Record<UserRole, string> = {
@@ -265,7 +271,6 @@ function ShellFrame({
               </p>
             )}
             {visibleNavItems.map((item) => {
-              const Icon = item.icon;
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname?.startsWith(item.href));
@@ -278,8 +283,9 @@ function ShellFrame({
                   prefetch={false}
                   onClick={() => handleNavClick(item.href)}
                   title={collapsed ? item.label : undefined}
+                  aria-label={collapsed ? item.label : undefined}
                   aria-current={isActive ? "page" : undefined}
-                  className={`relative flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold transition-colors duration-150 active:scale-[0.98] ${
+                  className={`relative flex items-center gap-3 px-3 py-2.5 min-h-[44px] rounded-xl text-sm font-semibold transition-colors duration-150 ${
                     isActive
                       ? "bg-[#202531] text-white"
                       : isPending
@@ -287,9 +293,7 @@ function ShellFrame({
                       : "text-[#525866] hover:bg-[#EBEBEB]/70 hover:text-[#202531]"
                   } ${collapsed ? "justify-center" : ""}`}
                 >
-                  <span className={isActive ? "text-[#01DAD7]" : ""} aria-hidden="true">
-                    <Icon size={20} weight={isActive ? "fill" : "duotone"} />
-                  </span>
+                  <Nav3DIcon iconKey={item.key} />
                   {!collapsed && <span className="truncate flex-1">{item.label}</span>}
                   {isPending && (
                     <span
@@ -306,7 +310,7 @@ function ShellFrame({
                       } font-extrabold rounded-md ${
                         isActive
                           ? "bg-[#01DAD7] text-[#202531]"
-                          : "bg-[#FF2A63] text-white"
+                          : "bg-[#D41448] text-white"
                       }`}
                     >
                       {session.unreadNotifications}
@@ -441,7 +445,6 @@ function ShellFrame({
             </div>
             <nav className="flex-1 overflow-y-auto p-3 space-y-1">
               {visibleNavItems.map((item) => {
-                const Icon = item.icon;
                 const isActive = pathname === item.href;
                 const isPending = pendingHref === item.href && !isActive;
                 return (
@@ -453,7 +456,7 @@ function ShellFrame({
                       handleNavClick(item.href);
                       setMobileMenuOpen(false);
                     }}
-                    className={`flex items-center gap-3 px-3.5 py-3 min-h-[44px] rounded-xl text-sm font-semibold transition-colors active:scale-[0.98] ${
+                    className={`flex items-center gap-3 px-3.5 py-3 min-h-[44px] rounded-xl text-sm font-semibold transition-colors ${
                       isActive
                         ? "bg-[#202531] text-white"
                         : isPending
@@ -461,9 +464,7 @@ function ShellFrame({
                         : "text-[#525866] hover:bg-[#EBEBEB]/70"
                     }`}
                   >
-                    <span className={isActive ? "text-[#01DAD7]" : ""} aria-hidden="true">
-                      <Icon size={20} weight={isActive ? "fill" : "duotone"} />
-                    </span>
+                    <Nav3DIcon iconKey={item.key} />
                     <span className="flex-1">{item.label}</span>
                     {isPending && (
                       <span
@@ -504,7 +505,6 @@ function ShellFrame({
         className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-[#202531]/10 px-2 py-1 flex items-center justify-around"
       >
         {visibleNavItems.slice(0, 5).map((item) => {
-          const Icon = item.icon;
           const isActive = pathname === item.href;
           const isPending = pendingHref === item.href && !isActive;
           return (
@@ -513,7 +513,7 @@ function ShellFrame({
               href={item.href}
               prefetch={false}
               onClick={() => handleNavClick(item.href)}
-              className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] px-2 py-1 rounded-xl text-[11px] font-semibold transition-colors active:scale-95 ${
+              className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] px-2 py-1 rounded-xl text-[11px] font-semibold transition-colors ${
                 isActive
                   ? "text-[#202531] font-bold bg-[#01DAD7]/25"
                   : isPending
@@ -521,7 +521,7 @@ function ShellFrame({
                   : "text-[#525866]"
               }`}
             >
-              <Icon size={20} weight={isActive ? "fill" : "duotone"} />
+              <Nav3DIcon iconKey={item.key} />
               <span className="truncate max-w-[68px] mt-0.5">{item.shortLabel}</span>
             </Link>
           );

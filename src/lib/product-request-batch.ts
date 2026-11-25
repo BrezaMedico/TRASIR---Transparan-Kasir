@@ -63,6 +63,7 @@ export interface ProductRequestEnvelope {
   receiptImageData?: string | null;
   receiptSource?: "FISIK" | "DIGITAL" | null;
   aiScanResult?: ProductRequestAIResult | null;
+  hiddenByUserIds?: string[];
 }
 
 export interface BatchableProductRequestRow {
@@ -139,6 +140,15 @@ export function parseProductRequestEnvelope(
           obj.aiScanResult && typeof obj.aiScanResult === "object"
             ? (obj.aiScanResult as ProductRequestAIResult)
             : null,
+        hiddenByUserIds: Array.isArray(obj.hiddenByUserIds)
+          ? Array.from(
+              new Set(
+                obj.hiddenByUserIds.filter(
+                  (id): id is string => typeof id === "string" && id.trim().length > 0
+                )
+              )
+            )
+          : undefined,
       };
     }
   } catch {
@@ -167,9 +177,23 @@ export function serializeProductRequestEnvelope(
   if (envelope.receiptImageData) clean.receiptImageData = envelope.receiptImageData;
   if (envelope.receiptSource) clean.receiptSource = envelope.receiptSource;
   if (envelope.aiScanResult) clean.aiScanResult = envelope.aiScanResult;
+  if (envelope.hiddenByUserIds && envelope.hiddenByUserIds.length > 0) {
+    clean.hiddenByUserIds = Array.from(
+      new Set(envelope.hiddenByUserIds.filter((id) => typeof id === "string" && id.trim().length > 0))
+    );
+  }
 
   if (Object.keys(clean).length === 0) return null;
   return JSON.stringify(clean);
+}
+
+export function isProductRequestHiddenForUser(
+  variantsJson: string | null | undefined,
+  userId: string
+): boolean {
+  if (!variantsJson || !userId) return false;
+  const env = parseProductRequestEnvelope(variantsJson);
+  return Boolean(env.hiddenByUserIds?.includes(userId));
 }
 
 export function computeRequestItemEstimatedCost(item: {

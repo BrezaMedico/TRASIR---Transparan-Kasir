@@ -24,7 +24,9 @@ import {
   NEUTRAL_AI_DISCLAIMER,
 } from "../src/lib/gemini";
 import {
+  createPasswordResetToken,
   createSessionToken,
+  verifyPasswordResetToken,
   verifySessionToken,
   hashPassword,
   verifyPassword,
@@ -667,8 +669,28 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
     expect(afterItems.map((i) => i.key)).toEqual(["name", "costPrice"]);
 
     expect(formatActionTypeLabel("PRODUCT_REQUEST")).toBe("Pengajuan Barang");
+    expect(formatActionTypeLabel("PASSWORD_RESET")).toBe("Reset Kata Sandi");
     expect(formatNotificationText("Bergabung sebagai KASIR_GUDANG (PINDAH_GUDANG)")).toBe(
       "Bergabung sebagai Kasir + Gudang (Pindah Gudang)"
     );
+  });
+
+  it("creates and verifies single-use password reset tokens tied to password fingerprint", async () => {
+    const hash1 = await hashPassword("SandiLama123");
+    const token = await createPasswordResetToken({
+      userId: "user-reset-1",
+      email: "pemilik@toko.id",
+      tokenVersion: 1,
+      passwordHash: hash1,
+    });
+
+    const verified = await verifyPasswordResetToken(token);
+    expect(verified).not.toBeNull();
+    expect(verified?.userId).toBe("user-reset-1");
+    expect(verified?.email).toBe("pemilik@toko.id");
+    expect(verified?.tokenVersion).toBe(1);
+
+    const invalid = await verifyPasswordResetToken("invalid.token.value");
+    expect(invalid).toBeNull();
   });
 });

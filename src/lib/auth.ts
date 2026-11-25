@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -100,6 +101,12 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
       })
     );
     if (!dbUser || !dbUser.isActive) return null;
+    if (
+      typeof session.tokenVersion === "number" &&
+      dbUser.tokenVersion !== session.tokenVersion
+    ) {
+      return null;
+    }
 
     return {
       id: dbUser.id,
@@ -152,4 +159,55 @@ export function attachSessionCookie(res: NextResponse, token: string): void {
     path: "/",
     maxAge: 60 * 60 * 24,
   });
+}
+
+export function computePasswordFingerprint(passwordHash: string): string {
+  return crypto.createHash("sha256").update(passwordHash).digest("hex").slice(0, 16);
+}
+
+export async function createPasswordResetToken(params: {
+  userId: string;
+  email: string;
+  tokenVersion: number;
+  passwordHash: string;
+}): Promise<string> {
+  return new SignJWT({
+    purpose: "password-reset",
+    sub: params.userId,
+    email: params.email,
+    tokenVersion: params.tokenVersion,
+    pwdSig: computePasswordFingerprint(params.passwordHash),
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("30m")
+    .sign(getSecretKey());
+}
+
+export async function verifyPasswordResetToken(token: string): Promise<{
+  userId: string;
+  email: string;
+  tokenVersion: number;
+  pwdSig: string;
+} | null> {
+  try {
+    const { payload } = await jwtVerify(token, getSecretKey());
+    if (
+      payload.purpose !== "password-reset" ||
+      !payload.sub ||
+      typeof payload.email !== "string" ||
+      typeof payload.tokenVersion !== "number" ||
+      typeof payload.pwdSig !== "string"
+    ) {
+      return null;
+    }
+    return {
+      userId: String(payload.sub),
+      email: payload.email,
+      tokenVersion: payload.tokenVersion,
+      pwdSig: payload.pwdSig,
+    };
+  } catch {
+    return null;
+  }
 }

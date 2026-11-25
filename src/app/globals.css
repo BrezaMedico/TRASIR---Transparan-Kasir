@@ -263,3 +263,199 @@
     border: 1px solid CanvasText;
   }
 }
+
+/* Segmented Produk Tablist with sliding active indicator via CSS Anchor Positioning */
+.produk-tablist {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.375rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: inline proximity;
+}
+
+.produk-tablist::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .produk-tablist {
+    display: grid;
+    overflow-x: visible;
+  }
+
+  .produk-tablist-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .produk-tablist-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.produk-tablist::before {
+  content: "";
+  position: absolute;
+  position-anchor: --produk-active-tab;
+  inset-block-start: anchor(self-start);
+  inset-block-end: anchor(self-end);
+  inset-inline-start: anchor(self-start);
+  inset-inline-end: anchor(self-end);
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 0.75rem;
+  background-color: #202531;
+  border: 2px solid #202531;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .produk-tablist::before {
+    transition: inset 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+.produk-tab {
+  position: relative;
+  z-index: 1;
+  flex: 1 0 auto;
+  scroll-snap-align: start;
+  white-space: nowrap;
+  border: 2px solid transparent;
+  background-color: transparent;
+  color: #202531;
+}
+
+.produk-tab:hover:not([aria-selected="true"]) {
+  background-color: #f3f4f6;
+}
+
+.produk-tab[aria-selected="true"] {
+  anchor-name: --produk-active-tab;
+  color: #ffffff;
+}
+
+.produk-tab:focus-visible {
+  outline: 2px solid #01dad7;
+  outline-offset: 2px;
+}
+
+@supports not (position-anchor: --produk-active-tab) {
+  .produk-tablist::before {
+    content: none;
+  }
+
+  .produk-tab[aria-selected="true"] {
+    background-color: #202531;
+    border-color: #202531;
+  }
+}
+
+@media (forced-colors: active) {
+  .produk-tablist::before {
+    background-color: transparent;
+    border: 2px solid Highlight;
+    border-block-end-width: 4px;
+  }
+}
+
+/* Resolution-optimized 3D Clay Sidebar Icons */
+.nav-3d-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  forced-color-adjust: none;
+}
+
+.nav-3d-icon-dashboard {
+  background-image: url("/icons/nav/dashboard.png?v=2");
+  background-image: image-set(
+    url("/icons/nav/dashboard-1x.avif?v=2") type("image/avif") 1x,
+    url("/icons/nav/dashboard-2x.avif?v=2") type("image/avif") 2x,
+    url("/icons/nav/dashboard-1x.webp?v=2") type("image/webp") 1x,
+    url("/icons/nav/dashboard-2x.webp?v=2") type("image/webp") 2x,
+    url("/icons/nav/dashboard.png?v=2") type("image/png") 2x
+  );
+}
+
+.nav-3d-icon-kasir {
+  background-image: url("/icons/nav/kasir.png?v=2");
+  background-image: image-set(
+    url("/icons/nav/kasir-1x.avif?v=2") type("image/avif") 1x,
+    url("/icons/nav/kasir-2x.avif?v=2") type("image/avif") 2x,
+    url("/icons/nav/kasir-1x.webp?v=2") type("image/webp") 1x,
+    url("/icons/nav/kasir-2x.webp?v=2") type("image/webp") 2x,
+    url("/icons/nav/kasir.png?v=2") type("image/png") 2x
+  );
+}
+
+.nav-3d-icon-produk {
+  background-image: url("/icons/nav/produk.png?v=2");
+  background-image: image-set(
+    url("/icons/nav/produk-1x.avif?v=2") type("image/avif") 1x,
+    url("/icons/nav/produk-2x.avif?v=2") type("image/avif") 2x,
+    url("/icons/nav/produk-1x.webp?v=2") type("image/webp") 1x,
+    url("/icons/nav/produk-2x.webp?v=2") type("image/webp") 2x,
+    url("/icons/nav/produk.png?v=2") type("image/png") 2x
+  );
+}
+
+.nav-3d-icon-penjualan {
+  background-image: url("/icons/nav/penjualan.png?v=2");
+  background-image: image-set(
+    url("/icons/nav/penjualan-1x.avif?v=2") type("image/avif") 1x,
+    url("/icons/nav/penjualan-2x.avif?v=2") type("image/avif") 2x,
+    url("/icons/nav/penjualan-1x.webp?v=2") type("image/webp") 1x,
+    url("/icons/nav/penjualan-2x.webp?v=2") type("image/webp") 2x,
+    url("/icons/nav/penjualan.png?v=2") type("image/png") 2x
+  );
+}
+
+.nav-3d-icon-laporan {
+  background-image: url("/icons/nav/laporan.png?v=2");
+  background-image: image-set(
+    url("/icons/nav/laporan-1x.avif?v=2") type("image/avif") 1x,
+    url("/icons/nav/laporan-2x.avif?v=2") type("image/avif") 2x,
+    url("/icons/nav/laporan-1x.webp?v=2") type("image/webp") 1x,
+    url("/icons/nav/laporan-2x.webp?v=2") type("image/webp") 2x,
+    url("/icons/nav/laporan.png?v=2") type("image/png") 2x
+  );
+}
+
+.nav-3d-icon-pengguna {
+  background-image: url("/icons/nav/pengguna.png?v=2");
+  background-image: image-set(
+    url("/icons/nav/pengguna-1x.avif?v=2") type("image/avif") 1x,
+    url("/icons/nav/pengguna-2x.avif?v=2") type("image/avif") 2x,
+    url("/icons/nav/pengguna-1x.webp?v=2") type("image/webp") 1x,
+    url("/icons/nav/pengguna-2x.webp?v=2") type("image/webp") 2x,
+    url("/icons/nav/pengguna.png?v=2") type("image/png") 2x
+  );
+}
+
+.nav-3d-icon-aktivitas {
+  background-image: url("/icons/nav/aktivitas.png?v=2");
+  background-image: image-set(
+    url("/icons/nav/aktivitas-1x.avif?v=2") type("image/avif") 1x,
+    url("/icons/nav/aktivitas-2x.avif?v=2") type("image/avif") 2x,
+    url("/icons/nav/aktivitas-1x.webp?v=2") type("image/webp") 1x,
+    url("/icons/nav/aktivitas-2x.webp?v=2") type("image/webp") 2x,
+    url("/icons/nav/aktivitas.png?v=2") type("image/png") 2x
+  );
+}
+
+/* Native modal dialog containment */
+dialog.trasir-modal:modal {
+  overscroll-behavior: contain;
+  max-width: calc(100vw - 2rem);
+}
+
+dialog.trasir-modal::backdrop {
+  background-color: rgba(32, 37, 49, 0.55);
+  backdrop-filter: blur(1px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}

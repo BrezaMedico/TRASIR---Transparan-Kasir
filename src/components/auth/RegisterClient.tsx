@@ -412,7 +412,7 @@ export function RegisterClient({
 
             <div>
               <label htmlFor="reg-email" className="block text-xs font-bold text-slate-700 mb-1.5">
-                Email (Opsional)
+                Email (Disarankan untuk fitur Lupa Kata Sandi)
               </label>
               <input
                 id="reg-email"

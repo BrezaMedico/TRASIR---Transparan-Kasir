@@ -8,6 +8,8 @@ export interface AuditInput {
   actorRole: string;
   actionType:
     | "LOGIN"
+    | "PASSWORD_RESET_REQUEST"
+    | "PASSWORD_RESET"
     | "ROOM_CREATED"
     | "PEMBELIAN"
     | "PENJUALAN"

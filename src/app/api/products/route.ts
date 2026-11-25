@@ -58,7 +58,10 @@ export async function GET() {
       );
     }
 
-    const payload = await getCatalogPayload(user.roomId);
+    const payload = await getCatalogPayload(user.roomId, {
+      userId: user.id,
+      isAdmin: isStoreAdmin(user.role),
+    });
     return NextResponse.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal memuat katalog produk.";

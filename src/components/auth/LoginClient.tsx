@@ -343,12 +343,20 @@ export function LoginClient({
               </div>
 
               <div>
-                <label
-                  htmlFor="login-password"
-                  className="block text-xs font-bold text-slate-700 mb-1"
-                >
-                  Kata Sandi
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label
+                    htmlFor="login-password"
+                    className="block text-xs font-bold text-slate-700"
+                  >
+                    Kata Sandi
+                  </label>
+                  <Link
+                    href="/lupa-password"
+                    className="text-xs font-bold text-[#202531] hover:underline py-1"
+                  >
+                    Lupa kata sandi?
+                  </Link>
+                </div>
                 <div className="relative">
                   <input
                     id="login-password"

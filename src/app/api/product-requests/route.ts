@@ -7,6 +7,8 @@ import { createNotification, recordAuditLog } from "@/lib/audit";
 import { validateProofAttachment } from "@/lib/attachment";
 import {
   groupProductRequestsIntoBatches,
+  isProductRequestHiddenForUser,
+  parseProductRequestEnvelope,
   serializeProductRequestEnvelope,
 } from "@/lib/product-request-batch";
 import { z } from "zod";
@@ -91,7 +93,7 @@ export async function GET(request: Request) {
       whereClause.status = statusFilter;
     }
 
-    const requests = await prisma.productRequest.findMany({
+    const rawRequests = await prisma.productRequest.findMany({
       where: whereClause,
       include: {
         category: { select: { id: true, name: true, areaType: true } },
@@ -99,8 +101,12 @@ export async function GET(request: Request) {
         reviewedBy: { select: { id: true, name: true, username: true, role: true } },
       },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      take: 200,
     });
+
+    const requests = rawRequests.filter(
+      (r) => !isProductRequestHiddenForUser(r.variantsJson, user.id)
+    );
 
     const pendingRows = requests.filter((r) => r.status === "MENUNGGU_PERSETUJUAN");
     const pendingCount = pendingRows.length;
@@ -426,4 +432,162 @@ export async function PATCH() {
     { error: "Status pengajuan produk hanya dapat diproses melalui endpoint review Pemilik/Manajer." },
     { status: 403 }
   );
+}
+
+const deleteBatchSchema = z
+  .object({
+    batchId: z.string().trim().min(1).optional(),
+    requestIds: z.array(z.string().trim().min(1)).optional(),
+    scope: z.enum(["FOR_ME", "FOR_ALL"]),
+  })
+  .refine((v) => Boolean(v.batchId || (v.requestIds && v.requestIds.length > 0)), {
+    message: "Sertakan batchId atau daftar requestIds yang akan dihapus.",
+  });
+
+export async function DELETE(request: Request) {
+  try {
+    const auth = await requireAssignedUser();
+    if (auth.errorResponse) return auth.errorResponse;
+    const user = auth.user;
+
+    const canAccess =
+      (await checkUserPermission(user.role, "produk", "view")) ||
+      (await checkUserPermission(user.role, "produk", "create"));
+    if (!canAccess) {
+      return NextResponse.json(
+        { error: "Anda tidak memiliki izin mengelola pengajuan produk." },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const parsed = deleteBatchSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message || "Permintaan hapus pengajuan tidak valid." },
+        { status: 400 }
+      );
+    }
+
+    const { batchId, requestIds, scope } = parsed.data;
+    const isAdmin = isStoreAdmin(user.role);
+
+    if (scope === "FOR_ALL" && !isAdmin) {
+      return NextResponse.json(
+        {
+          error:
+            "Hanya Pemilik atau Manajer yang berwenang menghapus pengajuan untuk semua orang.",
+        },
+        { status: 403 }
+      );
+    }
+
+    const whereClause: Record<string, unknown> = {
+      roomId: user.roomId,
+    };
+    if (!isAdmin) {
+      whereClause.requestedById = user.id;
+    }
+    if (requestIds && requestIds.length > 0) {
+      whereClause.id = { in: requestIds };
+    }
+
+    const candidates = await prisma.productRequest.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        name: true,
+        variantsJson: true,
+      },
+    });
+
+    const targetRows =
+      requestIds && requestIds.length > 0
+        ? candidates
+        : candidates.filter((row) => {
+            if (!batchId) return false;
+            if (batchId.startsWith("single-")) {
+              return row.id === batchId.slice("single-".length);
+            }
+            return parseProductRequestEnvelope(row.variantsJson).batchId === batchId;
+          });
+
+    if (targetRows.length === 0) {
+      return NextResponse.json(
+        { error: "Pengajuan tidak ditemukan atau tidak dapat diakses." },
+        { status: 404 }
+      );
+    }
+
+    if (scope === "FOR_ME") {
+      await prisma.$transaction(async (tx) => {
+        for (const row of targetRows) {
+          const env = parseProductRequestEnvelope(row.variantsJson);
+          const nextHidden = Array.from(new Set([...(env.hiddenByUserIds ?? []), user.id]));
+          const nextJson = serializeProductRequestEnvelope({
+            ...env,
+            hiddenByUserIds: nextHidden,
+          });
+          await tx.productRequest.update({
+            where: { id: row.id },
+            data: { variantsJson: nextJson },
+          });
+        }
+      });
+
+      return NextResponse.json({
+        deleted: true,
+        scope: "FOR_ME",
+        affectedCount: targetRows.length,
+        message: "Pengajuan dihapus dari daftar tampilan Anda.",
+      });
+    }
+
+    const targetIds = targetRows.map((r) => r.id);
+    const leadTitle =
+      parseProductRequestEnvelope(targetRows[0].variantsJson).batchTitle ||
+      (targetRows.length === 1
+        ? targetRows[0].name
+        : `Paket ${targetRows.length} Barang`);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.productRequest.deleteMany({
+        where: {
+          id: { in: targetIds },
+          roomId: user.roomId,
+        },
+      });
+
+      await recordAuditLog(
+        {
+          roomId: user.roomId,
+          actorId: user.id,
+          actorName: user.name,
+          actorRole: user.role,
+          actionType: "PRODUCT_REQUEST",
+          actionSummary: `${user.name} menghapus permanen paket pengajuan "${leadTitle}" (${targetIds.length} item) untuk semua pengguna`,
+          entityType: "ProductRequestBatch",
+          entityId: batchId || targetIds[0],
+          beforeData: {
+            batchId: batchId || null,
+            deletedCount: targetIds.length,
+            names: targetRows.map((r) => r.name),
+          },
+          approvalState: "TERCATAT",
+          linkUrl: "/produk?tab=requests",
+        },
+        tx
+      );
+    });
+
+    return NextResponse.json({
+      deleted: true,
+      scope: "FOR_ALL",
+      affectedCount: targetIds.length,
+      message: "Pengajuan berhasil dihapus untuk semua pengguna.",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Gagal menghapus pengajuan produk.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

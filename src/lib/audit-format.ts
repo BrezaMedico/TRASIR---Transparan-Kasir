@@ -9,6 +9,8 @@ export interface FormattedAuditEntry {
 
 const ACTION_TYPE_LABELS: Record<string, string> = {
   LOGIN: "Masuk Akun",
+  PASSWORD_RESET_REQUEST: "Permintaan Reset Sandi",
+  PASSWORD_RESET: "Reset Kata Sandi",
   ROOM_CREATED: "Pembuatan Ruangan",
   PEMBELIAN: "Pembelian & Nota",
   PENJUALAN: "Penjualan Kasir",
