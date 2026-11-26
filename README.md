@@ -291,9 +291,4 @@ Praktik rekayasa berikut terverifikasi langsung pada kode sumber:
 
 | Nama Lengkap | Peran | Institusi / Afiliasi |
 | :--- | :--- | :--- |
-| [LENGKAPI: Nama Anggota 1] | [LENGKAPI: Peran, mis. Full-Stack Engineer] | [LENGKAPI: Nama Universitas / Sekolah / Tim] |
-| [LENGKAPI: Nama Anggota 2] | [LENGKAPI: Peran, mis. UI/UX & Frontend Engineer] | [LENGKAPI: Nama Universitas / Sekolah / Tim] |
-| [LENGKAPI: Nama Anggota 3] | [LENGKAPI: Peran, mis. System Architect & QA] | [LENGKAPI: Nama Universitas / Sekolah / Tim] |
-
-### Lisensi
-[LENGKAPI: Jenis lisensi proyek, mis. MIT License, dan tambahkan file `LICENSE` di root repositori karena saat ini file `LICENSE` belum tersedia di arsip kode].
+| [Breza Artha Medico] | [Full Stack Engineer] | [SMK TI BAZMA] |
