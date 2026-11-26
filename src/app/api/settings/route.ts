@@ -18,6 +18,9 @@ import {
   type UserRole,
 } from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
+import { BACKUP_STALE_HOURS } from "@/lib/backup";
+import { strongPasswordSchema } from "@/lib/password-policy";
+import { handleApiError } from "@/lib/api-error";
 import { z } from "zod";
 
 export async function GET() {
@@ -65,11 +68,50 @@ export async function GET() {
       prisma.room.findUnique({ where: { id: user.roomId } }),
     ]);
 
-    const [units, categories, warehouses] = await Promise.all([
+    const [units, categories, warehouses, latestBackupLog] = await Promise.all([
       prisma.unit.findMany({ orderBy: [{ group: "asc" }, { name: "asc" }] }),
       prisma.category.findMany({ where: { roomId: user.roomId }, orderBy: { name: "asc" } }),
       prisma.warehouse.findMany({ where: { roomId: user.roomId }, orderBy: { name: "asc" } }),
+      isOwner
+        ? prisma.backupLog.findFirst({
+            where: { roomId: user.roomId },
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              triggerType: true,
+              status: true,
+              sizeBytes: true,
+              errorMessage: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve(null),
     ]);
+
+    const latestSuccessBackup = isOwner
+      ? latestBackupLog?.status === "SUCCESS"
+        ? latestBackupLog
+        : await prisma.backupLog.findFirst({
+            where: { roomId: user.roomId, status: "SUCCESS" },
+            orderBy: { createdAt: "desc" },
+            select: { createdAt: true, sizeBytes: true, triggerType: true },
+          })
+      : null;
+
+    const latestSuccessAt = latestSuccessBackup?.createdAt ?? room?.lastBackupAt ?? null;
+    const staleThresholdMs = BACKUP_STALE_HOURS * 60 * 60 * 1000;
+    const isBackupStale =
+      !latestSuccessAt || Date.now() - latestSuccessAt.getTime() > staleThresholdMs;
+
+    const backupStatus = isOwner
+      ? {
+          latestLog: latestBackupLog,
+          latestSuccessAt: latestSuccessAt ? latestSuccessAt.toISOString() : null,
+          isFailed: latestBackupLog?.status === "FAILED",
+          isStale: isBackupStale,
+          staleHoursThreshold: BACKUP_STALE_HOURS,
+        }
+      : null;
 
     const settings = room
       ? {
@@ -81,7 +123,7 @@ export async function GET() {
           openAreaPolicy: room.openAreaPolicy,
           closedAreaPolicy: room.closedAreaPolicy,
           autoBackupInterval: room.autoBackupInterval,
-          lastBackupAt: room.lastBackupAt,
+          lastBackupAt: latestSuccessAt,
         }
       : null;
 
@@ -89,14 +131,14 @@ export async function GET() {
       users,
       rolePermissions,
       settings,
+      backupStatus,
       units,
       categories,
       warehouses,
       isOwner,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat pengaturan sistem.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/settings", "Gagal memuat pengaturan sistem.");
   }
 }
 
@@ -122,7 +164,7 @@ export async function POST(request: Request) {
         name: z.string().trim().min(2, "Nama minimal 2 karakter"),
         username: z.string().min(3, "Username minimal 3 karakter"),
         email: z.string().trim().email("Format email tidak valid"),
-        password: z.string().min(6, "Kata sandi minimal 6 karakter"),
+        password: strongPasswordSchema,
         role: z.enum(["PEMILIK", "MANAJER", "KASIR", "GUDANG", "KASIR_GUDANG"]),
       });
       const parsed = schema.safeParse(body);
@@ -514,14 +556,20 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: "Kata sandi saat ini tidak sesuai." }, { status: 400 });
         }
         const nextPassword = String(body.newPassword);
-        if (nextPassword.length < 6 || nextPassword.length > 128) {
+        const passwordCheck = strongPasswordSchema.safeParse(nextPassword);
+        if (!passwordCheck.success) {
           return NextResponse.json(
-            { error: "Kata sandi baru harus antara 6 hingga 128 karakter." },
+            {
+              error:
+                passwordCheck.error.issues[0]?.message ||
+                "Kata sandi baru minimal 10 karakter dan tidak boleh umum.",
+            },
             { status: 400 }
           );
         }
         updateData.passwordHash = await hashPassword(nextPassword);
         updateData.tokenVersion = { increment: 1 };
+        updateData.mustChangePassword = false;
         passwordChanged = true;
       }
 
@@ -589,7 +637,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Action tidak dikenali" }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal menyimpan pengaturan.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/settings", "Gagal menyimpan pengaturan.");
   }
 }

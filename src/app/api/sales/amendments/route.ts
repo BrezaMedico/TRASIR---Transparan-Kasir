@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
@@ -396,7 +397,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Action tidak dikenali." }, { status: 400 });
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : "Gagal memproses perubahan transaksi.";
+    const rawMsg = err instanceof Error ? err.message : "";
     if (rawMsg.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: rawMsg.replace("NOT_FOUND:", "") }, { status: 404 });
     }
@@ -406,6 +407,6 @@ export async function POST(request: Request) {
     if (rawMsg.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: rawMsg.replace("CONFLICT:", "") }, { status: 409 });
     }
-    return NextResponse.json({ error: rawMsg }, { status: 500 });
+    return handleApiError(err, "/api/sales/amendments", "Gagal memproses perubahan transaksi.");
   }
 }

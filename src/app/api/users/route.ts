@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma, withDbRetry } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { isStoreAdmin } from "@/lib/rbac";
@@ -39,24 +40,25 @@ export async function GET() {
 
     const [activeShifts, latestClosings] = await withDbRetry(() =>
       Promise.all([
-        prisma.shiftClosing.findMany({
+        prisma.shift.findMany({
           where: { roomId: user.roomId, status: "AKTIF" },
-          select: { cashierId: true },
-          distinct: ["cashierId"],
+          select: { userId: true },
+          distinct: ["userId"],
         }),
-        prisma.shiftClosing.groupBy({
-          by: ["cashierId"],
+        prisma.shift.groupBy({
+          by: ["userId"],
           where: { roomId: user.roomId, status: { not: "AKTIF" } },
-          _max: { createdAt: true },
+          _max: { closedAt: true, createdAt: true },
         }),
       ])
     );
 
-    const activeShiftCashiers = new Set<string>(activeShifts.map((row) => row.cashierId));
+    const activeShiftCashiers = new Set<string>(activeShifts.map((row) => row.userId));
     const lastClosingByCashier = new Map<string, Date>();
     for (const row of latestClosings) {
-      if (row._max.createdAt) {
-        lastClosingByCashier.set(row.cashierId, row._max.createdAt);
+      const closedTime = row._max.closedAt ?? row._max.createdAt;
+      if (closedTime) {
+        lastClosingByCashier.set(row.userId, closedTime);
       }
     }
 
@@ -108,7 +110,6 @@ export async function GET() {
       activeAdminCount,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat daftar tim.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/users", "Gagal memuat daftar tim.");
   }
 }

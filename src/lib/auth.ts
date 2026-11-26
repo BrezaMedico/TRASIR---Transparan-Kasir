@@ -34,6 +34,7 @@ export interface SessionUser {
   isAssigned: boolean;
   roomId: string | null;
   tokenVersion?: number;
+  mustChangePassword?: boolean;
 }
 
 export interface AssignedSessionUser extends SessionUser {
@@ -59,6 +60,7 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
     isAssigned: user.isAssigned,
     roomId: user.roomId ?? null,
     tokenVersion: user.tokenVersion ?? 1,
+    mustChangePassword: Boolean(user.mustChangePassword),
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -82,6 +84,7 @@ export async function verifySessionToken(token: string): Promise<SessionUser | n
       isAssigned: payload.isAssigned !== false,
       roomId: typeof payload.roomId === "string" ? payload.roomId : null,
       tokenVersion: typeof payload.tokenVersion === "number" ? payload.tokenVersion : 1,
+      mustChangePassword: payload.mustChangePassword === true,
     };
   } catch {
     return null;
@@ -112,6 +115,7 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
           isAssigned: true,
           roomId: true,
           tokenVersion: true,
+          mustChangePassword: true,
         },
       })
     );
@@ -132,6 +136,7 @@ export async function getCurrentSessionUser(): Promise<SessionUser | null> {
       isAssigned: Boolean(dbUser.isAssigned && dbUser.roomId),
       roomId: dbUser.roomId,
       tokenVersion: dbUser.tokenVersion,
+      mustChangePassword: Boolean(dbUser.mustChangePassword),
     };
   } catch {
     return null;

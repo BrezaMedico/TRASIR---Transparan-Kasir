@@ -10,7 +10,7 @@
 [![Prisma](https://img.shields.io/badge/Prisma-6.5.0-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4.17-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Google Gemini](https://img.shields.io/badge/Google_Gemini_AI-@google/genai_3.6.1-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
-[![Vitest](https://img.shields.io/badge/Tests-30_Passed_(Vitest)-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-35_Passed_(Vitest)-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev/)
 
 [Live Demo]([LENGKAPI: URL Live Demo aplikasi yang sudah di-deploy]) · [Video Presentasi]([LENGKAPI: URL Video Demo / Presentasi Lomba]) · [Panduan Instalasi](#panduan-instalasi--menjalankan-secara-lokal)
 
@@ -75,7 +75,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph Client ["Client Layer (Browser / Mobile PWA-Ready)"]
+    subgraph Client ["Client Layer (Browser / Mobile Responsive)"]
         UI[Next.js App Router UI\nReact 19 + Tailwind CSS]
         R3F[Hero 3D Diorama\nThree.js + R3F]
         Cam[Kamera Nota & Barcode\nClient Compression]
@@ -114,7 +114,7 @@ flowchart LR
 | **Database & ORM** | Prisma `6.5.0`, PostgreSQL (Supabase PgBouncer) / SQLite | Mendukung transaksi `Serializable`, migrasi skema terstruktur (24 model), retry otomatis gangguan pooler (`withDbRetry`), dan *provider switching* untuk pengujian lokal cepat. |
 | **Autentikasi & Validasi** | `jose 6.0.10`, `bcryptjs 3.0.2`, `zod 4.6.7` | JWT `HS256` pada cookie `HttpOnly` dengan isolasi `purpose` token, hashing sandi bcrypt (cost 12), dan validasi skema ketat di sisi server. |
 | **AI & Layanan Email** | `@google/genai 3.6.1`, `nodemailer 10.6.1`, Resend REST API | Analisis multimodal nota belanja (dengan *fallback* multi-model Gemini Flash/Lite) serta pengiriman email reset sandi & OTP verifikasi perubahan email. |
-| **Pengujian & Linting** | Vitest `5.1.2`, ESLint `9.22.0` (`eslint-config-next 15.5.29`) | Menjalankan 18 *unit test* inti dan 12 *integration test suite* (34 skenario alur penuh) pada database SQLite terisolasi. |
+| **Pengujian & Linting** | Vitest `5.1.2`, ESLint `9.22.0` (`eslint-config-next 15.5.29`) | Menjalankan 19 *unit test* inti dan 16 *integration test suite* (38 skenario alur penuh) pada database SQLite terisolasi. |
 
 ---
 
@@ -141,7 +141,7 @@ TRASIR/
 │   │   │   ├── laporan/                # Laporan keuangan, laba kotor & ekspor data
 │   │   │   ├── aktivitas/              # Pusat notifikasi 1x baca & jejak Audit Log
 │   │   │   └── pengaturan/             # Profil usaha, tampilan UI, loket kasir & manajemen tim
-│   │   └── api/                        # 36 Next.js Route Handlers (REST JSON API)
+│   │   └── api/                        # 41 Next.js Route Handlers (REST JSON API)
 │   ├── components/
 │   │   ├── layout/AppShell.tsx         # Kerangka navigasi responsif, sidebar & session context
 │   │   ├── kasir/                      # KasirClient, CashDenominationCounter, ShiftWorkflowPanel
@@ -158,23 +158,23 @@ TRASIR/
 │       ├── prisma.ts                   # Singleton PrismaClient, tuning PgBouncer & withDbRetry
 │       └── queries/                    # Query server-side teroptimasi (dashboard, catalog, profit)
 └── tests/
-    ├── core.test.ts                    # 18 unit tests: finansial, RBAC, timezone WIB & keamanan
-    └── api-flow.test.ts                # 12 suite integrasi (34 skenario end-to-end API & DB)
+    ├── core.test.ts                    # 20 unit tests: finansial, RBAC, paginasi, timezone WIB & keamanan
+    └── api-flow.test.ts                # 40 test integrasi terisolasi (end-to-end API & DB)
 ```
 
 ---
 
 ## Skema Database, API & Integrasi
 
-### Ringkasan Entitas Database (24 Model Prisma)
-Seluruh data operasional diisolasi per ruangan melalui kunci relasi `roomId` (`Room`):
+### Ringkasan Entitas Database (29 Model Prisma)
+Seluruh data operasional diisolasi per ruangan melalui kunci relasi `roomId` (`Room`) bertipe `NOT NULL`:
 
-- **Akses & Organisasi:** `Room`, `User` (dengan `tokenVersion` untuk invalidasi sesi), `StoreInvitation`, `RolePermission`, `SystemSetting`.
+- **Akses & Organisasi:** `Room`, `User` (dengan `tokenVersion` untuk invalidasi sesi & `mustChangePassword`), `StoreInvitation`, `RolePermission`, `Counter` (loket kasir multi-counter), `SystemSetting` (legacy).
 - **Katalog & Inventaris:** `Unit`, `Category` (area `TERBUKA`/`TERTUTUP`), `Warehouse`, `Product`, `ProductVariant`, `RecipeIngredient`, `ProductStock`, `ProductRequest` (mendukung *envelope* batch `CREATE`/`UPDATE` pada `variantsJson`).
-- **Transaksi & Pengawasan:** `Purchase`, `PurchaseItem`, `Sale`, `SaleItem` (snapshot HPP `unitCost`), `SaleAmendment`, `ShiftClosing`, `StockAdjustment`, `StockOpnameSession`, `StockOpnameItem`.
-- **Jejak Audit:** `Notification` (scoped per role/user) dan `AuditLog` (menyimpan `beforeData`/`afterData`).
+- **Transaksi & Pengawasan:** `Purchase` (terindeks per tanggal/cursor dengan `receiptUrl` object storage + endpoint terpisah `/api/purchases/[id]/receipt`), `PurchaseItem`, `Sale` (terhubung ke `shiftId` & `counterId`), `SaleItem` (snapshot HPP `unitCost`), `SaleAmendment`, `Shift` (siklus buka/tutup shift & rekonsiliasi kas), `ShiftClosing` (legacy), `StockAdjustment`, `StockOpnameSession`, `StockOpnameItem`.
+- **Jejak Audit, Pencadangan & Proteksi:** `Notification` (scoped per role/user), `AuditLog` (menyimpan `beforeData`/`afterData`), `BackupLog` (status eksekusi backup manual & cron harian), serta `RateLimitEntry` & `OtpChallenge` (penyimpanan bersama lintas instance untuk rate limit & OTP hash/lockout/expiry).
 
-### Endpoint API Inti (36 Route Handlers)
+### Endpoint API Inti (41 Route Handlers)
 
 | Method | Endpoint | Deskripsi | Auth & RBAC |
 | :--- | :--- | :--- | :--- |
@@ -191,7 +191,7 @@ Seluruh data operasional diisolasi per ruangan melalui kunci relasi `roomId` (`R
 | `GET`, `POST` | `/api/inventory` | Pengajuan penyesuaian stok (`RUSAK`, `HILANG`, `PINDAH_GUDANG`) dan sesi evaluasi Stock Opname. | `inventaris` RBAC |
 | `GET` | `/api/dashboard`, `/api/profit`, `/api/reports` | Agregasi omzet, laba kotor historis, tren harian WIB, dan perbandingan performa antar-loket. | `PEMILIK` / `MANAJER` |
 | `GET`, `POST` | `/api/audit` | Pengambilan log aktivitas & notifikasi; aksi `MARK_READ`, `MARK_IDS_READ` (notifikasi 1x baca), dan `MARK_ALL_READ`. | Assigned User |
-| `GET`, `POST`, `PATCH`, `DELETE` | `/api/invitations`, `/api/users`, `/api/settings`, `/api/backup` | Manajemen undangan tim, ubah role/cabut akses, pengaturan identitas toko, dan unduh cadangan JSON. | `PEMILIK` / `MANAJER` |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/api/invitations`, `/api/users`, `/api/settings`, `/api/backup`, `/api/cron/backup` | Manajemen undangan tim, ubah role/cabut akses, pengaturan identitas toko, backup manual JSON, serta cron backup harian terkompresi (retensi 30 backup). | `PEMILIK` / `MANAJER` / `CRON_SECRET` |
 
 ### Integrasi Eksternal
 1. **Google Gemini Vision (`@google/genai`):** Dipanggil khusus di sisi server (`src/lib/gemini.ts`) dengan *structured JSON schema*, rantai *fallback* model (`gemini-3-flash-preview` -> `gemini-3.5-flash-lite` -> `gemini-flash-lite-latest` -> `gemini-3.1-flash-lite`), serta deteksi duplikasi hash nota.
@@ -242,10 +242,12 @@ Buka browser di `http://localhost:3000`.
 
 ### Perintah Verifikasi Kualitas & Pengujian
 ```bash
-npm run typecheck   # Pemeriksaan tipe TypeScript (tsc --noEmit)
-npm run lint        # Pemeriksaan ESLint (next lint)
-npm test            # Menjalankan 30 test case (18 unit + 12 integration suite) di SQLite terisolasi
-npm run build       # Kompilasi production build Next.js
+npm run routes:check  # Verifikasi jumlah API Route Handlers cocok dengan README (41)
+npm run typecheck     # Pemeriksaan tipe TypeScript (tsc --noEmit)
+npm run lint          # Pemeriksaan ESLint (next lint)
+npm test              # Menjalankan 60 test (20 unit + 40 integrasi); memakai PostgreSQL jika TEST_DATABASE_URL diatur (CI & docker-compose.test.yml), fallback SQLite lokal
+npm run test:pg       # Menjalankan 60 test terhadap container PostgreSQL 16 (docker compose -f docker-compose.test.yml up -d)
+npm run build         # Kompilasi production build Next.js
 ```
 
 ### Variabel Lingkungan (`.env`)
@@ -260,6 +262,8 @@ npm run build       # Kompilasi production build Next.js
 | `RESEND_API_KEY` | Opsional *(Pilih A atau B)* | Kunci API Resend untuk pengiriman email reset sandi & OTP (Opsi A). | `re_xxxxxxxxx` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` | Opsional *(Pilih A atau B)* | Konfigurasi server SMTP / Gmail App Password via Nodemailer (Opsi B). | `smtp.gmail.com` / `465` / `true` |
 | `EMAIL_FROM` | Opsional | Alamat pengirim yang tampil pada email verifikasi & reset sandi. | `TRASIR <noreply@domain.com>` |
+| `CRON_SECRET` | Opsional *(Wajib untuk Cron Backup)* | Token Bearer untuk melindungi `GET /api/cron/backup` pada `vercel.json`. | `ganti_dengan_random_secret_cron` |
+| `BLOB_READ_WRITE_TOKEN` | Opsional *(Untuk Cron Backup Vercel Blob)* | Token penyimpanan Vercel Blob untuk mengunggah backup `.json.gz` (retensi 30 terbaru). Alternatif lokal: `BACKUP_STORAGE_DIR`. | `vercel_blob_rw_xxxx` |
 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Opsional | Konfigurasi proyek Supabase (tersedia pada template `.env.example`, runtime saat ini terhubung via Prisma). | `https://<project>.supabase.co` |
 
 ---
@@ -269,10 +273,11 @@ npm run build       # Kompilasi production build Next.js
 Praktik rekayasa berikut terverifikasi langsung pada kode sumber:
 
 - **Autentikasi & Isolasi Sesi Ketat:** Cookie `HttpOnly`, `SameSite=Lax`, `Secure` di produksi; `verifySessionToken()` menolak token dengan klaim `purpose` (mencegah token reset sandi/ganti email dipakai sebagai sesi); `getCurrentSessionUser()` memvalidasi `tokenVersion` langsung ke database sehingga perubahan sandi atau pencabutan akses langsung memutus sesi lama.
-- **Fail-Closed & Proteksi Brute-Force:** `resolveSecretString()` melempar *error* saat produksi jika `AUTH_SECRET` kosong atau `< 32` karakter. Endpoint autentikasi & OTP dilindungi *sliding-window rate limiter* serta penguncian token setelah 5 percobaan gagal (`src/lib/rate-limit.ts`).
+- **Fail-Closed & Proteksi Brute-Force Lintas Instance:** `resolveSecretString()` melempar *error* saat produksi jika `AUTH_SECRET` kosong atau `< 32` karakter. Endpoint autentikasi & OTP dilindungi penyimpanan bersama di database (`RateLimitEntry` dan `OtpChallenge` pada `src/lib/rate-limit.ts`) dengan penyimpanan OTP berbasis hash SHA-256, masa berlaku (*expiry*), sekali pakai (*atomic consume*), dan penguncian setelah 5 percobaan gagal yang tetap konsisten antar-instance serverless (fallback in-memory hanya aktif untuk development lokal).
 - **Validasi Lampiran Magic-Bytes:** `validateProofAttachment()` memverifikasi *header* biner (*magic bytes*) untuk `JPEG`, `PNG`, `WEBP`, dan `PDF` (batas 2 MB) guna memblokir file HTML/SVG/skrip yang menyamar sebagai gambar.
 - **Anti-IDOR & Konsistensi Transaksi:** Seluruh query terikat pada `roomId` pengguna, redirect internal disaring oleh `sanitizeInternalRedirect()`, dan operasi persetujuan kritis menggunakan transaksi Prisma `Serializable` dengan klaim atomik untuk mencegah *race condition* atau persetujuan ganda.
-- **HTTP Security Headers & Optimasi UX:** `next.config.ts` menerapkan `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, dan `Permissions-Policy`. Skrip inline anti-FOUC di `src/app/layout.tsx` mencegah kedipan tema saat muat awal, sementara `optimizePackageImports` dan `staleTimes` mempercepat navigasi antar-halaman.
+- **Kebijakan Kata Sandi & Penanganan Error Terpusat:** Validasi kata sandi server berbasis Zod (`src/lib/password-policy.ts`) mewajibkan minimal 10 karakter dan menolak kata sandi umum; akun lama dengan sandi historis tetap dapat masuk namun dipaksa memperbarui sandi (`mustChangePassword`). Seluruh endpoint API memakai `handleApiError()` (`src/lib/api-error.ts`) agar error tak terduga hanya mengembalikan pesan generik beserta `errorId` sementara detail dicatat di log server.
+- **HTTP Security Headers & Optimasi UX:** `next.config.ts` menerapkan `Content-Security-Policy` (dengan `frame-ancestors 'none'`), `Strict-Transport-Security`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, dan `Permissions-Policy`. Skrip inline anti-FOUC di `src/app/layout.tsx` mencegah kedipan tema saat muat awal, sementara `optimizePackageImports` dan `staleTimes` mempercepat navigasi antar-halaman.
 
 ---
 

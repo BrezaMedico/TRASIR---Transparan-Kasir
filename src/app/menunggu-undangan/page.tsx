@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ShieldCheck,
   Copy,
   Check,
   ArrowsClockwise,
@@ -17,6 +16,7 @@ import {
   ArrowRight,
 } from "@phosphor-icons/react";
 import { useToast } from "@/components/layout/AppShell";
+import { TrasirLogo } from "@/components/ui/TrasirLogo";
 import { clearAllClientCache } from "@/lib/client-cache";
 import { formatRoleLabel, getDefaultRedirectForRole } from "@/lib/rbac-shared";
 
@@ -222,11 +222,8 @@ export default function WaitingInvitationPage() {
     <div className="min-h-screen bg-[#EBEBEB] text-[#202531]">
       <header className="bg-white border-b border-[#202531]/10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="inline-flex items-center gap-2.5 font-extrabold text-[#202531]">
-            <span className="w-9 h-9 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center">
-              <ShieldCheck size={20} weight="duotone" aria-hidden="true" />
-            </span>
-            <span>TRASIR</span>
+          <Link href="/" className="inline-flex items-center rounded-lg">
+            <TrasirLogo className="h-6 w-auto" priority />
           </Link>
 
           <button

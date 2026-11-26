@@ -58,7 +58,7 @@ export async function recordAuditLog(
 }
 
 export interface NotificationInput {
-  roomId?: string | null;
+  roomId: string;
   title: string;
   message: string;
   severity?: "INFO" | "WARNING" | "CRITICAL";
@@ -81,7 +81,7 @@ export async function createNotification(
 ) {
   return tx.notification.create({
     data: {
-      roomId: input.roomId ?? null,
+      roomId: input.roomId,
       title: input.title,
       message: input.message,
       severity: input.severity ?? "INFO",

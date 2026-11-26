@@ -5,7 +5,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function resolveRuntimeDatabaseUrl(): string | undefined {
-  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
+  if (process.env.PRISMA_DISABLE_POOLER_REWRITE === "true") {
     return undefined;
   }
   const raw = process.env.DATABASE_URL;

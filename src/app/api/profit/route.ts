@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { requireAssignedUser } from "@/lib/auth";
 import { canViewFinancials } from "@/lib/rbac";
 import { getGrossProfitReport } from "@/lib/queries/profit";
@@ -26,8 +27,7 @@ export async function GET(request: Request) {
     const report = await getGrossProfitReport(user.roomId, period);
     return NextResponse.json(report);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat laporan keuntungan kotor.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/profit", "Gagal memuat laporan keuntungan kotor.");
   }
 }
 

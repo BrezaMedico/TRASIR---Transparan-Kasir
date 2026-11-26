@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { handleApiError } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
@@ -67,8 +68,7 @@ export async function GET() {
     });
     return NextResponse.json(payload);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat katalog produk.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/products", "Gagal memuat katalog produk.");
   }
 }
 
@@ -337,11 +337,11 @@ export async function POST(request: Request) {
       { status: 202 }
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal menyimpan produk.";
+    const message = err instanceof Error ? err.message : "";
     if (message.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: message.slice(9) }, { status: 409 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/products", "Gagal menyimpan produk.");
   }
 }
 
@@ -589,11 +589,11 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ product: updated });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memperbarui produk.";
+    const message = err instanceof Error ? err.message : "";
     if (message.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: message.slice(9) }, { status: 409 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/products", "Gagal memperbarui produk.");
   }
 }
 
@@ -732,7 +732,6 @@ export async function DELETE(request: Request) {
       name: existing.name,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal menghapus produk.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/products", "Gagal menghapus produk.");
   }
 }

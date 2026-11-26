@@ -48,8 +48,24 @@ function parseTabFromSearch(): SettingsTab {
 export default function PengaturanPage() {
   const { showToast } = useToast();
 
+  type BackupStatusPayload = {
+    latestLog?: {
+      id: string;
+      triggerType: string;
+      status: "SUCCESS" | "FAILED";
+      sizeBytes: number;
+      errorMessage?: string | null;
+      createdAt: string;
+    } | null;
+    latestSuccessAt?: string | null;
+    isFailed?: boolean;
+    isStale?: boolean;
+    staleHoursThreshold?: number;
+  };
+
   type SettingsApiPayload = {
     isOwner?: boolean;
+    backupStatus?: BackupStatusPayload | null;
     settings?: {
       storeName?: string;
       storeAddress?: string;
@@ -75,11 +91,11 @@ export default function PengaturanPage() {
   const [storeAddress, setStoreAddress] = useState(
     cachedSettings?.settings?.storeAddress || "Indonesia"
   );
-  const [autoBackupInterval, setAutoBackupInterval] = useState(
-    cachedSettings?.settings?.autoBackupInterval || "HARIAN"
+  const [backupStatus, setBackupStatus] = useState<BackupStatusPayload | null>(
+    cachedSettings?.backupStatus ?? null
   );
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(
-    cachedSettings?.settings?.lastBackupAt || null
+    cachedSettings?.backupStatus?.latestSuccessAt || cachedSettings?.settings?.lastBackupAt || null
   );
 
   // Profil & Sandi
@@ -132,11 +148,13 @@ export default function PengaturanPage() {
       });
       if (ok) {
         setIsOwner(Boolean(data.isOwner));
+        setBackupStatus(data.backupStatus ?? null);
         if (data.settings) {
           setStoreName(data.settings.storeName || "TRASIR Toko Utama");
           setStoreAddress(data.settings.storeAddress || "Indonesia");
-          setAutoBackupInterval(data.settings.autoBackupInterval || "HARIAN");
-          setLastBackupAt(data.settings.lastBackupAt || null);
+          setLastBackupAt(
+            data.backupStatus?.latestSuccessAt || data.settings.lastBackupAt || null
+          );
         }
       }
     } catch {
@@ -652,18 +670,28 @@ export default function PengaturanPage() {
                             htmlFor="prof-new-pass"
                             className="block text-xs font-bold text-[#202531] mb-1.5"
                           >
-                            Kata Sandi Baru (Min. 6 Karakter)
+                            Kata Sandi Baru (Min. 10 Karakter, Unik)
                           </label>
                           <input
                             id="prof-new-pass"
                             type="password"
-                            minLength={6}
+                            minLength={10}
                             value={newPassword}
                             onChange={(e) => setNewPassword(e.target.value)}
                             className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
                           />
                         </div>
                       </div>
+
+                      {session.user.mustChangePassword && (
+                        <div
+                          role="alert"
+                          className="rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] px-3.5 py-2.5 text-xs font-semibold text-[#D41448]"
+                        >
+                          Kata sandi lama Anda belum memenuhi standar keamanan terbaru (minimal 10
+                          karakter dan bukan sandi umum). Harap perbarui kata sandi sekarang.
+                        </div>
+                      )}
 
                       <div className="mt-auto pt-4 border-t border-[#202531]/10 flex justify-end">
                         <button
@@ -810,30 +838,66 @@ export default function PengaturanPage() {
 
                     {/* Cadangan Data JSON (Khusus Pemilik/Manajer) */}
                     {isOwner && (
-                      <section className="lg:col-span-12 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
-                            <DownloadSimple size={18} weight="duotone" aria-hidden="true" />
+                      <section className="lg:col-span-12 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+                              <DownloadSimple size={18} weight="duotone" aria-hidden="true" />
+                            </div>
+                            <div>
+                              <h2 className="text-sm font-extrabold text-[#202531]">
+                                Cadangan Data Perusahaan (JSON)
+                              </h2>
+                              <p className="text-xs text-[#525866] mt-0.5">
+                                Backup terakhir berhasil:{" "}
+                                <strong>
+                                  {lastBackupAt ? formatDateTimeJakarta(lastBackupAt) : "Belum pernah"}
+                                </strong>
+                                {backupStatus?.latestLog && (
+                                  <>
+                                    {" "}· Log terbaru:{" "}
+                                    <strong>
+                                      {backupStatus.latestLog.triggerType === "CRON"
+                                        ? "Cron Harian"
+                                        : "Manual"}
+                                    </strong>{" "}
+                                    ({backupStatus.latestLog.status === "SUCCESS" ? "Berhasil" : "Gagal"}
+                                    {backupStatus.latestLog.sizeBytes > 0
+                                      ? `, ${(backupStatus.latestLog.sizeBytes / 1024).toFixed(1)} KB`
+                                      : ""}
+                                    )
+                                  </>
+                                )}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <h2 className="text-sm font-extrabold text-[#202531]">
-                              Cadangan Data Perusahaan (JSON)
-                            </h2>
-                            <p className="text-xs text-[#525866] mt-0.5">
-                              Jadwal otomatis: <strong>{autoBackupInterval}</strong> · Terakhir:{" "}
-                              <strong>{formatDateTimeJakarta(lastBackupAt)}</strong>
-                            </p>
-                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleManualBackup}
+                            className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:opacity-95 cursor-pointer shrink-0"
+                          >
+                            <DownloadSimple size={16} weight="bold" aria-hidden="true" />
+                            <span>Unduh Cadangan Manual</span>
+                          </button>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={handleManualBackup}
-                          className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:opacity-95 cursor-pointer shrink-0"
-                        >
-                          <DownloadSimple size={16} weight="bold" aria-hidden="true" />
-                          <span>Unduh Cadangan Data</span>
-                        </button>
+                        {(backupStatus?.isFailed || backupStatus?.isStale) && (
+                          <div
+                            role="alert"
+                            className="rounded-xl border border-[#FF2A63]/35 bg-[#FFF0F4] px-3.5 py-2.5 text-xs text-[#D41448] font-semibold"
+                          >
+                            {backupStatus.isFailed
+                              ? `Backup otomatis terakhir gagal: ${
+                                  backupStatus.latestLog?.errorMessage || "Periksa log server."
+                                }`
+                              : lastBackupAt
+                              ? `Peringatan: Backup terakhir sudah lebih dari ${
+                                  backupStatus.staleHoursThreshold ?? 36
+                                } jam lalu. Jalankan backup manual atau periksa jadwal cron.`
+                              : "Peringatan: Belum ada cadangan data yang tercatat. Unduh cadangan manual atau konfigurasikan cron backup."}
+                          </div>
+                        )}
                       </section>
                     )}
                   </div>

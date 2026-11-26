@@ -13,8 +13,8 @@ import {
   WifiSlash,
   CheckCircle,
   WarningCircle,
-  ShieldCheck,
 } from "@phosphor-icons/react";
+import { TrasirLogo } from "@/components/ui/TrasirLogo";
 import { isStoreAdmin, type ModuleKey, type PermissionRow, type UserRole } from "@/lib/rbac-shared";
 import { clearAllClientCache } from "@/lib/client-cache";
 import { applyUiPreferencesToDom, readUiPreferences, subscribeUiPreferences } from "@/lib/ui-preferences";
@@ -98,6 +98,7 @@ export interface SessionState {
     role: UserRole;
     isAssigned: boolean;
     roomId?: string | null;
+    mustChangePassword?: boolean;
   };
   permissions: Record<ModuleKey, PermissionRow>;
   unreadNotifications: number;
@@ -179,12 +180,19 @@ function ShellFrame({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     setPendingHref(null);
   }, [pathname]);
+
+  useEffect(() => {
+    if (session.user.mustChangePassword && pathname !== "/pengaturan") {
+      router.replace("/pengaturan?tab=lanjutan&forcePasswordChange=1");
+    }
+  }, [session.user.mustChangePassword, pathname, router]);
 
   const onLogoutClick = async () => {
     if (loggingOut) return;
@@ -242,19 +250,12 @@ function ShellFrame({
                 href={visibleNavItems[0]?.href || "/dashboard"}
                 prefetch={false}
                 onClick={() => handleNavClick(visibleNavItems[0]?.href || "/dashboard")}
-                className="flex items-center gap-3 overflow-hidden"
+                className="flex flex-col items-start justify-center overflow-hidden min-w-0 py-1"
               >
-                <div className="w-10 h-10 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center shrink-0 font-extrabold text-sm tracking-tight">
-                  <ShieldCheck size={22} weight="duotone" aria-hidden="true" />
-                </div>
-                <div className="truncate">
-                  <span className="block text-base font-extrabold tracking-tight text-[#202531] leading-none">
-                    TRASIR
-                  </span>
-                  <span className="block text-[11px] font-medium text-[#525866] truncate mt-1">
-                    {session.storeName}
-                  </span>
-                </div>
+                <TrasirLogo className="h-[22px] w-auto" priority />
+                <span className="block text-[11px] font-medium text-[#525866] truncate mt-1 w-full leading-tight">
+                  {session.storeName}
+                </span>
               </Link>
             )}
 
@@ -376,8 +377,8 @@ function ShellFrame({
               >
                 <List size={22} weight="bold" aria-hidden="true" />
               </button>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-extrabold text-[#202531] md:hidden">TRASIR</span>
+              <div className="flex items-center gap-2.5">
+                <TrasirLogo className="h-[18px] w-auto md:hidden" priority />
                 <span className="text-xs font-bold text-[#525866] hidden sm:inline">
                   {session.storeName}
                 </span>
@@ -443,14 +444,9 @@ function ShellFrame({
         >
           <div className="relative w-72 max-w-[85vw] bg-white h-full flex flex-col shadow-2xl">
             <div className="h-16 px-4 border-b border-[#202531]/10 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center font-extrabold text-xs">
-                  TR
-                </div>
-                <div>
-                  <p className="text-sm font-extrabold text-[#202531]">TRASIR</p>
-                  <p className="text-xs text-[#525866]">{ROLE_BADGE_LABEL[session.user.role]}</p>
-                </div>
+              <div className="flex flex-col items-start">
+                <TrasirLogo className="h-5 w-auto" />
+                <p className="text-xs text-[#525866] mt-1">{ROLE_BADGE_LABEL[session.user.role]}</p>
               </div>
               <button
                 type="button"
@@ -761,10 +757,8 @@ function StandaloneAppShell({
     return (
       <div className="min-h-screen bg-[#EBEBEB] flex items-center justify-center p-6">
         <div className="bg-white rounded-2xl border border-[#202531]/10 p-8 max-w-sm w-full text-center space-y-3">
-          <div className="w-12 h-12 rounded-2xl bg-[#202531] text-[#01DAD7] flex items-center justify-center mx-auto font-extrabold text-lg">
-            TR
-          </div>
-          <p className="text-sm font-bold text-[#202531]">Memuat Ruang Kerja TRASIR...</p>
+          <TrasirLogo className="h-7 w-auto mx-auto" priority />
+          <p className="text-sm font-bold text-[#202531]">Memuat Ruang Kerja...</p>
           <p className="text-xs text-[#525866]">Menyiapkan sesi dan data toko Anda</p>
         </div>
       </div>

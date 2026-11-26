@@ -152,8 +152,7 @@ const cachedServerSessionSnapshot =
     : computeServerSessionSnapshot;
 
 export async function getServerSessionSnapshot(): Promise<ServerSessionPayload> {
-  const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
-  if (isTestEnv) {
+  if (process.env.SESSION_REQUEST_CACHE_DISABLED === "true") {
     return computeServerSessionSnapshot();
   }
   return cachedServerSessionSnapshot();

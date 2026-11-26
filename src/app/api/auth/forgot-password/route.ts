@@ -40,7 +40,7 @@ const GENERIC_SENT_MESSAGE =
 export async function POST(request: Request) {
   try {
     await ensureSystemBaseline();
-    const ipLimit = checkRateLimit(`forgot:ip:${getClientIpKey(request)}`, 10, 15 * 60_000);
+    const ipLimit = await checkRateLimit(`forgot:ip:${getClientIpKey(request)}`, 10, 15 * 60_000);
     if (ipLimit.limited) {
       return NextResponse.json(
         { error: "Terlalu banyak permintaan atur ulang kata sandi. Coba beberapa saat lagi." },
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     }
 
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
-    const emailLimit = checkRateLimit(`forgot:email:${normalizedEmail}`, 5, 15 * 60_000);
+    const emailLimit = await checkRateLimit(`forgot:email:${normalizedEmail}`, 5, 15 * 60_000);
     if (emailLimit.limited) {
       return NextResponse.json(
         { error: "Terlalu banyak permintaan untuk email ini. Tunggu beberapa menit." },
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     });
 
     if (!user) {
-      if (process.env.NODE_ENV === "development" && process.env.VITEST !== "true") {
+      if (process.env.NODE_ENV === "development" && process.env.EMAIL_TRANSPORT !== "mock") {
         console.warn("[TRASIR DEV EMAIL] Email tidak ditemukan di database aktif:", normalizedEmail);
       }
       return NextResponse.json({ message: GENERIC_SENT_MESSAGE });

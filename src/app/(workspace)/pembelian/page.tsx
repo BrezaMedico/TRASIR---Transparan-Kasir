@@ -23,7 +23,8 @@ interface PurchaseListItem {
   purchaseDate: string;
   fundingSource: string;
   captureMethod: string;
-  receiptImageData?: string;
+  hasReceipt?: boolean;
+  receiptUrl?: string | null;
   totalAmount: number;
   aiValidationStatus: string;
   approvalStatus: string;
@@ -33,27 +34,53 @@ interface PurchaseListItem {
   reviewedBy?: { id: string; name: string; role: string } | null;
 }
 
+interface PurchaseListResponse {
+  items?: PurchaseListItem[];
+  purchases?: PurchaseListItem[];
+  nextCursor?: string | null;
+}
+
 export default function PembelianListPage() {
   const router = useRouter();
   const { showToast } = useToast();
 
-  const cachedInitial = getCachedData<{ purchases?: PurchaseListItem[] }>("/api/purchases");
-  const [purchases, setPurchases] = useState<PurchaseListItem[]>(cachedInitial?.purchases || []);
+  const cachedInitial = getCachedData<PurchaseListResponse>("/api/purchases?limit=50");
+  const [purchases, setPurchases] = useState<PurchaseListItem[]>(
+    cachedInitial?.items || cachedInitial?.purchases || []
+  );
+  const [nextCursor, setNextCursor] = useState<string | null>(cachedInitial?.nextCursor ?? null);
   const [loading, setLoading] = useState(!cachedInitial);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const buildQueryUrl = useCallback(
+    (cursor?: string | null) => {
+      const params = new URLSearchParams();
+      params.set("limit", "50");
+      if (fromDate) params.set("from", fromDate);
+      if (toDate) params.set("to", toDate);
+      if (cursor) params.set("cursor", cursor);
+      return `/api/purchases?${params.toString()}`;
+    },
+    [fromDate, toDate]
+  );
+
   const loadPurchases = useCallback(async () => {
-    const cached = getCachedData<{ purchases?: PurchaseListItem[] }>("/api/purchases");
+    const url = buildQueryUrl();
+    const cached = getCachedData<PurchaseListResponse>(url);
     if (!cached) {
       setLoading(true);
     }
     try {
-      const { ok, data } = await fetchJsonCached<{ purchases?: PurchaseListItem[] }>("/api/purchases", {
+      const { ok, data } = await fetchJsonCached<PurchaseListResponse>(url, {
         force: true,
       });
       if (ok) {
-        setPurchases(data.purchases || []);
+        setPurchases(data.items || data.purchases || []);
+        setNextCursor(data.nextCursor ?? null);
       }
     } catch {
       if (!cached) {
@@ -62,7 +89,30 @@ export default function PembelianListPage() {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [buildQueryUrl, showToast]);
+
+  const loadMorePurchases = async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(buildQueryUrl(nextCursor), { cache: "no-store" });
+      const data = (await res.json()) as PurchaseListResponse & { error?: string };
+      if (!res.ok) {
+        showToast(data.error || "Gagal memuat halaman pembelian berikutnya.", "error");
+        return;
+      }
+      const incoming = data.items || data.purchases || [];
+      setPurchases((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        return [...prev, ...incoming.filter((p) => !seen.has(p.id))];
+      });
+      setNextCursor(data.nextCursor ?? null);
+    } catch {
+      showToast("Gagal memuat halaman pembelian berikutnya.", "error");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   useEffect(() => {
     loadPurchases();
@@ -158,22 +208,50 @@ export default function PembelianListPage() {
                   ))}
                 </div>
 
-                {/* Search */}
-                <div className="relative w-full md:w-72">
-                  <MagnifyingGlass
-                    size={16}
-                    weight="bold"
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#525866]"
-                    aria-hidden="true"
+                {/* Search & Date Range */}
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <input
+                    type="date"
+                    aria-label="Filter tanggal pembelian mulai"
+                    value={fromDate}
+                    onChange={(e) => setFromDate(e.target.value)}
+                    className="px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-semibold text-[#202531] bg-[#F8FAFC] focus:bg-white"
                   />
                   <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Cari nomor nota, pemasok, pegawai..."
-                    aria-label="Cari pembelian"
-                    className="w-full pl-9 pr-3.5 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-medium text-[#202531] bg-[#F8FAFC] focus:bg-white"
+                    type="date"
+                    aria-label="Filter tanggal pembelian akhir"
+                    value={toDate}
+                    onChange={(e) => setToDate(e.target.value)}
+                    className="px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-semibold text-[#202531] bg-[#F8FAFC] focus:bg-white"
                   />
+                  {(fromDate || toDate) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFromDate("");
+                        setToDate("");
+                      }}
+                      className="px-3 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-bold text-[#525866] hover:bg-[#EBEBEB] cursor-pointer"
+                    >
+                      Reset Tanggal
+                    </button>
+                  )}
+                  <div className="relative flex-1 md:flex-none md:w-64">
+                    <MagnifyingGlass
+                      size={16}
+                      weight="bold"
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#525866]"
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Cari nomor nota, pemasok, pegawai..."
+                      aria-label="Cari pembelian"
+                      className="w-full pl-9 pr-3.5 py-2 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-medium text-[#202531] bg-[#F8FAFC] focus:bg-white"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -336,6 +414,22 @@ export default function PembelianListPage() {
                       );
                     })}
                   </div>
+                  {/* Cursor Load More */}
+                  {nextCursor && (
+                    <div className="px-4 py-3.5 border-t border-[#202531]/10 bg-[#F8FAFC] flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium text-[#525866]">
+                        Menampilkan {purchases.length} pembelian terbaru
+                      </span>
+                      <button
+                        type="button"
+                        onClick={loadMorePurchases}
+                        disabled={loadingMore}
+                        className="px-4 py-2 min-h-[40px] rounded-xl border border-[#202531]/20 bg-white text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] disabled:opacity-50 cursor-pointer"
+                      >
+                        {loadingMore ? "Memuat..." : "Muat Lebih Banyak"}
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>

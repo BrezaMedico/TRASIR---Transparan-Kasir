@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { canViewFinancials } from "@/lib/rbac";
-import { parseShiftEnvelope } from "@/lib/shift-session";
 import { DEFAULT_COUNTER_ID, DEFAULT_COUNTER_NAME } from "@/lib/counters";
 import {
   addJakartaDays,
@@ -144,14 +144,15 @@ export async function GET(request: Request) {
           session: { select: { title: true, createdAt: true } },
         },
       }),
-      prisma.shiftClosing.findMany({
+      prisma.shift.findMany({
         where: {
           roomId: user.roomId,
           status: { not: "AKTIF" },
           createdAt: { gte: startDate, lte: endDate },
         },
         include: {
-          cashier: { select: { id: true, name: true, username: true, role: true } },
+          user: { select: { id: true, name: true, username: true, role: true } },
+          counter: { select: { slug: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
         take: 100,
@@ -449,31 +450,48 @@ export async function GET(request: Request) {
       (a, b) => b.discrepancyFrequency - a.discrepancyFrequency || b.totalLossRp - a.totalLossRp
     );
 
+    const parseJsonField = <T,>(raw: string | null | undefined, fallback: T): T => {
+      if (!raw) return fallback;
+      try {
+        return JSON.parse(raw) as T;
+      } catch {
+        return fallback;
+      }
+    };
+
     const shiftAudits = shiftClosingsRaw.map((row) => {
-      const env = parseShiftEnvelope(row.notes);
-      const openingCashTotal = env?.openingCashTotal ?? 0;
-      const operationalExpenseTotal = env?.operationalExpenseTotal ?? 0;
+      const openingCashTotal = row.openingCashTotal;
+      const operationalExpenseTotal = row.operationalExpenseTotal;
       const expectedCashAtClose =
-        env?.expectedCashAtClose ??
+        row.expectedCashAtClose ??
         openingCashTotal + row.systemCashTotal - operationalExpenseTotal;
-      const cashDifference = env?.closingCashDifference ?? row.cashDifference;
+      const cashDifference = row.cashDifference;
       const systemDigitalTotal =
         row.systemQrisTotal + row.systemTransferTotal + row.systemCardTotal;
 
       return {
         id: row.id,
-        counterId: env?.counterId || DEFAULT_COUNTER_ID,
-        counterName: env?.counterName || DEFAULT_COUNTER_NAME,
-        openedAt: env?.openedAt ?? row.shiftDate.toISOString(),
-        closedAt: env?.closedAt ?? row.createdAt.toISOString(),
-        cashier: row.cashier,
+        counterId: row.counter?.slug || row.counterSlug || DEFAULT_COUNTER_ID,
+        counterName: row.counter?.name || row.counterName || DEFAULT_COUNTER_NAME,
+        openedAt: row.openedAt.toISOString(),
+        closedAt: (row.closedAt ?? row.updatedAt).toISOString(),
+        cashier: row.user,
         status: row.status,
         openingCashTotal,
-        openingDenominations: env?.openingDenominations ?? null,
-        openingNote: env?.openingNote ?? null,
-        closingDenominations: env?.closingDenominations ?? null,
-        closingNote: env?.closingNote ?? (!env && row.notes ? row.notes : null),
-        operationalExpenses: env?.operationalExpenses ?? [],
+        openingDenominations: parseJsonField<Record<string, number> | null>(
+          row.openingDenominationsJson,
+          null
+        ),
+        openingNote: row.openingNote ?? null,
+        closingDenominations: parseJsonField<Record<string, number> | null>(
+          row.closingDenominationsJson,
+          null
+        ),
+        closingNote: row.closingNote ?? null,
+        operationalExpenses: parseJsonField<Array<{ id: string; note: string; amount: number }>>(
+          row.operationalExpensesJson,
+          []
+        ),
         operationalExpenseTotal,
         systemTxCount: row.systemTxCount,
         systemCashTotal: row.systemCashTotal,
@@ -483,11 +501,11 @@ export async function GET(request: Request) {
         systemDigitalTotal,
         systemGrandTotal: row.systemGrandTotal,
         expectedCashAtClose,
-        actualCashTotal: row.actualCashTotal,
+        actualCashTotal: row.closingCashTotal ?? 0,
         cashDifference,
-        handoverSyncStatus: env?.handoverSyncStatus ?? "SHIFT_PERTAMA",
-        handoverDifference: env?.handoverDifference ?? 0,
-        previousShiftClosingCash: env?.previousShiftClosingCash ?? null,
+        handoverSyncStatus: row.handoverSyncStatus ?? "SHIFT_PERTAMA",
+        handoverDifference: row.handoverDifference ?? 0,
+        previousShiftClosingCash: row.previousShiftClosingCash ?? null,
       };
     });
 
@@ -519,7 +537,6 @@ export async function GET(request: Request) {
       purchasesHistory: approvedPurchases,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat laporan keuangan.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/reports", "Gagal memuat laporan keuangan.");
   }
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { requireAssignedUser } from "@/lib/auth";
 import { isStoreAdmin } from "@/lib/rbac";
 import { prisma, withDbRetry } from "@/lib/prisma";
@@ -40,7 +41,6 @@ export async function GET() {
         pendingProductRequests + pendingPurchases + pendingAmendments + pendingAdjustments,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat ringkasan antrean.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/actions", "Gagal memuat ringkasan antrean.");
   }
 }

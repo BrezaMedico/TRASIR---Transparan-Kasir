@@ -4,19 +4,18 @@ import { hashPassword } from "@/lib/auth";
 import { validateResetTokenAgainstDb } from "@/lib/password-reset";
 import { recordAuditLog } from "@/lib/audit";
 import { checkRateLimit, getClientIpKey } from "@/lib/rate-limit";
+import { strongPasswordSchema } from "@/lib/password-policy";
+import { handleApiError } from "@/lib/api-error";
 import { z } from "zod";
 
 const resetSchema = z.object({
   token: z.string().min(1, "Token atur ulang kata sandi wajib disertakan."),
-  newPassword: z
-    .string()
-    .min(6, "Kata sandi baru minimal 6 karakter.")
-    .max(128, "Kata sandi baru maksimal 128 karakter."),
+  newPassword: strongPasswordSchema,
 });
 
 export async function GET(request: Request) {
   try {
-    const ipLimit = checkRateLimit(`reset-pwd:get:${getClientIpKey(request)}`, 20, 15 * 60_000);
+    const ipLimit = await checkRateLimit(`reset-pwd:get:${getClientIpKey(request)}`, 20, 15 * 60_000);
     if (ipLimit.limited) {
       return NextResponse.json(
         { valid: false, error: "Terlalu banyak percobaan verifikasi tautan. Coba lagi nanti." },
@@ -52,7 +51,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const ipLimit = checkRateLimit(`reset-pwd:post:${getClientIpKey(request)}`, 20, 15 * 60_000);
+    const ipLimit = await checkRateLimit(`reset-pwd:post:${getClientIpKey(request)}`, 20, 15 * 60_000);
     if (ipLimit.limited) {
       return NextResponse.json(
         { error: "Terlalu banyak percobaan atur ulang kata sandi. Coba beberapa saat lagi." },
@@ -81,6 +80,7 @@ export async function POST(request: Request) {
         data: {
           passwordHash: nextHash,
           tokenVersion: { increment: 1 },
+          mustChangePassword: false,
         },
       });
 
@@ -106,8 +106,7 @@ export async function POST(request: Request) {
       message: "Kata sandi berhasil diperbarui. Silakan masuk menggunakan kata sandi baru Anda.",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memperbarui kata sandi.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "POST /api/auth/reset-password", "Gagal memperbarui kata sandi.");
   }
 }
 

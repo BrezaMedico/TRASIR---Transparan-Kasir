@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { handleApiError } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
@@ -120,8 +121,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ requests, pendingCount, pendingBatchCount });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat daftar pengajuan produk.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/product-requests", "Gagal memuat daftar pengajuan produk.");
   }
 }
 
@@ -531,8 +531,7 @@ export async function POST(request: Request) {
       { status: 202 }
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal mengirim paket pengajuan produk.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/product-requests", "Gagal mengirim paket pengajuan produk.");
   }
 }
 
@@ -702,7 +701,6 @@ export async function DELETE(request: Request) {
       message: "Pengajuan berhasil dihapus untuk semua pengguna.",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal menghapus pengajuan produk.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/product-requests", "Gagal menghapus pengajuan produk.");
   }
 }

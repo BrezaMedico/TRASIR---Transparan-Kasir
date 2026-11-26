@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { isStoreAdmin } from "@/lib/rbac";
@@ -168,7 +169,6 @@ export async function PATCH(request: Request) {
       leadRequestId: leadRow.id,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memperbarui lampiran nota.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/product-requests/receipt", "Gagal memperbarui lampiran nota.");
   }
 }

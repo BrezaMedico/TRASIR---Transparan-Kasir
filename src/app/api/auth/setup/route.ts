@@ -17,13 +17,15 @@ import {
   validateUsername,
 } from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
+import { strongPasswordSchema } from "@/lib/password-policy";
+import { handleApiError } from "@/lib/api-error";
 import { z } from "zod";
 
 const firstSetupSchema = z.object({
   name: z.string().min(2, "Nama lengkap minimal 2 karakter"),
   username: z.string().min(3, "Username minimal 3 karakter"),
   email: z.string().email("Format email tidak valid"),
-  password: z.string().min(6, "Kata sandi minimal 6 karakter"),
+  password: strongPasswordSchema,
   storeName: z.string().min(2, "Nama ruangan / toko minimal 2 karakter").optional(),
   storeAddress: z.string().optional(),
 });
@@ -267,7 +269,6 @@ export async function POST(request: Request) {
     attachSessionCookie(res, token);
     return res;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal melakukan inisialisasi sistem.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/auth/setup", "Gagal melakukan inisialisasi sistem.");
   }
 }

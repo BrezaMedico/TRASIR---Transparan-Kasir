@@ -9,6 +9,8 @@ import {
 } from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
 import { checkRateLimit, getClientIpKey } from "@/lib/rate-limit";
+import { isPasswordPolicyCompliant } from "@/lib/password-policy";
+import { handleApiError } from "@/lib/api-error";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
     }
 
     const identifier = parsed.data.identifier.trim().toLowerCase();
-    const rateCheck = checkRateLimit(
+    const rateCheck = await checkRateLimit(
       `login:${getClientIpKey(request)}:${identifier}`,
       15,
       5 * 60_000
@@ -74,10 +76,18 @@ export async function POST(request: Request) {
       );
     }
 
+    const needsPasswordUpgrade =
+      Boolean(user.mustChangePassword) || !isPasswordPolicyCompliant(parsed.data.password);
+
     await Promise.all([
       prisma.user.update({
         where: { id: user.id },
-        data: { lastLoginAt: new Date() },
+        data: {
+          lastLoginAt: new Date(),
+          ...(needsPasswordUpgrade && !user.mustChangePassword
+            ? { mustChangePassword: true }
+            : {}),
+        },
       }),
       recordAuditLog({
         roomId: user.roomId,
@@ -104,21 +114,27 @@ export async function POST(request: Request) {
       isAssigned,
       roomId: user.roomId,
       tokenVersion: user.tokenVersion,
+      mustChangePassword: needsPasswordUpgrade,
     };
 
     const token = await createSessionToken(sessionUser);
     const permissions = isAssigned ? await getRolePermissionsMap(role) : null;
-    const redirectTo = getDefaultRedirectForRole(role, isAssigned);
+    const defaultRedirect = getDefaultRedirectForRole(role, isAssigned);
+    const redirectTo =
+      needsPasswordUpgrade && isAssigned
+        ? "/pengaturan?tab=lanjutan&forcePasswordChange=1"
+        : defaultRedirect;
 
     const res = NextResponse.json({
       user: sessionUser,
       permissions,
       redirectTo,
+      mustChangePassword: needsPasswordUpgrade,
     });
 
     attachSessionCookie(res, token);
     return res;
-  } catch {
-    return NextResponse.json({ error: "Gagal memproses autentikasi." }, { status: 500 });
+  } catch (err) {
+    return handleApiError(err, "POST /api/auth/login", "Gagal memproses autentikasi.");
   }
 }

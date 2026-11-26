@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { isStoreAdmin } from "@/lib/rbac";
@@ -86,6 +87,7 @@ export async function PATCH(request: Request) {
         where: { id: existing.id },
         data: {
           receiptImageData: trimmedReceipt,
+          receiptUrl: null,
           receiptHash,
           captureMethod: resolvedCaptureMethod,
           aiValidationStatus: nextAiStatus,
@@ -140,7 +142,6 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ purchase: updated });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memperbarui lampiran nota.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/purchases/receipt", "Gagal memperbarui lampiran nota.");
   }
 }

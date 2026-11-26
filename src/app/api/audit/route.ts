@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
@@ -87,8 +88,7 @@ export async function GET(request: Request) {
       isRestrictedStaff,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat log aktivitas.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/audit", "Gagal memuat log aktivitas.");
   }
 }
 
@@ -135,7 +135,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Action tidak valid" }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memperbarui status notifikasi.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/audit", "Gagal memperbarui status notifikasi.");
   }
 }

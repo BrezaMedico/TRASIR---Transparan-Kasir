@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
@@ -123,8 +124,7 @@ export async function GET() {
       opnameSchedule: room?.opnameSchedule ?? "MINGGUAN",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat data inventaris.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/inventory", "Gagal memuat data inventaris.");
   }
 }
 
@@ -722,13 +722,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Action tidak valid" }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memproses operasi inventaris.";
+    const message = err instanceof Error ? err.message : "";
     if (message.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: message.slice(10) }, { status: 404 });
     }
     if (message.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: message.slice(9) }, { status: 409 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/inventory", "Gagal memproses operasi inventaris.");
   }
 }

@@ -3,6 +3,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
+import { TrasirLogo } from "@/components/ui/TrasirLogo";
 import { HeroDiorama3D } from "./diorama/HeroDiorama3D";
 import { getDefaultRedirectForRole, isStoreAdmin } from "@/lib/rbac-shared";
 
@@ -387,30 +388,9 @@ export function LandingPage({
           <a
             ref={brandRef}
             href="#top"
-            className="landing-brand inline-flex min-h-[44px] items-center gap-3 rounded-lg pr-2 text-[#111827] cursor-pointer"
+            className="landing-brand inline-flex min-h-[44px] items-center rounded-lg pr-2 cursor-pointer"
           >
-            <span
-              className="inline-flex h-10 w-10 items-center justify-center rounded-[13px] bg-[#202531] text-[#01DAD7]"
-              aria-hidden="true"
-            >
-              <svg
-                width="21"
-                height="21"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 3.5 19 7.5 12 11.5 5 7.5 12 3.5Z" />
-                <path d="M5 12 12 16 19 12" />
-                <path d="M5 16.5 12 20.5 19 16.5" />
-              </svg>
-            </span>
-            <span className="text-[1.35rem] font-semibold tracking-[-0.03em] text-[#111827]">
-              TRASIR
-            </span>
+            <TrasirLogo className="h-7 sm:h-8 w-auto" priority />
           </a>
 
           <nav ref={navRef} aria-label="Utama" className="landing-nav flex items-center">
@@ -909,8 +889,8 @@ export function LandingPage({
       {/* Clean 1-Row Footer */}
       <footer className="border-t border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-6 text-xs text-[#475569] sm:flex-row sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2 font-semibold text-[#0F172A]">
-            <span>TRASIR</span>
+          <div className="flex items-center gap-2.5 font-semibold text-[#0F172A]">
+            <TrasirLogo className="h-4 w-auto" />
             <span className="text-slate-300" aria-hidden="true">|</span>
             <span className="font-normal text-[#475569]">Transparan Kasir</span>
           </div>

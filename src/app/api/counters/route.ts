@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
@@ -42,8 +43,7 @@ export async function GET() {
     const counters = await getRoomCountersWithLiveStatus(user.roomId);
     return NextResponse.json({ counters });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat daftar loket.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/counters", "Gagal memuat daftar loket.");
   }
 }
 
@@ -119,11 +119,11 @@ export async function POST(request: Request) {
     const counters = await getRoomCountersWithLiveStatus(user.roomId);
     return NextResponse.json({ counter: result, counters }, { status: 201 });
   } catch (err) {
-    const raw = err instanceof Error ? err.message : "Gagal menambah loket.";
+    const raw = err instanceof Error ? err.message : "";
     if (raw.startsWith("LIMIT:") || raw.startsWith("DUP:")) {
       return NextResponse.json({ error: raw.slice(raw.indexOf(":") + 1) }, { status: 400 });
     }
-    return NextResponse.json({ error: raw }, { status: 500 });
+    return handleApiError(err, "/api/counters", "Gagal menambah loket.");
   }
 }
 
@@ -204,7 +204,7 @@ export async function DELETE(request: Request) {
     const counters = await getRoomCountersWithLiveStatus(user.roomId);
     return NextResponse.json({ counters });
   } catch (err) {
-    const raw = err instanceof Error ? err.message : "Gagal menghapus loket.";
+    const raw = err instanceof Error ? err.message : "";
     if (raw.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: raw.slice(10) }, { status: 404 });
     }
@@ -214,7 +214,7 @@ export async function DELETE(request: Request) {
     if (raw.startsWith("MIN:")) {
       return NextResponse.json({ error: raw.slice(4) }, { status: 400 });
     }
-    return NextResponse.json({ error: raw }, { status: 500 });
+    return handleApiError(err, "/api/counters", "Gagal menghapus loket.");
   }
 }
 

@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const rawCode = searchParams.get("code") || "";
     const clientIp = getClientIpKey(request);
 
-    if (checkRateLimit(`invite-verify:${clientIp}`, 40, 60_000).limited) {
+    if ((await checkRateLimit(`invite-verify:${clientIp}`, 40, 60_000)).limited) {
       return NextResponse.json(
         { valid: false, error: "Terlalu banyak percobaan verifikasi. Coba lagi sebentar lagi." },
         { status: 429 }

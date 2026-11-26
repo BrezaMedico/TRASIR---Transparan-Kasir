@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma, withDbRetry } from "@/lib/prisma";
 import { getCurrentSessionUser, requireAssignedUser } from "@/lib/auth";
 import {
@@ -14,9 +15,10 @@ import { z } from "zod";
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_ATTEMPTS = 40;
 
-function isRateLimited(actorId: string): boolean {
-  return checkRateLimit(`invite:${actorId}`, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_MS)
-    .limited;
+async function isRateLimited(actorId: string): Promise<boolean> {
+  return (
+    await checkRateLimit(`invite:${actorId}`, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_MS)
+  ).limited;
 }
 
 const createInvitationSchema = z.object({
@@ -39,10 +41,11 @@ export async function GET() {
 
     // Pemilik / Manajer aktif melihat seluruh undangan ruangan mereka sendiri
     if (user.isAssigned && user.roomId && isStoreAdmin(user.role)) {
+      const adminRoomId = user.roomId;
       await withDbRetry(() =>
         prisma.storeInvitation.updateMany({
           where: {
-            roomId: user.roomId,
+            roomId: adminRoomId,
             status: "PENDING",
             expiresAt: { lte: now },
           },
@@ -52,7 +55,7 @@ export async function GET() {
 
       const invitations = await withDbRetry(() =>
         prisma.storeInvitation.findMany({
-          where: { roomId: user.roomId },
+          where: { roomId: adminRoomId },
           include: {
             targetUser: {
               select: { id: true, name: true, username: true, role: true, isAssigned: true },
@@ -107,8 +110,7 @@ export async function GET() {
       { status: 403 }
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat daftar undangan.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/invitations", "Gagal memuat daftar undangan.");
   }
 }
 
@@ -125,7 +127,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (isRateLimited(user.id)) {
+    if (await isRateLimited(user.id)) {
       return NextResponse.json(
         { error: "Terlalu banyak permintaan undangan dalam 1 menit. Coba beberapa saat lagi." },
         { status: 429 }
@@ -383,10 +385,10 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : "Gagal membuat undangan.";
+    const rawMsg = err instanceof Error ? err.message : "";
     if (rawMsg.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: rawMsg.replace("CONFLICT:", "") }, { status: 409 });
     }
-    return NextResponse.json({ error: rawMsg }, { status: 500 });
+    return handleApiError(err, "/api/invitations", "Gagal membuat undangan.");
   }
 }

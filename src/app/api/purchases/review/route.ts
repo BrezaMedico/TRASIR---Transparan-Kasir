@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { handleApiError } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
@@ -235,10 +236,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ purchase: updated });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memproses keputusan pembelian.";
+    const message = err instanceof Error ? err.message : "";
     if (message.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: message.slice(9) }, { status: 400 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/purchases/review", "Gagal memproses keputusan pembelian.");
   }
 }

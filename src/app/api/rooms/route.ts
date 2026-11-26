@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { attachSessionCookie, createSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import {
@@ -122,8 +123,7 @@ export async function POST(request: Request) {
     attachSessionCookie(res, token);
     return res;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal membuat ruangan baru.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/rooms", "Gagal membuat ruangan baru.");
   }
 }
 

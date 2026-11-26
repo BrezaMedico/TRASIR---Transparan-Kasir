@@ -66,16 +66,20 @@ export function ReceiptViewer({
   }, [lightboxOpen]);
 
   const hasReceipt = Boolean(receiptImageData && receiptImageData.trim().length > 10);
-  const isPdf = Boolean(receiptImageData?.startsWith("data:application/pdf"));
+  const isPdf = Boolean(
+    receiptImageData?.startsWith("data:application/pdf") ||
+      /\.pdf(\?|$)/i.test(receiptImageData || "")
+  );
 
   const pdfBlobUrl = useMemo(() => {
     if (!hasReceipt || !isPdf || !receiptImageData) return null;
+    if (/^https?:\/\//i.test(receiptImageData)) return receiptImageData;
     return dataUrlToBlobUrl(receiptImageData);
   }, [hasReceipt, isPdf, receiptImageData]);
 
   useEffect(() => {
     return () => {
-      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+      if (pdfBlobUrl && pdfBlobUrl.startsWith("blob:")) URL.revokeObjectURL(pdfBlobUrl);
     };
   }, [pdfBlobUrl]);
 

@@ -18,6 +18,7 @@ model Room {
   opnameSchedule       String    @default("MINGGUAN") // HARIAN | MINGGUAN | BULANAN
   openAreaPolicy       String    @default("Evaluasi faktor eksternal (pelanggan/kerusakan fisik) sebelum tindak lanjut internal.")
   closedAreaPolicy     String    @default("Evaluasi ketat berbasis log akses pegawai, bukti foto, dan kronologi shift.")
+  // @deprecated Gunakan tabel BackupLog untuk status backup nyata (tidak dihapus demi kompatibilitas)
   autoBackupInterval   String    @default("HARIAN") // HARIAN | MINGGUAN | NONAKTIF
   lastBackupAt         DateTime?
   createdAt            DateTime  @default(now())
@@ -37,6 +38,9 @@ model Room {
   invitations          StoreInvitation[]
   notifications        Notification[]
   auditLogs            AuditLog[]
+  backupLogs           BackupLog[]
+  counters             Counter[]
+  shifts               Shift[]
 }
 
 model User {
@@ -48,10 +52,11 @@ model User {
   role         String    @default("KASIR") // PEMILIK | MANAJER | KASIR | GUDANG | KASIR_GUDANG
   isActive     Boolean   @default(true)
   isAssigned   Boolean   @default(true)
-  roomId       String?
-  room         Room?     @relation(fields: [roomId], references: [id])
-  tokenVersion Int       @default(1)
-  lastLoginAt  DateTime?
+  roomId             String?
+  room               Room?     @relation(fields: [roomId], references: [id])
+  tokenVersion       Int       @default(1)
+  mustChangePassword Boolean   @default(false)
+  lastLoginAt        DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -61,6 +66,7 @@ model User {
   amendmentsReq            SaleAmendment[]      @relation("AmendmentRequester")
   amendmentsRev            SaleAmendment[]      @relation("AmendmentReviewer")
   shiftClosings            ShiftClosing[]       @relation("ShiftCashier")
+  shifts                   Shift[]              @relation("ShiftUser")
   adjustmentsReq           StockAdjustment[]    @relation("AdjustmentRequester")
   adjustmentsRev           StockAdjustment[]    @relation("AdjustmentReviewer")
   opnamesCreated           StockOpnameSession[] @relation("OpnameCreator")
@@ -78,8 +84,8 @@ model User {
 
 model StoreInvitation {
   id             String    @id @default(cuid())
-  roomId         String?
-  room           Room?     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId         String
+  room           Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
   storeName      String    @default("TRASIR Toko Utama")
   code           String?   @unique
   targetUserId   String?
@@ -122,8 +128,8 @@ model Unit {
 
 model Category {
   id              String           @id @default(cuid())
-  roomId          String?
-  room            Room?            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId          String
+  room            Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
   name            String
   areaType        String           @default("TERBUKA") // TERBUKA | TERTUTUP
   description     String?
@@ -138,8 +144,8 @@ model Category {
 
 model Warehouse {
   id          String               @id @default(cuid())
-  roomId      String?
-  room        Room?                @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId      String
+  room        Room                 @relation(fields: [roomId], references: [id], onDelete: Cascade)
   name        String
   location    String?
   isDefault   Boolean              @default(false)
@@ -155,8 +161,8 @@ model Warehouse {
 
 model Product {
   id              String   @id @default(cuid())
-  roomId          String?
-  room            Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId          String
+  room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   sku             String
   barcode         String?
   name            String
@@ -260,14 +266,16 @@ model ProductStock {
 
 model Purchase {
   id                  String         @id @default(cuid())
-  roomId              String?
-  room                Room?          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId              String
+  room                Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
   invoiceNumber       String
   supplierName        String
   purchaseDate        DateTime
   fundingSource       String         @default("DANA_TOKO") // DANA_TOKO | BELANJA_PEMILIK
   captureMethod       String         @default("LIVE_CAMERA") // LIVE_CAMERA | DIGITAL_UPLOAD
-  receiptImageData    String         // Base64 / Data URL bukti nota
+  /// @deprecated Gunakan receiptUrl (object storage) setelah migrasi foto nota selesai.
+  receiptImageData    String         // Base64 / Data URL bukti nota (legacy / pre-migration)
+  receiptUrl          String?        // URL object storage (Vercel Blob) bukti nota
   receiptHash         String?        // Hash untuk mendeteksi unggahan file nota ganda
   totalAmount         Int            // Total nilai pembelian yang diinput pegawai (Rupiah)
   aiValidationStatus  String         @default("PENDING") // PENDING | SESUAI | ADA_SELISIH | NOTA_GANDA | TERINDIKASI_EDIT
@@ -288,6 +296,8 @@ model Purchase {
   items               PurchaseItem[]
 
   @@index([roomId, approvalStatus, createdAt])
+  @@index([roomId, createdAt, id])
+  @@index([roomId, purchaseDate])
 }
 
 model PurchaseItem {
@@ -313,11 +323,15 @@ model PurchaseItem {
 
 model Sale {
   id             String          @id @default(cuid())
-  roomId         String?
-  room           Room?           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId         String
+  room           Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
   receiptNumber  String          @unique
   cashierId      String
   cashier        User            @relation("SaleCashier", fields: [cashierId], references: [id])
+  shiftId        String?
+  shift          Shift?          @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  counterId      String?
+  counter        Counter?        @relation(fields: [counterId], references: [id], onDelete: SetNull)
   paymentMethod  String          @default("TUNAI") // TUNAI | QRIS | TRANSFER | KARTU
   discountAmount Int             @default(0) // Diskon transaksi (Rupiah)
   totalAmount    Int             // Total penjualan bersih setelah diskon (Rupiah)
@@ -333,7 +347,11 @@ model Sale {
   amendments     SaleAmendment[]
 
   @@index([roomId, createdAt])
+  @@index([roomId, createdAt, id])
   @@index([roomId, status, createdAt])
+  @@index([roomId, cashierId, createdAt])
+  @@index([shiftId])
+  @@index([counterId])
 }
 
 model SaleItem {
@@ -355,8 +373,8 @@ model SaleItem {
 
 model SaleAmendment {
   id              String    @id @default(cuid())
-  roomId          String?
-  room            Room?     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId          String
+  room            Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
   saleId          String
   sale            Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
   amendmentType   String    // PEMBATALAN | RETUR | PERUBAHAN
@@ -377,10 +395,11 @@ model SaleAmendment {
   @@index([saleId, status])
 }
 
+// @deprecated Dipertahankan untuk kompatibilitas historis (tidak dihapus). Gunakan model Shift sungguhan.
 model ShiftClosing {
   id                  String   @id @default(cuid())
-  roomId              String?
-  room                Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId              String
+  room                Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   cashierId           String
   cashier             User     @relation("ShiftCashier", fields: [cashierId], references: [id])
   shiftDate           DateTime @default(now())
@@ -402,10 +421,72 @@ model ShiftClosing {
   @@index([roomId, createdAt])
 }
 
+model Counter {
+  id        String   @id @default(cuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  slug      String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shifts    Shift[]
+  sales     Sale[]
+
+  @@unique([roomId, slug])
+  @@index([roomId, isActive])
+}
+
+model Shift {
+  id                       String    @id @default(cuid())
+  roomId                   String
+  room                     Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId                   String
+  user                     User      @relation("ShiftUser", fields: [userId], references: [id])
+  counterId                String?
+  counter                  Counter?  @relation(fields: [counterId], references: [id], onDelete: SetNull)
+  counterSlug              String    @default("loket-1")
+  counterName              String    @default("Loket 1")
+  openedAt                 DateTime  @default(now())
+  closedAt                 DateTime?
+  status                   String    @default("AKTIF") // AKTIF | SESUAI | DALAM_TOLERANSI | PERLU_DIPERIKSA | TERCATAT
+  openingCashTotal         Int       @default(0)
+  closingCashTotal         Int?
+  actualDigitalTotal       Int       @default(0)
+  operationalExpenseTotal  Int       @default(0)
+  expectedCashAtClose      Int?
+  cashDifference           Int       @default(0)
+  systemTxCount            Int       @default(0)
+  systemCashTotal          Int       @default(0)
+  systemQrisTotal          Int       @default(0)
+  systemTransferTotal      Int       @default(0)
+  systemCardTotal          Int       @default(0)
+  systemGrandTotal         Int       @default(0)
+  openingDenominationsJson String?
+  closingDenominationsJson String?
+  operationalExpensesJson  String?
+  openingNote              String?
+  closingNote              String?
+  previousShiftId          String?
+  previousShiftClosingCash Int?
+  handoverSyncStatus       String    @default("SHIFT_PERTAMA")
+  handoverDifference       Int       @default(0)
+  legacyShiftClosingId     String?   @unique
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  sales                    Sale[]
+
+  @@index([roomId, status, openedAt])
+  @@index([roomId, userId, status])
+  @@index([roomId, counterId, status])
+}
+
 model StockAdjustment {
   id              String     @id @default(cuid())
-  roomId          String?
-  room            Room?      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId          String
+  room            Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
   productId       String
   product         Product    @relation(fields: [productId], references: [id])
   adjustmentType  String     // RUSAK | KEDALUWARSA | HILANG | DIKEMBALIKAN | PINDAH_GUDANG
@@ -430,8 +511,8 @@ model StockAdjustment {
 
 model StockOpnameSession {
   id                 String            @id @default(cuid())
-  roomId             String?
-  room               Room?             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId             String
+  room               Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
   title              String
   scheduleType       String            @default("MINGGUAN") // HARIAN | MINGGUAN | BULANAN | INSIDENTAL
   warehouseId        String?
@@ -474,8 +555,8 @@ model StockOpnameItem {
 
 model Notification {
   id         String   @id @default(cuid())
-  roomId     String?
-  room       Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId     String
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   title      String
   message    String
   severity   String   @default("INFO") // INFO | WARNING | CRITICAL
@@ -513,12 +594,56 @@ model AuditLog {
   @@index([roomId, createdAt])
 }
 
+model BackupLog {
+  id           String   @id @default(cuid())
+  roomId       String
+  room         Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  triggerType  String   @default("CRON") // CRON | MANUAL
+  status       String   // SUCCESS | FAILED
+  sizeBytes    Int      @default(0)
+  storageUrl   String?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([roomId, createdAt])
+  @@index([roomId, triggerType, status, createdAt])
+}
+
+model RateLimitEntry {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  count     Int      @default(1)
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+}
+
+model OtpChallenge {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  codeHash    String?
+  purpose     String    @default("email-change")
+  userId      String?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  expiresAt   DateTime
+  lockedUntil DateTime?
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([expiresAt])
+  @@index([userId, purpose])
+}
+
 model SystemSetting {
   id                   String    @id @default("default")
   storeName            String    @default("TRASIR Toko Utama")
   storeAddress         String    @default("Jakarta, Indonesia")
   toleranceThresholdRp Int       @default(50000)
   opnameSchedule       String    @default("MINGGUAN")
+  // @deprecated Daftar loket kini disimpan di tabel Counter (kolom dipertahankan untuk kompatibilitas mundur)
   openAreaPolicy       String    @default("Evaluasi faktor eksternal (pelanggan/kerusakan fisik) sebelum tindak lanjut internal.")
   closedAreaPolicy     String    @default("Evaluasi ketat berbasis log akses pegawai, bukti foto, dan kronologi shift.")
   autoBackupInterval   String    @default("HARIAN")

@@ -1,0 +1,61 @@
+name: TRASIR CI (PostgreSQL Integration & Quality Gate)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: trasir_test
+          POSTGRES_PASSWORD: trasir_test_password
+          POSTGRES_DB: trasir_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U trasir_test -d trasir_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      TEST_DATABASE_URL: postgresql://trasir_test:trasir_test_password@127.0.0.1:5432/trasir_test
+      DATABASE_URL: postgresql://trasir_test:trasir_test_password@127.0.0.1:5432/trasir_test
+      DIRECT_URL: postgresql://trasir_test:trasir_test_password@127.0.0.1:5432/trasir_test
+      AUTH_SECRET: ci-test-auth-secret-minimum-32-chars-ok
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run db:generate
+
+      - name: Verify API route count matches README
+        run: npm run routes:check
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: ESLint check
+        run: npm run lint
+
+      - name: Run full unit & integration suite against PostgreSQL 16
+        run: npm test
+
+      - name: Verify Next.js production build
+        run: npm run build

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { attachSessionCookie, createSessionToken, getCurrentSessionUser } from "@/lib/auth";
 import {
@@ -192,7 +193,7 @@ export async function POST(request: Request) {
     attachSessionCookie(res, token);
     return res;
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : "Gagal bergabung ke ruangan.";
+    const rawMsg = err instanceof Error ? err.message : "";
     if (rawMsg.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: rawMsg.replace("NOT_FOUND:", "") }, { status: 404 });
     }
@@ -205,7 +206,7 @@ export async function POST(request: Request) {
     if (rawMsg.startsWith("INVALID:")) {
       return NextResponse.json({ error: rawMsg.replace("INVALID:", "") }, { status: 400 });
     }
-    return NextResponse.json({ error: rawMsg }, { status: 500 });
+    return handleApiError(err, "/api/invitations/join", "Gagal bergabung ke ruangan.");
   }
 }
 

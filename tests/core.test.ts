@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { prisma } from "../src/lib/prisma";
 import { deductStockForSaleItem, restoreStockForSaleItem } from "../src/lib/inventory";
 import {
@@ -41,6 +41,12 @@ import {
   markOtpTokenConsumed,
   recordOtpFailedAttempt,
 } from "../src/lib/rate-limit";
+import {
+  isPasswordPolicyCompliant,
+  strongPasswordSchema,
+} from "../src/lib/password-policy";
+import { AppError, handleApiError } from "../src/lib/api-error";
+import nextConfig from "../next.config";
 import { recordAuditLog } from "../src/lib/audit";
 import {
   formatActionTypeLabel,
@@ -74,6 +80,14 @@ import {
   formatCompactRupiahAxis,
   pickXAxisTickIndices,
 } from "../src/components/charts/sales-line-chart-utils";
+import {
+  DEFAULT_PAGE_LIMIT,
+  MAX_PAGE_LIMIT,
+  decodeCursor,
+  encodeCursor,
+  parseJakartaDateRange,
+  parseLimitParam,
+} from "../src/lib/pagination";
 
 describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", () => {
   beforeEach(async () => {
@@ -84,6 +98,8 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
     await prisma.saleAmendment.deleteMany();
     await prisma.saleItem.deleteMany();
     await prisma.sale.deleteMany();
+    await prisma.shift.deleteMany();
+    await prisma.counter.deleteMany();
     await prisma.shiftClosing.deleteMany();
     await prisma.recipeIngredient.deleteMany();
     await prisma.productVariant.deleteMany();
@@ -879,21 +895,96 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
     expect(await verifySessionToken(resetTok)).toBeNull();
     expect(await verifySessionToken(emailTok)).toBeNull();
 
-    // 5. Rate limiter + OTP attempt lockout + single-use replay guard
+    // 5. Shared DB-backed rate limiter + OTP attempt lockout + expiry + single-use replay guard
     const rateKey = `unit-rate-${Date.now()}`;
-    expect(checkRateLimit(rateKey, 2, 60_000, { enforceInTest: true }).limited).toBe(false);
-    expect(checkRateLimit(rateKey, 2, 60_000, { enforceInTest: true }).limited).toBe(false);
-    expect(checkRateLimit(rateKey, 2, 60_000, { enforceInTest: true }).limited).toBe(true);
+    expect((await checkRateLimit(rateKey, 2, 60_000, { forceEnforce: true })).limited).toBe(false);
+    expect((await checkRateLimit(rateKey, 2, 60_000, { forceEnforce: true })).limited).toBe(false);
+    expect((await checkRateLimit(rateKey, 2, 60_000, { forceEnforce: true })).limited).toBe(true);
 
     const lockTok = `lock-tok-${Date.now()}`;
     for (let i = 0; i < 4; i++) {
-      expect(recordOtpFailedAttempt(lockTok, 5).locked).toBe(false);
+      expect((await recordOtpFailedAttempt(lockTok, 5)).locked).toBe(false);
     }
-    expect(recordOtpFailedAttempt(lockTok, 5).locked).toBe(true);
-    expect(isOtpTokenBlocked(lockTok)).toEqual({ blocked: true, reason: "LOCKED" });
+    expect((await recordOtpFailedAttempt(lockTok, 5)).locked).toBe(true);
+    expect(await isOtpTokenBlocked(lockTok)).toEqual({ blocked: true, reason: "LOCKED" });
 
     const singleTok = `single-tok-${Date.now()}`;
-    markOtpTokenConsumed(singleTok);
-    expect(isOtpTokenBlocked(singleTok)).toEqual({ blocked: true, reason: "USED" });
+    expect(await markOtpTokenConsumed(singleTok)).toBe(true);
+    expect(await markOtpTokenConsumed(singleTok)).toBe(false);
+    expect(await isOtpTokenBlocked(singleTok)).toEqual({ blocked: true, reason: "USED" });
+  });
+
+  it("enforces Tahap 4 hardening: 10-char non-common password policy, CSP/security headers, and redacted handleApiError with errorId", async () => {
+    // 1. Password policy: >= 10 karakter & menolak sandi umum/repetitif
+    expect(strongPasswordSchema.safeParse("Pendek9").success).toBe(false);
+    expect(strongPasswordSchema.safeParse("password123").success).toBe(false);
+    expect(strongPasswordSchema.safeParse("1234567890").success).toBe(false);
+    expect(strongPasswordSchema.safeParse("qwerty1234").success).toBe(false);
+    expect(strongPasswordSchema.safeParse("rahasia123").success).toBe(false);
+    expect(strongPasswordSchema.safeParse("aaaaaaaaaa").success).toBe(false);
+    expect(isPasswordPolicyCompliant("KopiTubruk#2026")).toBe(true);
+
+    // 2. Security headers di next.config.ts
+    const headerRules = await nextConfig.headers!();
+    const globalHeaders = headerRules[0]?.headers ?? [];
+    const headerMap = new Map(globalHeaders.map((h) => [h.key, h.value]));
+    expect(headerMap.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
+    expect(headerMap.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(headerMap.get("X-Frame-Options")).toBe("DENY");
+    expect(headerMap.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+    expect(headerMap.get("Strict-Transport-Security")).toContain("max-age=");
+
+    // 3. Centralized error handler menyembunyikan pesan internal & mengembalikan errorId
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const unexpectedRes = handleApiError(
+        new Error("FATAL: password authentication failed for user postgres"),
+        "TEST /api/internal",
+        "Gagal memproses permintaan."
+      );
+      expect(unexpectedRes.status).toBe(500);
+      const unexpectedJson = await unexpectedRes.json();
+      expect(unexpectedJson.errorId).toMatch(/^[a-f0-9-]{8,}$/i);
+      expect(unexpectedJson.error).toContain("Gagal memproses permintaan.");
+      expect(unexpectedJson.error).not.toContain("postgres");
+      expect(unexpectedJson.error).not.toContain("authentication failed");
+      expect(errSpy).toHaveBeenCalledTimes(1);
+
+      const appErrRes = handleApiError(
+        new AppError("Stok barang tidak cukup", 400, "INSUFFICIENT_STOCK"),
+        "TEST /api/sales"
+      );
+      expect(appErrRes.status).toBe(400);
+      expect(await appErrRes.json()).toEqual({
+        error: "Stok barang tidak cukup",
+        code: "INSUFFICIENT_STOCK",
+      });
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("enforces cursor pagination bounds, lossless cursor encode/decode, and Jakarta date range validation (Tahap 6)", () => {
+    expect(parseLimitParam(null)).toBe(DEFAULT_PAGE_LIMIT);
+    expect(parseLimitParam("0")).toBe(DEFAULT_PAGE_LIMIT);
+    expect(parseLimitParam("-5")).toBe(DEFAULT_PAGE_LIMIT);
+    expect(parseLimitParam("25")).toBe(25);
+    expect(parseLimitParam("500")).toBe(MAX_PAGE_LIMIT);
+
+    const now = new Date("2026-11-15T10:20:30.456Z");
+    const token = encodeCursor({ createdAt: now, id: "cuid_12345" });
+    const decoded = decodeCursor(token);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.id).toBe("cuid_12345");
+    expect(decoded?.createdAt.toISOString()).toBe(now.toISOString());
+    expect(decodeCursor("not-valid-base64!!!")).toBeNull();
+
+    const validRange = parseJakartaDateRange(new URLSearchParams("from=2026-11-01&to=2026-11-05"));
+    expect(validRange.error).toBeUndefined();
+    expect(validRange.range?.gte?.toISOString()).toBe("2026-10-31T17:00:00.000Z");
+    expect(validRange.range?.lte?.toISOString()).toBe("2026-11-05T16:59:59.999Z");
+
+    const invalidRange = parseJakartaDateRange(new URLSearchParams("from=2026-11-10&to=2026-11-01"));
+    expect(invalidRange.error).toBeTruthy();
   });
 });

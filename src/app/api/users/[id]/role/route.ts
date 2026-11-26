@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { attachSessionCookie, createSessionToken, requireAssignedUser } from "@/lib/auth";
 import {
@@ -169,7 +170,7 @@ export async function PATCH(
 
     return res;
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : "Gagal mengubah role anggota tim.";
+    const rawMsg = err instanceof Error ? err.message : "";
     if (rawMsg.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: rawMsg.replace("NOT_FOUND:", "") }, { status: 404 });
     }
@@ -179,6 +180,6 @@ export async function PATCH(
     if (rawMsg.startsWith("BAD_REQUEST:")) {
       return NextResponse.json({ error: rawMsg.replace("BAD_REQUEST:", "") }, { status: 400 });
     }
-    return NextResponse.json({ error: rawMsg }, { status: 500 });
+    return handleApiError(err, "/api/users/[id]/role", "Gagal mengubah role anggota tim.");
   }
 }

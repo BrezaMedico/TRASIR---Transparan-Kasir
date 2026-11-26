@@ -451,12 +451,12 @@ export async function analyzePurchaseReceiptWithGemini(params: {
     };
   }
 
-  const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const useOfflineStub = process.env.GEMINI_MODE === "offline_stub";
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   const { mimeType, base64Data } = parseDataUrl(params.receiptImageData);
   let lastErrorMsg: string | null = null;
 
-  if (!isTestEnv && apiKey && base64Data && base64Data.length > 64) {
+  if (!useOfflineStub && apiKey && base64Data && base64Data.length > 64) {
     const promptText = `Anda adalah asisten pemeriksa nota belanja toko di Indonesia untuk pemilik toko (orang awam).
 Ikuti langkah ini dengan teliti dan adil:
 
@@ -625,12 +625,12 @@ Format setiap item output:
         checkedAt,
       };
     }
-  } else if (!isTestEnv && !apiKey) {
+  } else if (!useOfflineStub && !apiKey) {
     lastErrorMsg = "Kunci API Gemini belum diisi pada pengaturan server (.env).";
   }
 
-  // Di mode produksi/dev, jika Gemini gagal dihubungi, JANGAN pernah palsukan status "SESUAI"!
-  if (!isTestEnv) {
+  // Di mode live (default), jika Gemini gagal dihubungi, JANGAN pernah palsukan status "SESUAI"!
+  if (!useOfflineStub) {
     return {
       status: "GAGAL_CEK",
       isReceiptReadable: true,
@@ -780,12 +780,12 @@ export async function analyzeProductRequestBatchWithGemini(params: {
     };
   });
 
-  const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const useOfflineStub = process.env.GEMINI_MODE === "offline_stub";
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   const { mimeType, base64Data } = parseDataUrl(params.receiptImageData);
   let lastErrorMsg: string | null = null;
 
-  if (!isTestEnv && apiKey && base64Data && base64Data.length > 64) {
+  if (!useOfflineStub && apiKey && base64Data && base64Data.length > 64) {
     const promptText = `Anda adalah asisten pemeriksa nota belanja toko di Indonesia untuk pemilik toko (orang awam).
 Seorang pegawai mengajukan daftar barang baru dan melampirkan foto atau file (${
       params.receiptSource === "FISIK" ? "foto nota fisik" : "berkas nota digital / PDF"
@@ -1011,12 +1011,12 @@ KAPAN HARUS MENANDAI BERBEDA (hasDiscrepancy = true / SELISIH / TIDAK_DITEMUKAN)
         checkedAt,
       };
     }
-  } else if (!isTestEnv && !apiKey) {
+  } else if (!useOfflineStub && !apiKey) {
     lastErrorMsg = "Kunci API Gemini belum diisi pada pengaturan server (.env).";
   }
 
-  // Di mode produksi/dev, jika Gemini gagal dihubungi, JANGAN pernah palsukan status "SESUAI"!
-  if (!isTestEnv) {
+  // Di mode live (default), jika Gemini gagal dihubungi, JANGAN pernah palsukan status "SESUAI"!
+  if (!useOfflineStub) {
     return {
       status: "GAGAL_CEK",
       isReceiptReadable: true,

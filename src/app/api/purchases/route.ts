@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
@@ -6,6 +7,13 @@ import { createNotification, recordAuditLog } from "@/lib/audit";
 import { validateProofAttachment } from "@/lib/attachment";
 import { computeReceiptHash } from "@/lib/gemini";
 import { formatRupiah } from "@/lib/format";
+import {
+  buildDescCursorWhere,
+  decodeCursor,
+  encodeCursor,
+  parseJakartaDateRange,
+  parseLimitParam,
+} from "@/lib/pagination";
 import { z } from "zod";
 
 const purchaseItemSchema = z.object({
@@ -75,7 +83,29 @@ export async function GET(request: Request) {
     if (id) {
       const purchase = await prisma.purchase.findFirst({
         where: { id, roomId: user.roomId },
-        include: {
+        select: {
+          id: true,
+          roomId: true,
+          invoiceNumber: true,
+          supplierName: true,
+          purchaseDate: true,
+          fundingSource: true,
+          captureMethod: true,
+          receiptUrl: true,
+          receiptHash: true,
+          totalAmount: true,
+          aiValidationStatus: true,
+          aiExtractedSupplier: true,
+          aiExtractedDate: true,
+          aiExtractedTotal: true,
+          aiAnalysisJson: true,
+          approvalStatus: true,
+          ownerNotes: true,
+          submittedById: true,
+          reviewedById: true,
+          reviewedAt: true,
+          createdAt: true,
+          updatedAt: true,
           submittedBy: { select: { id: true, name: true, role: true, username: true } },
           reviewedBy: { select: { id: true, name: true, role: true } },
           items: { include: { product: true } },
@@ -87,23 +117,97 @@ export async function GET(request: Request) {
           { status: 404 }
         );
       }
-      return NextResponse.json({ purchase });
+      const hasReceipt = Boolean(
+        purchase.receiptUrl ||
+          purchase.receiptHash ||
+          (purchase.captureMethod !== "TANPA_NOTA" && purchase.aiValidationStatus !== "TANPA_NOTA")
+      );
+      return NextResponse.json({
+        purchase: {
+          ...purchase,
+          hasReceipt,
+        },
+      });
     }
 
-    const purchases = await prisma.purchase.findMany({
-      where: { roomId: user.roomId },
-      include: {
+    const limit = parseLimitParam(searchParams.get("limit"));
+    const cursorParam = searchParams.get("cursor");
+    const cursor = cursorParam ? decodeCursor(cursorParam) : null;
+    if (cursorParam && !cursor) {
+      return NextResponse.json({ error: "Parameter cursor tidak valid." }, { status: 400 });
+    }
+
+    const { range: dateRange, error: dateError } = parseJakartaDateRange(searchParams);
+    if (dateError) {
+      return NextResponse.json({ error: dateError }, { status: 400 });
+    }
+
+    const statusParam = searchParams.get("status")?.trim();
+    const andFilters: Record<string, unknown>[] = [{ roomId: user.roomId }];
+
+    if (dateRange) {
+      andFilters.push({ purchaseDate: dateRange });
+    }
+    if (
+      statusParam &&
+      ["MENUNGGU_PERSETUJUAN", "PERLU_PERBAIKAN", "DISETUJUI", "DITOLAK"].includes(statusParam)
+    ) {
+      andFilters.push({ approvalStatus: statusParam });
+    }
+    if (cursor) {
+      andFilters.push(buildDescCursorWhere(cursor));
+    }
+
+    const rows = await prisma.purchase.findMany({
+      where: andFilters.length === 1 ? andFilters[0] : { AND: andFilters },
+      select: {
+        id: true,
+        roomId: true,
+        invoiceNumber: true,
+        supplierName: true,
+        purchaseDate: true,
+        fundingSource: true,
+        captureMethod: true,
+        receiptUrl: true,
+        receiptHash: true,
+        totalAmount: true,
+        aiValidationStatus: true,
+        approvalStatus: true,
+        ownerNotes: true,
+        submittedById: true,
+        reviewedById: true,
+        reviewedAt: true,
+        createdAt: true,
+        updatedAt: true,
         submittedBy: { select: { id: true, name: true, role: true, username: true } },
         reviewedBy: { select: { id: true, name: true, role: true } },
         items: true,
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
     });
 
-    return NextResponse.json({ purchases });
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const items = pageRows.map((row) => ({
+      ...row,
+      hasReceipt: Boolean(
+        row.receiptUrl ||
+          row.receiptHash ||
+          (row.captureMethod !== "TANPA_NOTA" && row.aiValidationStatus !== "TANPA_NOTA")
+      ),
+    }));
+    const nextCursor =
+      hasMore && pageRows.length > 0 ? encodeCursor(pageRows[pageRows.length - 1]) : null;
+
+    return NextResponse.json({
+      items,
+      nextCursor,
+      limit,
+      purchases: items,
+    });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat daftar pembelian.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/purchases", "Gagal memuat daftar pembelian.");
   }
 }
 
@@ -192,6 +296,7 @@ export async function POST(request: Request) {
             fundingSource: data.fundingSource,
             captureMethod: resolvedCaptureMethod,
             receiptImageData: trimmedReceipt,
+            receiptUrl: null,
             receiptHash,
             totalAmount: data.totalAmount,
             aiValidationStatus: initialAiStatus,
@@ -258,6 +363,7 @@ export async function POST(request: Request) {
           fundingSource: data.fundingSource,
           captureMethod: resolvedCaptureMethod,
           receiptImageData: trimmedReceipt,
+          receiptUrl: null,
           receiptHash,
           totalAmount: data.totalAmount,
           aiValidationStatus: initialAiStatus,
@@ -320,13 +426,13 @@ export async function POST(request: Request) {
       purchase: savedPurchase,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal menyimpan pengajuan pembelian.";
+    const message = err instanceof Error ? err.message : "";
     if (message.startsWith("FORBIDDEN:")) {
       return NextResponse.json({ error: message.slice(10) }, { status: 403 });
     }
     if (message.startsWith("BAD_REQUEST:")) {
       return NextResponse.json({ error: message.slice(12) }, { status: 400 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/purchases", "Gagal menyimpan pengajuan pembelian.");
   }
 }

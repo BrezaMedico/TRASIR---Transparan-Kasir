@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ShieldCheck,
   Eye,
   EyeSlash,
   WifiSlash,
@@ -14,6 +13,7 @@ import {
   ArrowLeft,
 } from "@phosphor-icons/react";
 import { useToast } from "@/components/layout/AppShell";
+import { TrasirLogo } from "@/components/ui/TrasirLogo";
 import { clearAllClientCache } from "@/lib/client-cache";
 import {
   getDefaultRedirectForRole,
@@ -157,18 +157,12 @@ export function LoginClient({
 
         <div className="bg-white rounded-2xl border border-[#202531]/10 p-6 sm:p-8 space-y-6">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#202531] text-[#01DAD7] flex items-center justify-center">
-                <ShieldCheck size={28} weight="duotone" aria-hidden="true" />
-              </div>
-              <div>
-                <h1 className="text-xl font-extrabold tracking-tight text-[#202531]">
-                  TRASIR
-                </h1>
-                <p className="text-xs font-medium text-[#525866]">
-                  Transparan Kasir &amp; Pengawasan Keuangan Toko
-                </p>
-              </div>
+            <div className="space-y-1.5">
+              <h1 className="sr-only">TRASIR</h1>
+              <TrasirLogo className="h-8 w-auto" priority />
+              <p className="text-xs font-medium text-[#525866]">
+                Transparan Kasir &amp; Pengawasan Keuangan Toko
+              </p>
             </div>
 
             {!isOnline && (

@@ -3,8 +3,9 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Storefront, ArrowRight } from "@phosphor-icons/react";
+import { Storefront, ArrowRight } from "@phosphor-icons/react";
 import { useToast } from "@/components/layout/AppShell";
+import { TrasirLogo } from "@/components/ui/TrasirLogo";
 import { isStoreAdmin } from "@/lib/rbac-shared";
 
 export default function StoreSetupPage() {
@@ -71,12 +72,9 @@ export default function StoreSetupPage() {
         <div className="text-center space-y-2">
           <Link
             href="/"
-            className="inline-flex items-center gap-2.5 text-[#202531] font-extrabold text-xl tracking-tight"
+            className="inline-flex items-center justify-center rounded-lg"
           >
-            <span className="w-10 h-10 rounded-xl bg-[#202531] text-[#01DAD7] flex items-center justify-center">
-              <ShieldCheck size={22} weight="duotone" aria-hidden="true" />
-            </span>
-            <span>TRASIR</span>
+            <TrasirLogo className="h-8 w-auto" priority />
           </Link>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
             Siapkan Profil Toko Anda

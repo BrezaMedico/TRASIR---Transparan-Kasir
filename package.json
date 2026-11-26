@@ -9,10 +9,15 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/setup-test-db.mjs && vitest run",
+    "test:pg": "node -e \"process.env.TEST_DATABASE_URL=process.env.TEST_DATABASE_URL||'postgresql://trasir_test:trasir_test_password@127.0.0.1:5433/trasir_test'; require('node:child_process').execSync('npm test', { stdio: 'inherit', env: process.env });\"",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:use-postgres": "node scripts/switch-db-provider.mjs postgresql",
-    "db:use-sqlite": "node scripts/switch-db-provider.mjs sqlite"
+    "db:use-sqlite": "node scripts/switch-db-provider.mjs sqlite",
+    "routes:count": "node scripts/count-api-routes.mjs",
+    "routes:check": "node scripts/count-api-routes.mjs --check-readme",
+    "db:backfill-tahap5": "node scripts/backfill-tahap5.mjs",
+    "db:migrate-receipts": "node scripts/migrate-receipts-to-blob.mjs"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

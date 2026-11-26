@@ -1,7 +1,6 @@
 import { prisma, withDbRetry } from "@/lib/prisma";
 import { getJakartaPeriodBounds, type ProfitPeriod } from "@/lib/date-jakarta";
 import { getGrossProfitReport } from "./profit";
-import { parseShiftEnvelope } from "@/lib/shift-session";
 import {
   DEFAULT_COUNTER_ID,
   DEFAULT_COUNTER_NAME,
@@ -49,17 +48,23 @@ export async function getDashboardPayload(roomId: string, range = "month") {
           include: { category: true },
           orderBy: { currentStock: "asc" },
         }),
-        prisma.shiftClosing.findMany({
+        prisma.shift.findMany({
           where: { roomId, status: { not: "AKTIF" } },
-          include: { cashier: { select: { id: true, name: true, role: true } } },
+          include: {
+            user: { select: { id: true, name: true, role: true } },
+            counter: { select: { slug: true, name: true } },
+          },
           orderBy: { createdAt: "desc" },
           take: 25,
         }),
-        prisma.shiftClosing.findMany({
+        prisma.shift.findMany({
           where: {
             roomId,
             status: { not: "AKTIF" },
             createdAt: { gte: periodBounds.startDate, lte: periodBounds.endDate },
+          },
+          include: {
+            counter: { select: { slug: true, name: true } },
           },
           orderBy: { createdAt: "desc" },
           take: 200,
@@ -87,9 +92,8 @@ export async function getDashboardPayload(roomId: string, range = "month") {
   }
 
   for (const row of periodShiftClosings) {
-    const env = parseShiftEnvelope(row.notes);
-    const cid = env?.counterId || defaultCounterId;
-    const cname = env?.counterName || DEFAULT_COUNTER_NAME;
+    const cid = row.counter?.slug || row.counterSlug || defaultCounterId;
+    const cname = row.counter?.name || row.counterName || DEFAULT_COUNTER_NAME;
     const bucket =
       counterMetricsMap.get(cid) ?? {
         counterId: cid,
@@ -106,22 +110,23 @@ export async function getDashboardPayload(roomId: string, range = "month") {
         handoverMismatchCount: 0,
       };
 
-    const openingCash = env?.openingCashTotal ?? 0;
-    const opsExpense = env?.operationalExpenseTotal ?? 0;
+    const openingCash = row.openingCashTotal;
+    const opsExpense = row.operationalExpenseTotal;
     const expectedCash =
-      env?.expectedCashAtClose ?? openingCash + row.systemCashTotal - opsExpense;
-    const cashDiff = env?.closingCashDifference ?? row.cashDifference;
+      row.expectedCashAtClose ?? openingCash + row.systemCashTotal - opsExpense;
+    const actualCash = row.closingCashTotal ?? 0;
+    const cashDiff = row.cashDifference;
 
     bucket.shiftCount += 1;
     bucket.totalSystemSales += row.systemGrandTotal;
     bucket.totalSystemCash += row.systemCashTotal;
     bucket.totalExpectedCash += expectedCash;
-    bucket.totalActualCash += row.actualCashTotal;
+    bucket.totalActualCash += actualCash;
     bucket.totalCashDifference += cashDiff;
     if (row.status === "PERLU_DIPERIKSA") {
       bucket.discrepancyCount += 1;
     }
-    if (env?.handoverSyncStatus === "TIDAK_SINKRON") {
+    if (row.handoverSyncStatus === "TIDAK_SINKRON") {
       bucket.handoverMismatchCount += 1;
     }
 
@@ -131,22 +136,16 @@ export async function getDashboardPayload(roomId: string, range = "month") {
   const counterComparison = Array.from(counterMetricsMap.values());
 
   const flaggedShifts = recentShiftClosings
-    .map((s) => {
-      const env = parseShiftEnvelope(s.notes);
-      const handoverSyncStatus = env?.handoverSyncStatus ?? "SHIFT_PERTAMA";
-      const handoverDifference = env?.handoverDifference ?? 0;
-      const cashDifference = env?.closingCashDifference ?? s.cashDifference;
-      return {
-        id: s.id,
-        counterName: env?.counterName || DEFAULT_COUNTER_NAME,
-        cashierName: s.cashier.name,
-        closedAt: env?.closedAt ?? s.createdAt.toISOString(),
-        status: s.status,
-        cashDifference,
-        handoverSyncStatus,
-        handoverDifference,
-      };
-    })
+    .map((s) => ({
+      id: s.id,
+      counterName: s.counter?.name || s.counterName || DEFAULT_COUNTER_NAME,
+      cashierName: s.user.name,
+      closedAt: (s.closedAt ?? s.createdAt).toISOString(),
+      status: s.status,
+      cashDifference: s.cashDifference,
+      handoverSyncStatus: s.handoverSyncStatus,
+      handoverDifference: s.handoverDifference,
+    }))
     .filter(
       (s) => s.status === "PERLU_DIPERIKSA" || s.handoverSyncStatus === "TIDAK_SINKRON"
     )

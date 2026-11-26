@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { getServerSessionSnapshot } from "@/lib/server-session";
 
 export async function GET() {
@@ -6,7 +7,6 @@ export async function GET() {
     const snapshot = await getServerSessionSnapshot();
     return NextResponse.json(snapshot);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat sesi.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/auth/me", "Gagal memuat sesi.");
   }
 }

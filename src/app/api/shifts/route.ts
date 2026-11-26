@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
@@ -7,7 +8,7 @@ import { createNotification, recordAuditLog } from "@/lib/audit";
 import { getJakartaStartOfDay } from "@/lib/date-jakarta";
 import { formatRupiah } from "@/lib/format";
 import { getActiveShiftForUser } from "@/lib/queries/shift";
-import { getRoomCounters, getRoomCountersWithLiveStatus } from "@/lib/queries/counters";
+import { getRoomCounterRecords, getRoomCountersWithLiveStatus } from "@/lib/queries/counters";
 import { DEFAULT_COUNTER_ID, DEFAULT_COUNTER_NAME } from "@/lib/counters";
 import {
   computeDenominationTotal,
@@ -16,9 +17,6 @@ import {
   evaluateShiftAudit,
   normalizeDenominations,
   normalizeOperationalExpenses,
-  parseShiftEnvelope,
-  serializeShiftEnvelope,
-  ShiftEnvelope,
 } from "@/lib/shift-session";
 import { z } from "zod";
 
@@ -54,19 +52,42 @@ const closeShiftSchema = z.object({
   }),
 });
 
-async function aggregateSalesSince(
+function parseJsonOrNull<T>(raw: string | null | undefined): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function aggregateSalesForShift(
   params: {
     roomId: string;
     cashierId: string;
     admin: boolean;
     since: Date;
+    shiftId?: string;
     forceOwnCashier?: boolean;
   },
   db: Prisma.TransactionClient | typeof prisma = prisma
 ) {
   const scopeRoomWide = params.admin && !params.forceOwnCashier;
   const sales = await db.sale.findMany({
-    where: scopeRoomWide
+    where: params.shiftId
+      ? {
+          roomId: params.roomId,
+          status: { notIn: ["DIBATALKAN", "DIKEMBALIKAN"] },
+          OR: [
+            { shiftId: params.shiftId },
+            {
+              shiftId: null,
+              cashierId: params.cashierId,
+              createdAt: { gte: params.since },
+            },
+          ],
+        }
+      : scopeRoomWide
       ? {
           roomId: params.roomId,
           createdAt: { gte: params.since },
@@ -131,33 +152,20 @@ export async function GET(request: Request) {
       getActiveShiftForUser(user.roomId, user.id),
       getRoomCountersWithLiveStatus(user.roomId),
       admin
-        ? aggregateSalesSince({
+        ? aggregateSalesForShift({
             roomId: user.roomId,
             cashierId: user.id,
             admin,
             since: startOfToday,
           })
         : Promise.resolve(null),
-      prisma.shiftClosing.findMany({
+      prisma.shift.findMany({
         where: admin
           ? { roomId: user.roomId, status: { not: "AKTIF" } }
-          : { roomId: user.roomId, cashierId: user.id, status: { not: "AKTIF" } },
-        select: {
-          id: true,
-          shiftDate: true,
-          systemTxCount: true,
-          systemCashTotal: true,
-          systemQrisTotal: true,
-          systemTransferTotal: true,
-          systemCardTotal: true,
-          systemGrandTotal: true,
-          actualCashTotal: true,
-          actualDigitalTotal: true,
-          cashDifference: true,
-          status: true,
-          notes: true,
-          createdAt: true,
-          cashier: { select: { id: true, name: true, username: true, role: true } },
+          : { roomId: user.roomId, userId: user.id, status: { not: "AKTIF" } },
+        include: {
+          user: { select: { id: true, name: true, username: true, role: true } },
+          counter: { select: { slug: true, name: true } },
         },
         orderBy: { createdAt: "desc" },
         take: 40,
@@ -165,19 +173,17 @@ export async function GET(request: Request) {
     ]);
 
     const closings = closingsRaw.map((row) => {
-      const env = parseShiftEnvelope(row.notes);
-      const safeNotes = env ? env.closingNote ?? null : row.notes;
       const base = {
         id: row.id,
-        shiftDate: row.shiftDate,
-        actualCashTotal: row.actualCashTotal,
+        shiftDate: row.closedAt ?? row.openedAt,
+        actualCashTotal: row.closingCashTotal ?? 0,
         actualDigitalTotal: row.actualDigitalTotal,
-        notes: safeNotes,
+        notes: row.closingNote ?? null,
         createdAt: row.createdAt,
         cashier: {
-          id: row.cashier.id,
-          name: row.cashier.name,
-          role: row.cashier.role,
+          id: row.user.id,
+          name: row.user.name,
+          role: row.user.role,
         },
       };
 
@@ -199,24 +205,23 @@ export async function GET(request: Request) {
     const auditShifts =
       admin && includeAudit
         ? closingsRaw.map((row) => {
-            const env = parseShiftEnvelope(row.notes);
             const systemDigitalTotal =
               row.systemQrisTotal + row.systemTransferTotal + row.systemCardTotal;
             return {
               id: row.id,
-              counterId: env?.counterId || DEFAULT_COUNTER_ID,
-              counterName: env?.counterName || DEFAULT_COUNTER_NAME,
-              openedAt: env?.openedAt ?? row.shiftDate.toISOString(),
-              closedAt: env?.closedAt ?? row.createdAt.toISOString(),
-              cashier: row.cashier,
+              counterId: row.counter?.slug || row.counterSlug || DEFAULT_COUNTER_ID,
+              counterName: row.counter?.name || row.counterName || DEFAULT_COUNTER_NAME,
+              openedAt: row.openedAt.toISOString(),
+              closedAt: (row.closedAt ?? row.createdAt).toISOString(),
+              cashier: row.user,
               status: row.status,
-              openingCashTotal: env?.openingCashTotal ?? 0,
-              openingDenominations: env?.openingDenominations ?? null,
-              openingNote: env?.openingNote ?? null,
-              closingDenominations: env?.closingDenominations ?? null,
-              closingNote: env?.closingNote ?? (!env && row.notes ? row.notes : null),
-              operationalExpenses: env?.operationalExpenses ?? [],
-              operationalExpenseTotal: env?.operationalExpenseTotal ?? 0,
+              openingCashTotal: row.openingCashTotal,
+              openingDenominations: parseJsonOrNull(row.openingDenominationsJson),
+              openingNote: row.openingNote ?? null,
+              closingDenominations: parseJsonOrNull(row.closingDenominationsJson),
+              closingNote: row.closingNote ?? null,
+              operationalExpenses: parseJsonOrNull(row.operationalExpensesJson) ?? [],
+              operationalExpenseTotal: row.operationalExpenseTotal,
               systemTxCount: row.systemTxCount,
               systemCashTotal: row.systemCashTotal,
               systemQrisTotal: row.systemQrisTotal,
@@ -224,12 +229,14 @@ export async function GET(request: Request) {
               systemCardTotal: row.systemCardTotal,
               systemDigitalTotal,
               systemGrandTotal: row.systemGrandTotal,
-              expectedCashAtClose: env?.expectedCashAtClose ?? row.systemCashTotal,
-              actualCashTotal: row.actualCashTotal,
-              cashDifference: env?.closingCashDifference ?? row.cashDifference,
-              handoverSyncStatus: env?.handoverSyncStatus ?? "SHIFT_PERTAMA",
-              handoverDifference: env?.handoverDifference ?? 0,
-              previousShiftClosingCash: env?.previousShiftClosingCash ?? null,
+              expectedCashAtClose:
+                row.expectedCashAtClose ??
+                row.openingCashTotal + row.systemCashTotal - row.operationalExpenseTotal,
+              actualCashTotal: row.closingCashTotal ?? 0,
+              cashDifference: row.cashDifference,
+              handoverSyncStatus: row.handoverSyncStatus,
+              handoverDifference: row.handoverDifference,
+              previousShiftClosingCash: row.previousShiftClosingCash ?? null,
             };
           })
         : undefined;
@@ -242,8 +249,7 @@ export async function GET(request: Request) {
       ...(auditShifts ? { auditShifts } : {}),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat data shift kasir.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/shifts", "Gagal memuat data shift kasir.");
   }
 }
 
@@ -265,7 +271,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    // 1. BUKA SHIFT BARU (Blind Handover Check + Exclusive Per-Loket Lock)
+    // 1. BUKA SHIFT BARU (Model Shift & Counter sungguhan + Exclusive Per-Loket Lock)
     if (body && body.action === "OPEN") {
       const parsed = openShiftSchema.safeParse(body);
       if (!parsed.success) {
@@ -275,7 +281,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const roomCounters = await getRoomCounters(user.roomId);
+      const roomCounters = await getRoomCounterRecords(user.roomId);
       const requestedCounterId = parsed.data.counterId?.trim();
       if (roomCounters.length > 1 && !requestedCounterId) {
         return NextResponse.json(
@@ -287,7 +293,9 @@ export async function POST(request: Request) {
       const targetCounter =
         roomCounters.length === 1 && !requestedCounterId
           ? roomCounters[0]
-          : roomCounters.find((c) => c.id === requestedCounterId);
+          : roomCounters.find(
+              (c) => c.id === requestedCounterId || c.dbId === requestedCounterId
+            );
 
       if (!targetCounter) {
         return NextResponse.json(
@@ -300,183 +308,137 @@ export async function POST(request: Request) {
       const openingCashTotal = computeDenominationTotal(openingDenominations);
       const openingNote = parsed.data.openingNote?.trim() || null;
       const openedAt = new Date();
-      const defaultCounterId = roomCounters[0]?.id || DEFAULT_COUNTER_ID;
       const isPostgres = (process.env.DATABASE_URL || "").startsWith("postgres");
 
       const openResult = await prisma.$transaction(
         async (tx) => {
-        const activeShifts = await tx.shiftClosing.findMany({
-          where: { roomId: user.roomId, status: "AKTIF" },
-          include: { cashier: { select: { id: true, name: true, role: true } } },
-          orderBy: { createdAt: "desc" },
-        });
+          const activeShifts = await tx.shift.findMany({
+            where: { roomId: user.roomId, status: "AKTIF" },
+            include: { user: { select: { id: true, name: true, role: true } } },
+            orderBy: { openedAt: "desc" },
+          });
 
-        const ownActive = activeShifts.find((s) => s.cashierId === user.id);
-        if (ownActive) {
-          const ownEnv = parseShiftEnvelope(ownActive.notes);
-          const ownCounterName = ownEnv?.counterName || DEFAULT_COUNTER_NAME;
-          throw new Error(
-            `CONFLICT:Anda masih memiliki shift aktif di ${ownCounterName} yang belum ditutup.`
-          );
-        }
-
-        const occupyingShift = activeShifts.find((s) => {
-          const env = parseShiftEnvelope(s.notes);
-          const cid = env?.counterId || defaultCounterId;
-          return cid === targetCounter.id;
-        });
-
-        if (occupyingShift) {
-          throw new Error(
-            `CONFLICT:${targetCounter.name} sedang digunakan oleh ${occupyingShift.cashier.name}. Satu loket tidak dapat digunakan bersamaan hingga tutup shift.`
-          );
-        }
-
-        const taggedCandidates = await tx.shiftClosing.findMany({
-          where: {
-            roomId: user.roomId,
-            status: { not: "AKTIF" },
-            notes: { contains: `"counterId":"${targetCounter.id}"` },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 10,
-          select: { id: true, actualCashTotal: true, notes: true },
-        });
-
-        let previousCounterClosed = taggedCandidates.find((row) => {
-          const env = parseShiftEnvelope(row.notes);
-          return env?.counterId === targetCounter.id;
-        });
-
-        if (!previousCounterClosed && targetCounter.id === defaultCounterId) {
-          let cursorId: string | undefined;
-          for (let page = 0; page < 10 && !previousCounterClosed; page += 1) {
-            const batch = await tx.shiftClosing.findMany({
-              where: { roomId: user.roomId, status: { not: "AKTIF" } },
-              orderBy: { createdAt: "desc" },
-              take: 100,
-              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
-              select: { id: true, actualCashTotal: true, notes: true },
-            });
-            if (batch.length === 0) break;
-            previousCounterClosed = batch.find((row) => {
-              const env = parseShiftEnvelope(row.notes);
-              return (env?.counterId || defaultCounterId) === defaultCounterId;
-            });
-            cursorId = batch[batch.length - 1]?.id;
-            if (batch.length < 100) break;
+          const ownActive = activeShifts.find((s) => s.userId === user.id);
+          if (ownActive) {
+            throw new Error(
+              `CONFLICT:Anda masih memiliki shift aktif di ${ownActive.counterName || DEFAULT_COUNTER_NAME} yang belum ditutup.`
+            );
           }
-        }
 
-        const handover = evaluateHandoverSync(
-          openingCashTotal,
-          previousCounterClosed ? previousCounterClosed.actualCashTotal : null
-        );
-
-        const envelope: ShiftEnvelope = {
-          version: 2,
-          counterId: targetCounter.id,
-          counterName: targetCounter.name,
-          openedAt: openedAt.toISOString(),
-          closedAt: null,
-          openingCashTotal,
-          openingDenominations,
-          openingNote,
-          previousShiftId: previousCounterClosed?.id ?? null,
-          previousShiftClosingCash: previousCounterClosed
-            ? previousCounterClosed.actualCashTotal
-            : null,
-          handoverSyncStatus: handover.handoverSyncStatus,
-          handoverDifference: handover.handoverDifference,
-        };
-
-        const shift = await tx.shiftClosing.create({
-          data: {
-            roomId: user.roomId,
-            cashierId: user.id,
-            shiftDate: openedAt,
-            systemTxCount: 0,
-            systemCashTotal: 0,
-            systemQrisTotal: 0,
-            systemTransferTotal: 0,
-            systemCardTotal: 0,
-            systemGrandTotal: 0,
-            actualCashTotal: openingCashTotal,
-            actualDigitalTotal: 0,
-            cashDifference: 0,
-            digitalDifference: 0,
-            totalDifference: 0,
-            status: "AKTIF",
-            notes: serializeShiftEnvelope(envelope),
-          },
-          select: {
-            id: true,
-            cashierId: true,
-            shiftDate: true,
-            status: true,
-            cashier: { select: { name: true, role: true } },
-          },
-        });
-
-        // Re-verifikasi kunci loket untuk mencegah race condition bersamaan
-        const verifyActiveAfter = await tx.shiftClosing.findMany({
-          where: { roomId: user.roomId, status: "AKTIF" },
-          select: { id: true, notes: true },
-        });
-        const lockCount = verifyActiveAfter.filter((s) => {
-          const env = parseShiftEnvelope(s.notes);
-          return (env?.counterId || defaultCounterId) === targetCounter.id;
-        }).length;
-
-        if (lockCount > 1) {
-          throw new Error(
-            `CONFLICT:${targetCounter.name} baru saja dikunci kasir lain. Pilih loket lain yang tersedia.`
+          const occupyingShift = activeShifts.find(
+            (s) => s.counterId === targetCounter.dbId || s.counterSlug === targetCounter.id
           );
-        }
 
-        await recordAuditLog(
-          {
-            roomId: user.roomId,
-            actorId: user.id,
-            actorName: user.name,
-            actorRole: user.role,
-            actionType: "PENJUALAN",
-            actionSummary: `Buka Shift di ${targetCounter.name} oleh ${user.name} dengan modal awal ${formatRupiah(openingCashTotal)}`,
-            entityType: "ShiftClosing",
-            entityId: shift.id,
-            afterData: {
-              counterId: targetCounter.id,
+          if (occupyingShift) {
+            throw new Error(
+              `CONFLICT:${targetCounter.name} sedang digunakan oleh ${occupyingShift.user.name}. Satu loket tidak dapat digunakan bersamaan hingga tutup shift.`
+            );
+          }
+
+          const previousCounterClosed = await tx.shift.findFirst({
+            where: {
+              roomId: user.roomId,
+              status: { not: "AKTIF" },
+              OR: [
+                { counterId: targetCounter.dbId },
+                { counterSlug: targetCounter.id },
+              ],
+            },
+            orderBy: [{ closedAt: "desc" }, { createdAt: "desc" }],
+            select: { id: true, closingCashTotal: true },
+          });
+
+          const handover = evaluateHandoverSync(
+            openingCashTotal,
+            previousCounterClosed?.closingCashTotal ?? null
+          );
+
+          const shift = await tx.shift.create({
+            data: {
+              roomId: user.roomId,
+              userId: user.id,
+              counterId: targetCounter.dbId,
+              counterSlug: targetCounter.id,
               counterName: targetCounter.name,
+              openedAt,
+              status: "AKTIF",
               openingCashTotal,
+              openingDenominationsJson: JSON.stringify(openingDenominations),
+              openingNote,
+              previousShiftId: previousCounterClosed?.id ?? null,
+              previousShiftClosingCash: previousCounterClosed?.closingCashTotal ?? null,
               handoverSyncStatus: handover.handoverSyncStatus,
               handoverDifference: handover.handoverDifference,
-              openingNote,
             },
-            approvalState: "TERCATAT",
-            linkUrl: "/laporan#audit-shift",
-          },
-          tx
-        );
+            select: {
+              id: true,
+              userId: true,
+              openedAt: true,
+              status: true,
+              user: { select: { name: true, role: true } },
+            },
+          });
 
-        if (handover.handoverSyncStatus === "TIDAK_SINKRON") {
-          const diffLabel = formatRupiah(Math.abs(handover.handoverDifference));
-          const direction = handover.handoverDifference > 0 ? "lebih tinggi" : "lebih rendah";
-          await createNotification(
+          const lockCount = await tx.shift.count({
+            where: {
+              roomId: user.roomId,
+              status: "AKTIF",
+              OR: [
+                { counterId: targetCounter.dbId },
+                { counterSlug: targetCounter.id },
+              ],
+            },
+          });
+
+          if (lockCount > 1) {
+            throw new Error(
+              `CONFLICT:${targetCounter.name} baru saja dikunci kasir lain. Pilih loket lain yang tersedia.`
+            );
+          }
+
+          await recordAuditLog(
             {
               roomId: user.roomId,
-              title: `Modal Awal ${targetCounter.name} Tidak Sinkron`,
-              message: `${user.name} membuka ${targetCounter.name} dengan modal ${direction} ${diffLabel} dibanding kas akhir shift sebelumnya di loket tersebut.`,
-              severity: "WARNING",
-              category: "SHIFT",
-              targetRole: "PEMILIK",
+              actorId: user.id,
+              actorName: user.name,
+              actorRole: user.role,
+              actionType: "PENJUALAN",
+              actionSummary: `Buka Shift di ${targetCounter.name} oleh ${user.name} dengan modal awal ${formatRupiah(openingCashTotal)}`,
+              entityType: "Shift",
+              entityId: shift.id,
+              afterData: {
+                counterId: targetCounter.id,
+                counterName: targetCounter.name,
+                openingCashTotal,
+                handoverSyncStatus: handover.handoverSyncStatus,
+                handoverDifference: handover.handoverDifference,
+                openingNote,
+              },
+              approvalState: "TERCATAT",
               linkUrl: "/laporan#audit-shift",
             },
             tx
           );
-        }
 
-        return { shift, handover };
-      },
+          if (handover.handoverSyncStatus === "TIDAK_SINKRON") {
+            const diffLabel = formatRupiah(Math.abs(handover.handoverDifference));
+            const direction = handover.handoverDifference > 0 ? "lebih tinggi" : "lebih rendah";
+            await createNotification(
+              {
+                roomId: user.roomId,
+                title: `Modal Awal ${targetCounter.name} Tidak Sinkron`,
+                message: `${user.name} membuka ${targetCounter.name} dengan modal ${direction} ${diffLabel} dibanding kas akhir shift sebelumnya di loket tersebut.`,
+                severity: "WARNING",
+                category: "SHIFT",
+                targetRole: "PEMILIK",
+                linkUrl: "/laporan#audit-shift",
+              },
+              tx
+            );
+          }
+
+          return { shift, handover };
+        },
         isPostgres
           ? { isolationLevel: "Serializable", maxWait: 20000, timeout: 30000 }
           : undefined
@@ -488,9 +450,9 @@ export async function POST(request: Request) {
             id: openResult.shift.id,
             counterId: targetCounter.id,
             counterName: targetCounter.name,
-            cashierId: openResult.shift.cashierId,
-            cashierName: openResult.shift.cashier.name,
-            cashierRole: openResult.shift.cashier.role,
+            cashierId: openResult.shift.userId,
+            cashierName: openResult.shift.user.name,
+            cashierRole: openResult.shift.user.role,
             openedAt: openedAt.toISOString(),
             openingCashTotal,
             openingDenominations,
@@ -522,17 +484,14 @@ export async function POST(request: Request) {
       const closedAt = new Date();
 
       const closeResult = await prisma.$transaction(async (tx) => {
-        const activeRow = await tx.shiftClosing.findFirst({
+        const activeRow = await tx.shift.findFirst({
           where: parsed.data.shiftId
-            ? { id: parsed.data.shiftId, roomId: user.roomId, cashierId: user.id, status: "AKTIF" }
-            : { roomId: user.roomId, cashierId: user.id, status: "AKTIF" },
-          orderBy: { createdAt: "desc" },
-          select: {
-            id: true,
-            shiftDate: true,
-            actualCashTotal: true,
-            notes: true,
-            cashier: { select: { id: true, name: true, role: true } },
+            ? { id: parsed.data.shiftId, roomId: user.roomId, userId: user.id, status: "AKTIF" }
+            : { roomId: user.roomId, userId: user.id, status: "AKTIF" },
+          orderBy: { openedAt: "desc" },
+          include: {
+            user: { select: { id: true, name: true, role: true } },
+            counter: { select: { slug: true, name: true } },
           },
         });
 
@@ -540,18 +499,19 @@ export async function POST(request: Request) {
           throw new Error("NOT_FOUND:Tidak ada shift aktif untuk ditutup.");
         }
 
-        const baseEnv = parseShiftEnvelope(activeRow.notes);
-        const counterId = baseEnv?.counterId || DEFAULT_COUNTER_ID;
-        const counterName = baseEnv?.counterName || DEFAULT_COUNTER_NAME;
-        const openedAtDate = baseEnv?.openedAt ? new Date(baseEnv.openedAt) : activeRow.shiftDate;
-        const openingCashTotal = baseEnv?.openingCashTotal ?? activeRow.actualCashTotal;
+        const counterId = activeRow.counter?.slug || activeRow.counterSlug || DEFAULT_COUNTER_ID;
+        const counterName =
+          activeRow.counter?.name || activeRow.counterName || DEFAULT_COUNTER_NAME;
+        const openedAtDate = activeRow.openedAt;
+        const openingCashTotal = activeRow.openingCashTotal;
 
-        const shiftAgg = await aggregateSalesSince(
+        const shiftAgg = await aggregateSalesForShift(
           {
             roomId: user.roomId,
             cashierId: user.id,
             admin,
             since: openedAtDate,
+            shiftId: activeRow.id,
             forceOwnCashier: true,
           },
           tx
@@ -564,48 +524,30 @@ export async function POST(request: Request) {
           operationalExpenseTotal,
         });
 
-        const updatedEnvelope: ShiftEnvelope = {
-          version: 2,
-          counterId,
-          counterName,
-          openedAt: openedAtDate.toISOString(),
-          closedAt: closedAt.toISOString(),
-          openingCashTotal,
-          openingDenominations: baseEnv?.openingDenominations ?? normalizeDenominations({}),
-          openingNote: baseEnv?.openingNote ?? null,
-          previousShiftId: baseEnv?.previousShiftId ?? null,
-          previousShiftClosingCash: baseEnv?.previousShiftClosingCash ?? null,
-          handoverSyncStatus: baseEnv?.handoverSyncStatus ?? "SHIFT_PERTAMA",
-          handoverDifference: baseEnv?.handoverDifference ?? 0,
-          closingDenominations,
-          operationalExpenses,
-          operationalExpenseTotal,
-          closingNote,
-          expectedCashAtClose: audit.expectedCashAtClose,
-          closingCashDifference: audit.cashDifference,
-        };
-
-        const claim = await tx.shiftClosing.updateMany({
+        const claim = await tx.shift.updateMany({
           where: {
             id: activeRow.id,
             roomId: user.roomId,
-            cashierId: user.id,
+            userId: user.id,
             status: "AKTIF",
           },
           data: {
+            closedAt,
+            status: audit.status,
+            closingCashTotal: actualCashTotal,
+            actualDigitalTotal: shiftAgg.systemDigitalTotal,
+            operationalExpenseTotal,
+            expectedCashAtClose: audit.expectedCashAtClose,
+            cashDifference: audit.cashDifference,
             systemTxCount: shiftAgg.systemTxCount,
             systemCashTotal: shiftAgg.systemCashTotal,
             systemQrisTotal: shiftAgg.systemQrisTotal,
             systemTransferTotal: shiftAgg.systemTransferTotal,
             systemCardTotal: shiftAgg.systemCardTotal,
             systemGrandTotal: shiftAgg.systemGrandTotal,
-            actualCashTotal,
-            actualDigitalTotal: shiftAgg.systemDigitalTotal,
-            cashDifference: audit.cashDifference,
-            digitalDifference: 0,
-            totalDifference: audit.cashDifference,
-            status: audit.status,
-            notes: serializeShiftEnvelope(updatedEnvelope),
+            closingDenominationsJson: JSON.stringify(closingDenominations),
+            operationalExpensesJson: JSON.stringify(operationalExpenses),
+            closingNote,
           },
         });
 
@@ -621,7 +563,7 @@ export async function POST(request: Request) {
             actorRole: user.role,
             actionType: "PENJUALAN",
             actionSummary: `Tutup Shift di ${counterName} oleh ${user.name} (${shiftAgg.systemTxCount} transaksi, kas dihitung ${formatRupiah(actualCashTotal)}, operasional ${formatRupiah(operationalExpenseTotal)})`,
-            entityType: "ShiftClosing",
+            entityType: "Shift",
             entityId: activeRow.id,
             afterData: {
               counterId,
@@ -665,11 +607,10 @@ export async function POST(request: Request) {
           counterName,
           openedAtDate,
           openingCashTotal,
-          cashier: activeRow.cashier,
+          cashier: activeRow.user,
         };
       });
 
-      // Blind response: ZERO discrepancy, expected cash, or system sales totals exposed to cashier
       return NextResponse.json(
         {
           closing: {
@@ -682,6 +623,7 @@ export async function POST(request: Request) {
             actualCashTotal,
             operationalExpenseTotal,
             operationalExpenses,
+            closingDenominations,
             closingNote,
             status: "TERCATAT",
             cashier: closeResult.cashier,
@@ -691,18 +633,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // 3. LEGACY TUTUP SHIFT (backward compatibility tanpa action)
+    // 3. JALUR KOMPATIBILITAS LEGACY (tanpa action) -> tercatat pada model Shift
     const parsed = legacyClosingSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { error: parsed.error.issues[0]?.message || "Data tutup shift tidak valid." },
+        { error: parsed.error.issues[0]?.message || "Data tutup shift tidak valid" },
         { status: 400 }
       );
     }
 
     const startOfToday = getJakartaStartOfDay();
     const admin = isStoreAdmin(user.role);
-    const todayAgg = await aggregateSalesSince({
+    const todayAgg = await aggregateSalesForShift({
       roomId: user.roomId,
       cashierId: user.id,
       admin,
@@ -711,40 +653,34 @@ export async function POST(request: Request) {
 
     const { actualCashTotal, actualDigitalTotal, notes } = parsed.data;
     const recordedGrandTotal = actualCashTotal + actualDigitalTotal;
+    const closedAt = new Date();
+    const roomCounters = await getRoomCounterRecords(user.roomId);
+    const defaultCounter = roomCounters[0];
 
     const closing = await prisma.$transaction(async (tx) => {
-      const created = await tx.shiftClosing.create({
+      const created = await tx.shift.create({
         data: {
           roomId: user.roomId,
-          cashierId: user.id,
+          userId: user.id,
+          counterId: defaultCounter?.dbId ?? null,
+          counterSlug: defaultCounter?.id ?? DEFAULT_COUNTER_ID,
+          counterName: defaultCounter?.name ?? DEFAULT_COUNTER_NAME,
+          openedAt: startOfToday,
+          closedAt,
+          status: "TERCATAT",
+          openingCashTotal: 0,
+          closingCashTotal: actualCashTotal,
+          actualDigitalTotal,
           systemTxCount: todayAgg.systemTxCount,
           systemCashTotal: todayAgg.systemCashTotal,
           systemQrisTotal: todayAgg.systemQrisTotal,
           systemTransferTotal: todayAgg.systemTransferTotal,
           systemCardTotal: todayAgg.systemCardTotal,
           systemGrandTotal: todayAgg.systemGrandTotal,
-          actualCashTotal,
-          actualDigitalTotal,
-          cashDifference: 0,
-          digitalDifference: 0,
-          totalDifference: 0,
-          status: "TERCATAT",
-          notes: notes?.trim() || null,
+          closingNote: notes?.trim() || null,
         },
-        select: {
-          id: true,
-          shiftDate: true,
-          systemTxCount: true,
-          systemCashTotal: true,
-          systemQrisTotal: true,
-          systemTransferTotal: true,
-          systemCardTotal: true,
-          systemGrandTotal: true,
-          actualCashTotal: true,
-          actualDigitalTotal: true,
-          notes: true,
-          createdAt: true,
-          cashier: { select: { id: true, name: true, role: true } },
+        include: {
+          user: { select: { id: true, name: true, role: true } },
         },
       });
 
@@ -756,7 +692,7 @@ export async function POST(request: Request) {
           actorRole: user.role,
           actionType: "PENJUALAN",
           actionSummary: `Tutup Shift oleh ${user.name} (${todayAgg.systemTxCount} transaksi, total pencatatan Rp ${recordedGrandTotal})`,
-          entityType: "ShiftClosing",
+          entityType: "Shift",
           entityId: created.id,
           afterData: {
             systemTxCount: todayAgg.systemTxCount,
@@ -764,7 +700,7 @@ export async function POST(request: Request) {
             actualCashTotal,
             actualDigitalTotal,
             recordedGrandTotal,
-            notes: created.notes,
+            notes: created.closingNote,
           },
           approvalState: "TERCATAT",
           linkUrl: "/penjualan",
@@ -772,7 +708,21 @@ export async function POST(request: Request) {
         tx
       );
 
-      return created;
+      return {
+        id: created.id,
+        shiftDate: created.closedAt ?? created.openedAt,
+        systemTxCount: created.systemTxCount,
+        systemCashTotal: created.systemCashTotal,
+        systemQrisTotal: created.systemQrisTotal,
+        systemTransferTotal: created.systemTransferTotal,
+        systemCardTotal: created.systemCardTotal,
+        systemGrandTotal: created.systemGrandTotal,
+        actualCashTotal: created.closingCashTotal ?? 0,
+        actualDigitalTotal: created.actualDigitalTotal,
+        notes: created.closingNote,
+        createdAt: created.createdAt,
+        cashier: created.user,
+      };
     });
 
     return NextResponse.json({ closing }, { status: 201 });
@@ -788,13 +738,13 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    const message = err instanceof Error ? err.message : "Gagal menyimpan data shift kasir.";
+    const message = err instanceof Error ? err.message : "";
     if (message.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: message.slice(10) }, { status: 404 });
     }
     if (message.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: message.slice(9) }, { status: 409 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/shifts", "Gagal menyimpan data shift kasir.");
   }
 }

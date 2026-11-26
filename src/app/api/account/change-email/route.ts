@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { handleApiError } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
@@ -14,6 +15,7 @@ import { sendEmailChangeVerificationEmail } from "@/lib/email";
 import { recordAuditLog } from "@/lib/audit";
 import {
   checkRateLimit,
+  createOtpChallenge,
   isOtpTokenBlocked,
   markOtpTokenConsumed,
   recordOtpFailedAttempt,
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     if (body && body.action === "REQUEST") {
-      const reqLimit = checkRateLimit(`change-email:req:${dbUser.id}`, 5, 15 * 60_000);
+      const reqLimit = await checkRateLimit(`change-email:req:${dbUser.id}`, 5, 15 * 60_000);
       if (reqLimit.limited) {
         return NextResponse.json(
           { error: "Terlalu banyak permintaan kode verifikasi email. Coba beberapa saat lagi." },
@@ -110,6 +112,15 @@ export async function POST(request: Request) {
         code,
       });
 
+      await createOtpChallenge({
+        token: verificationToken,
+        codeHash: hashVerificationCode(code),
+        purpose: "email-change",
+        userId: dbUser.id,
+        ttlMs: 15 * 60_000,
+        maxAttempts: 5,
+      });
+
       const sendRes = await sendEmailChangeVerificationEmail({
         to: nextEmail,
         recipientName: dbUser.name,
@@ -147,12 +158,18 @@ export async function POST(request: Request) {
         );
       }
 
-      const otpBlocked = isOtpTokenBlocked(parsed.data.verificationToken);
+      const otpBlocked = await isOtpTokenBlocked(parsed.data.verificationToken);
       if (otpBlocked.blocked) {
         if (otpBlocked.reason === "LOCKED") {
           return NextResponse.json(
             { error: "Terlalu banyak percobaan kode salah. Minta kode verifikasi baru." },
             { status: 429 }
+          );
+        }
+        if (otpBlocked.reason === "EXPIRED") {
+          return NextResponse.json(
+            { error: "Kode verifikasi sudah kedaluwarsa. Minta kode baru." },
+            { status: 400 }
           );
         }
         return NextResponse.json(
@@ -174,13 +191,14 @@ export async function POST(request: Request) {
         );
       }
 
+      const storedCodeHash = otpBlocked.codeHash || payload.codeHash;
       const submittedHash = Buffer.from(hashVerificationCode(parsed.data.code), "hex");
-      const expectedHash = Buffer.from(payload.codeHash, "hex");
+      const expectedHash = Buffer.from(storedCodeHash, "hex");
       if (
         submittedHash.length !== expectedHash.length ||
         !crypto.timingSafeEqual(submittedHash, expectedHash)
       ) {
-        const failInfo = recordOtpFailedAttempt(parsed.data.verificationToken, 5);
+        const failInfo = await recordOtpFailedAttempt(parsed.data.verificationToken, 5);
         if (failInfo.locked) {
           return NextResponse.json(
             { error: "Terlalu banyak percobaan kode salah. Minta kode verifikasi baru." },
@@ -204,13 +222,19 @@ export async function POST(request: Request) {
         );
       }
 
+      const consumedNow = await markOtpTokenConsumed(parsed.data.verificationToken);
+      if (!consumedNow) {
+        return NextResponse.json(
+          { error: "Kode verifikasi ini sudah digunakan. Minta kode baru jika diperlukan." },
+          { status: 400 }
+        );
+      }
+
       const updated = await prisma.user.update({
         where: { id: dbUser.id },
         data: { email: payload.newEmail },
         select: { id: true, email: true, username: true, name: true, role: true },
       });
-
-      markOtpTokenConsumed(parsed.data.verificationToken);
 
       if (dbUser.roomId) {
         await recordAuditLog({
@@ -247,8 +271,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ error: "Aksi ganti email tidak dikenali." }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memproses perubahan email.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/account/change-email", "Gagal memproses perubahan email.");
   }
 }
 

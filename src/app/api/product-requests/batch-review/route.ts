@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { isStoreAdmin } from "@/lib/rbac";
@@ -220,14 +221,14 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    const rawMsg = err instanceof Error ? err.message : "Gagal memproses paket pengajuan produk.";
+    const rawMsg = err instanceof Error ? err.message : "";
     if (rawMsg.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: rawMsg.replace("NOT_FOUND:", "") }, { status: 404 });
     }
     if (rawMsg.startsWith("CONFLICT:")) {
       return NextResponse.json({ error: rawMsg.replace("CONFLICT:", "") }, { status: 409 });
     }
-    return NextResponse.json({ error: rawMsg }, { status: 500 });
+    return handleApiError(err, "/api/product-requests/batch-review", "Gagal memproses paket pengajuan produk.");
   }
 }
 

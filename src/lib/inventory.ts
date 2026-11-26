@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { parseProductRequestEnvelope } from "@/lib/product-request-batch";
+import { AppError } from "@/lib/api-error";
 
 export interface StockDeductionResult {
   unitCost: number;
@@ -42,12 +43,12 @@ export async function deductStockForSaleItem(
   });
 
   if (!product) {
-    throw new Error("Produk tidak ditemukan di katalog.");
+    throw new AppError("Produk tidak ditemukan di katalog.", 400);
   }
 
   const qty = Number(params.quantity);
   if (!Number.isFinite(qty) || qty <= 0) {
-    throw new Error("Jumlah pembelian harus lebih dari 0.");
+    throw new AppError("Jumlah pembelian harus lebih dari 0.", 400);
   }
 
   // Method 3: RESEP & VARIAN
@@ -57,43 +58,47 @@ export async function deductStockForSaleItem(
       : product.variants[0];
 
     if (!variant) {
-      throw new Error(`Produk resep "${product.name}" wajib memiliki varian ukuran/takaran.`);
+      throw new AppError(`Produk resep "${product.name}" wajib memiliki varian ukuran/takaran.`, 400);
     }
 
     if (variant.ingredients.length === 0) {
-      throw new Error(`Varian "${variant.name}" pada "${product.name}" belum memiliki komposisi bahan baku.`);
+      throw new AppError(`Varian "${variant.name}" pada "${product.name}" belum memiliki komposisi bahan baku.`, 400);
     }
 
     let calculatedUnitCost = 0;
     const deductions: StockDeductionResult["deductions"] = [];
 
-    // First verify all ingredient stocks are sufficient
+    // Validate room ownership and compute recipe unit cost
     for (const ing of variant.ingredients) {
       if (ing.material.roomId !== product.roomId) {
-        throw new Error("Komposisi bahan baku tidak valid untuk ruangan ini.");
-      }
-      const neededQty = Number((ing.quantity * qty).toFixed(4));
-      if (ing.material.currentStock < neededQty) {
-        throw new Error(
-          `Stok bahan baku "${ing.material.name}" tidak mencukupi. Tersedia: ${ing.material.currentStock} ${ing.material.sellUnit}, dibutuhkan: ${neededQty} ${ing.material.sellUnit}.`
-        );
+        throw new AppError("Komposisi bahan baku tidak valid untuk ruangan ini.", 400);
       }
       calculatedUnitCost += Math.round(ing.quantity * ing.material.costPrice);
     }
 
     const effectiveUnitCost = calculatedUnitCost > 0 ? calculatedUnitCost : variant.costPrice;
 
-    // Deduct each raw material
+    // Atomically deduct each raw material only when currentStock >= neededQty
     for (const ing of variant.ingredients) {
       const neededQty = Number((ing.quantity * qty).toFixed(4));
-      await tx.product.update({
-        where: { id: ing.materialId },
+      const updated = await tx.product.updateMany({
+        where: {
+          id: ing.materialId,
+          roomId: product.roomId,
+          currentStock: { gte: neededQty },
+        },
         data: {
           currentStock: {
             decrement: neededQty,
           },
         },
       });
+      if (updated.count === 0) {
+        throw new AppError(
+          `Stok bahan baku "${ing.material.name}" tidak mencukupi. Dibutuhkan: ${neededQty} ${ing.material.sellUnit}.`,
+          400
+        );
+      }
       deductions.push({
         productId: ing.materialId,
         productName: ing.material.name,
@@ -109,21 +114,26 @@ export async function deductStockForSaleItem(
     };
   }
 
-  // Method 1 (TETAP 1:1) & Method 2 (PECAH SATUAN)
-  if (product.currentStock < qty) {
-    throw new Error(
-      `Stok "${product.name}" tidak mencukupi. Tersedia: ${product.currentStock} ${product.sellUnit}, diminta: ${qty} ${product.sellUnit}.`
-    );
-  }
-
-  await tx.product.update({
-    where: { id: product.id },
+  // Method 1 (TETAP 1:1) & Method 2 (PECAH SATUAN): atomic conditional deduction
+  const updated = await tx.product.updateMany({
+    where: {
+      id: product.id,
+      roomId: product.roomId,
+      currentStock: { gte: qty },
+    },
     data: {
       currentStock: {
         decrement: qty,
       },
     },
   });
+
+  if (updated.count === 0) {
+    throw new AppError(
+      `Stok "${product.name}" tidak mencukupi. Diminta: ${qty} ${product.sellUnit}.`,
+      400
+    );
+  }
 
   return {
     unitCost: product.costPrice,

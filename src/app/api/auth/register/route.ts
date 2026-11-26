@@ -14,6 +14,8 @@ import {
 import { createNotification, recordAuditLog } from "@/lib/audit";
 import { buildInitialCounters } from "@/lib/counters";
 import { saveRoomCounters } from "@/lib/queries/counters";
+import { strongPasswordSchema } from "@/lib/password-policy";
+import { handleApiError } from "@/lib/api-error";
 import { z } from "zod";
 
 const registerBaseSchema = z.object({
@@ -23,7 +25,7 @@ const registerBaseSchema = z.object({
   name: z.string().trim().min(2, "Nama lengkap minimal 2 karakter"),
   username: z.string().min(1, "Username wajib diisi"),
   email: z.string().trim().email("Format email tidak valid").optional().or(z.literal("")),
-  password: z.string().min(6, "Kata sandi minimal 6 karakter"),
+  password: strongPasswordSchema,
   roomName: z.string().trim().optional().or(z.literal("")),
   roomAddress: z.string().trim().optional().or(z.literal("")),
   inviteCode: z.string().trim().optional().or(z.literal("")),
@@ -373,6 +375,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    return NextResponse.json({ error: "Gagal mendaftarkan akun baru." }, { status: 500 });
+    return handleApiError(err, "POST /api/auth/register", "Gagal mendaftarkan akun baru.");
   }
 }

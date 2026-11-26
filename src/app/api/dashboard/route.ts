@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { handleApiError } from "@/lib/api-error";
 import { requireAssignedUser } from "@/lib/auth";
 import { canViewFinancials } from "@/lib/rbac";
 import { getDashboardPayload } from "@/lib/queries/dashboard";
@@ -25,7 +26,6 @@ export async function GET(request: Request) {
     const payload = await getDashboardPayload(user.roomId, range);
     return NextResponse.json(payload);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memuat data dashboard.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleApiError(err, "/api/dashboard", "Gagal memuat data dashboard.");
   }
 }

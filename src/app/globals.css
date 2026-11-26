@@ -677,3 +677,7 @@ html[data-resolved-theme="dark"] body.trasir-theme-root :is(input:not([type="che
 html[data-resolved-theme="dark"] body.trasir-theme-root :is(input, textarea):not(.landing-root *)::placeholder {
   color: #64748B;
 }
+
+html[data-resolved-theme="dark"] body.trasir-theme-root .trasir-logo-img:not(.landing-root *) {
+  filter: brightness(0) invert(1);
+}

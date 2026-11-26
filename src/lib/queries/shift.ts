@@ -1,32 +1,46 @@
 import { prisma } from "@/lib/prisma";
-import {
-  DEFAULT_COUNTER_ID,
-  DEFAULT_COUNTER_NAME,
-} from "@/lib/counters";
+import { DEFAULT_COUNTER_ID, DEFAULT_COUNTER_NAME } from "@/lib/counters";
 import {
   ActiveShiftSummary,
   createEmptyDenominations,
-  parseShiftEnvelope,
+  HandoverSyncStatus,
+  normalizeDenominations,
 } from "@/lib/shift-session";
+
+function parseDenominationsJson(raw: string | null | undefined) {
+  if (!raw) return createEmptyDenominations();
+  try {
+    return normalizeDenominations(JSON.parse(raw));
+  } catch {
+    return createEmptyDenominations();
+  }
+}
 
 export async function getActiveShiftForUser(
   roomId: string,
   userId: string
 ): Promise<ActiveShiftSummary | null> {
-  const row = await prisma.shiftClosing.findFirst({
+  const row = await prisma.shift.findFirst({
     where: {
       roomId,
-      cashierId: userId,
+      userId,
       status: "AKTIF",
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: { openedAt: "desc" },
     select: {
       id: true,
-      cashierId: true,
-      shiftDate: true,
-      actualCashTotal: true,
-      notes: true,
-      cashier: {
+      userId: true,
+      counterSlug: true,
+      counterName: true,
+      openedAt: true,
+      openingCashTotal: true,
+      openingDenominationsJson: true,
+      openingNote: true,
+      handoverSyncStatus: true,
+      counter: {
+        select: { slug: true, name: true },
+      },
+      user: {
         select: {
           name: true,
           role: true,
@@ -37,20 +51,25 @@ export async function getActiveShiftForUser(
 
   if (!row) return null;
 
-  const envelope = parseShiftEnvelope(row.notes);
+  const syncStatus: HandoverSyncStatus =
+    row.handoverSyncStatus === "SINKRON" ||
+    row.handoverSyncStatus === "TIDAK_SINKRON" ||
+    row.handoverSyncStatus === "SHIFT_PERTAMA"
+      ? row.handoverSyncStatus
+      : "SHIFT_PERTAMA";
+
   return {
     id: row.id,
-    counterId: envelope?.counterId || DEFAULT_COUNTER_ID,
-    counterName: envelope?.counterName || DEFAULT_COUNTER_NAME,
-    cashierId: row.cashierId,
-    cashierName: row.cashier.name,
-    cashierRole: row.cashier.role,
-    openedAt: envelope?.openedAt ?? row.shiftDate.toISOString(),
-    openingCashTotal: envelope?.openingCashTotal ?? row.actualCashTotal,
-    openingDenominations: envelope?.openingDenominations ?? createEmptyDenominations(),
-    openingNote: envelope?.openingNote ?? null,
-    handoverSyncStatus: envelope?.handoverSyncStatus ?? "SHIFT_PERTAMA",
+    counterId: row.counter?.slug || row.counterSlug || DEFAULT_COUNTER_ID,
+    counterName: row.counter?.name || row.counterName || DEFAULT_COUNTER_NAME,
+    cashierId: row.userId,
+    cashierName: row.user.name,
+    cashierRole: row.user.role,
+    openedAt: row.openedAt.toISOString(),
+    openingCashTotal: row.openingCashTotal,
+    openingDenominations: parseDenominationsJson(row.openingDenominationsJson),
+    openingNote: row.openingNote ?? null,
+    handoverSyncStatus: syncStatus,
     status: "AKTIF",
   };
 }
-

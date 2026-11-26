@@ -47,7 +47,10 @@ function parseEnvFile(filePath: string): Record<string, string> {
 }
 
 function readDevEnvFallback(): Record<string, string> {
-  if (process.env.NODE_ENV === "production" || process.env.VITEST === "true") {
+  if (
+    process.env.NODE_ENV === "production" ||
+    process.env.EMAIL_DISABLE_DEV_ENV_FALLBACK === "true"
+  ) {
     return {};
   }
   const cwd = process.cwd();
@@ -60,7 +63,10 @@ function readDevEnvFallback(): Record<string, string> {
 function getEmailEnv(key: string): string | undefined {
   const runtimeVal = process.env[key]?.trim();
   if (runtimeVal) return runtimeVal;
-  if (process.env.NODE_ENV !== "production" && process.env.VITEST !== "true") {
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.EMAIL_DISABLE_DEV_ENV_FALLBACK !== "true"
+  ) {
     const fallbackVal = readDevEnvFallback()[key]?.trim();
     if (fallbackVal) return fallbackVal;
   }
@@ -211,7 +217,7 @@ async function dispatchEmail(params: {
   html: string;
   devLogMessage: string;
 }): Promise<SendEmailResult> {
-  if (process.env.VITEST === "true") {
+  if (process.env.EMAIL_TRANSPORT === "mock") {
     return { ok: true, provider: "DEV_CONSOLE" };
   }
 

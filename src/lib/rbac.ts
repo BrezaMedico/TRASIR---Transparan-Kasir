@@ -35,9 +35,9 @@ export async function seedRoomDefaults(
   tx: Prisma.TransactionClient | typeof prisma,
   roomId: string
 ): Promise<void> {
-  const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+  const cacheDisabled = process.env.RBAC_CACHE_DISABLED === "true";
   const seededRooms = getSeededRoomsSet();
-  if (!isTestEnv && tx === prisma && seededRooms.has(roomId)) {
+  if (!cacheDisabled && tx === prisma && seededRooms.has(roomId)) {
     return;
   }
 
@@ -80,7 +80,7 @@ export async function seedRoomDefaults(
       .catch(() => undefined);
   }
 
-  if (!isTestEnv && tx === prisma) {
+  if (!cacheDisabled && tx === prisma) {
     seededRooms.add(roomId);
   }
 }
@@ -92,11 +92,11 @@ export function resetBaselineCache(): void {
 }
 
 export async function ensureSystemBaseline(): Promise<void> {
-  const isTestEnv = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
-  if (!isTestEnv && globalForRbac.__trasirBaselineDone) {
+  const cacheDisabled = process.env.RBAC_CACHE_DISABLED === "true";
+  if (!cacheDisabled && globalForRbac.__trasirBaselineDone) {
     return;
   }
-  if (!isTestEnv && globalForRbac.__trasirBaselinePromise) {
+  if (!cacheDisabled && globalForRbac.__trasirBaselinePromise) {
     return globalForRbac.__trasirBaselinePromise;
   }
 
@@ -121,10 +121,8 @@ export async function ensureSystemBaseline(): Promise<void> {
       prisma.systemSetting.findUnique({ where: { id: "default" } }),
     ]);
 
-    const [legacyAssignedUser, legacyProduct, legacyCategory] = await Promise.all([
+    const [legacyAssignedUser] = await Promise.all([
       prisma.user.findFirst({ where: { isAssigned: true, roomId: null }, select: { id: true } }),
-      prisma.product.findFirst({ where: { roomId: null }, select: { id: true } }),
-      prisma.category.findFirst({ where: { roomId: null }, select: { id: true } }),
     ]);
 
     const existingKeys = new Set(permRows.map((p) => `${p.role}::${p.module}`));
@@ -241,8 +239,8 @@ export async function ensureSystemBaseline(): Promise<void> {
       await Promise.all(tasks);
     }
 
-    // Migrasi aman data lama (sebelum sistem multi-ruangan) agar seluruh pengguna & transaksi historis tetap terjaga
-    const hasLegacyData = Boolean(legacyAssignedUser || legacyProduct || legacyCategory);
+    // Migrasi aman data pengguna lama (sebelum sistem multi-ruangan) agar akun historis tetap terjaga
+    const hasLegacyData = Boolean(legacyAssignedUser);
     const needsDefaultRoom = hasLegacyData || !existingRoom;
 
     if (needsDefaultRoom) {
@@ -271,33 +269,18 @@ export async function ensureSystemBaseline(): Promise<void> {
       if (hasLegacyData) {
         const roomData = { roomId: defaultRoom.id };
         await prisma.user.updateMany({ where: { isAssigned: true, roomId: null }, data: roomData });
-        await prisma.category.updateMany({ where: { roomId: null }, data: roomData });
-        await prisma.warehouse.updateMany({ where: { roomId: null }, data: roomData });
-        await prisma.product.updateMany({ where: { roomId: null }, data: roomData });
-        await Promise.all([
-          prisma.purchase.updateMany({ where: { roomId: null }, data: roomData }),
-          prisma.sale.updateMany({ where: { roomId: null }, data: roomData }),
-          prisma.saleAmendment.updateMany({ where: { roomId: null }, data: roomData }),
-          prisma.shiftClosing.updateMany({ where: { roomId: null }, data: roomData }),
-        ]);
-        await Promise.all([
-          prisma.stockAdjustment.updateMany({ where: { roomId: null }, data: roomData }),
-          prisma.stockOpnameSession.updateMany({ where: { roomId: null }, data: roomData }),
-          prisma.storeInvitation.updateMany({ where: { roomId: null }, data: roomData }),
-          prisma.notification.updateMany({ where: { roomId: null }, data: roomData }),
-          prisma.auditLog.updateMany({ where: { roomId: null }, data: roomData }),
-        ]);
+        await prisma.auditLog.updateMany({ where: { roomId: null }, data: roomData });
       }
 
       await seedRoomDefaults(prisma, defaultRoom.id);
     }
 
-    if (!isTestEnv) {
+    if (!cacheDisabled) {
       globalForRbac.__trasirBaselineDone = true;
     }
   };
 
-  if (isTestEnv) {
+  if (cacheDisabled) {
     await run();
     return;
   }
