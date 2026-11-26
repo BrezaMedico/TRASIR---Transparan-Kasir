@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
+import { validateProofAttachment } from "@/lib/attachment";
 import { z } from "zod";
 
 const requestAdjustmentSchema = z.object({
@@ -153,6 +154,40 @@ export async function POST(request: Request) {
       }
 
       const data = parsed.data;
+      const proofCheck = validateProofAttachment(data.proofImageData);
+      if (!proofCheck.valid) {
+        return NextResponse.json(
+          { error: proofCheck.error || "Format bukti foto tidak valid." },
+          { status: 400 }
+        );
+      }
+
+      if (data.fromWarehouseId) {
+        const fromWh = await prisma.warehouse.findFirst({
+          where: { id: data.fromWarehouseId, roomId: user.roomId },
+          select: { id: true },
+        });
+        if (!fromWh) {
+          return NextResponse.json(
+            { error: "Gudang asal tidak ditemukan pada ruangan ini." },
+            { status: 400 }
+          );
+        }
+      }
+
+      if (data.toWarehouseId) {
+        const toWh = await prisma.warehouse.findFirst({
+          where: { id: data.toWarehouseId, roomId: user.roomId },
+          select: { id: true },
+        });
+        if (!toWh) {
+          return NextResponse.json(
+            { error: "Gudang tujuan tidak ditemukan pada ruangan ini." },
+            { status: 400 }
+          );
+        }
+      }
+
       const product = await prisma.product.findFirst({
         where: { id: data.productId, roomId: user.roomId },
       });
@@ -248,23 +283,39 @@ export async function POST(request: Request) {
       }
 
       const { adjustmentId, decision, reviewNotes } = parsed.data;
-      const adj = await prisma.stockAdjustment.findFirst({
-        where: { id: adjustmentId, roomId: user.roomId },
-        include: { product: true },
-      });
-
-      if (!adj) {
-        return NextResponse.json(
-          { error: "Data pengajuan tidak ditemukan pada ruangan ini." },
-          { status: 404 }
-        );
-      }
-
-      if (adj.status !== "MENUNGGU_PERSETUJUAN") {
-        return NextResponse.json({ error: "Pengajuan ini sudah diproses." }, { status: 400 });
-      }
 
       const updated = await prisma.$transaction(async (tx) => {
+        const adj = await tx.stockAdjustment.findFirst({
+          where: { id: adjustmentId, roomId: user.roomId },
+          include: { product: true },
+        });
+
+        if (!adj) {
+          throw new Error("NOT_FOUND:Data pengajuan tidak ditemukan pada ruangan ini.");
+        }
+
+        if (adj.status !== "MENUNGGU_PERSETUJUAN") {
+          throw new Error("CONFLICT:Pengajuan ini sudah diproses.");
+        }
+
+        const claim = await tx.stockAdjustment.updateMany({
+          where: {
+            id: adj.id,
+            roomId: user.roomId,
+            status: "MENUNGGU_PERSETUJUAN",
+          },
+          data: {
+            status: decision,
+            reviewedById: user.id,
+            reviewNotes: reviewNotes?.trim() || null,
+            reviewedAt: new Date(),
+          },
+        });
+
+        if (claim.count !== 1) {
+          throw new Error("CONFLICT:Pengajuan ini sudah diproses.");
+        }
+
         if (decision === "DISETUJUI") {
           if (
             adj.adjustmentType === "RUSAK" ||
@@ -285,6 +336,20 @@ export async function POST(request: Request) {
             adj.fromWarehouseId &&
             adj.toWarehouseId
           ) {
+            const [fromWh, toWh] = await Promise.all([
+              tx.warehouse.findFirst({
+                where: { id: adj.fromWarehouseId, roomId: user.roomId },
+                select: { id: true },
+              }),
+              tx.warehouse.findFirst({
+                where: { id: adj.toWarehouseId, roomId: user.roomId },
+                select: { id: true },
+              }),
+            ]);
+            if (!fromWh || !toWh) {
+              throw new Error("NOT_FOUND:Gudang asal atau tujuan tidak ditemukan pada ruangan ini.");
+            }
+
             await tx.productStock.upsert({
               where: {
                 productId_warehouseId: {
@@ -317,14 +382,8 @@ export async function POST(request: Request) {
           }
         }
 
-        const rev = await tx.stockAdjustment.update({
+        const rev = await tx.stockAdjustment.findUniqueOrThrow({
           where: { id: adj.id },
-          data: {
-            status: decision,
-            reviewedById: user.id,
-            reviewNotes: reviewNotes?.trim() || null,
-            reviewedAt: new Date(),
-          },
           include: { product: true },
         });
 
@@ -370,6 +429,18 @@ export async function POST(request: Request) {
       }
 
       const data = parsed.data;
+      if (data.warehouseId) {
+        const wh = await prisma.warehouse.findFirst({
+          where: { id: data.warehouseId, roomId: user.roomId },
+          select: { id: true },
+        });
+        if (!wh) {
+          return NextResponse.json(
+            { error: "Gudang tidak ditemukan pada ruangan ini." },
+            { status: 400 }
+          );
+        }
+      }
       const room = await prisma.room.findUnique({ where: { id: user.roomId } });
       const toleranceRp = room?.toleranceThresholdRp ?? 50000;
 
@@ -486,6 +557,17 @@ export async function POST(request: Request) {
     }
 
     if (body.action === "EXPLAIN_OPNAME_ITEM") {
+      const canExplain =
+        isStoreAdmin(user.role) ||
+        (await checkUserPermission(user.role, "inventaris", "create")) ||
+        (await checkUserPermission(user.role, "inventaris", "edit"));
+      if (!canExplain) {
+        return NextResponse.json(
+          { error: "Anda tidak memiliki izin mengirim penjelasan selisih stok." },
+          { status: 403 }
+        );
+      }
+
       const parsed = explainOpnameItemSchema.safeParse(body);
       if (!parsed.success) {
         return NextResponse.json(
@@ -495,6 +577,15 @@ export async function POST(request: Request) {
       }
 
       const { opnameItemId, employeeExplanation, proofImageData } = parsed.data;
+      if (proofImageData) {
+        const proofCheck = validateProofAttachment(proofImageData);
+        if (!proofCheck.valid) {
+          return NextResponse.json(
+            { error: proofCheck.error || "Format bukti foto tidak valid." },
+            { status: 400 }
+          );
+        }
+      }
       const item = await prisma.stockOpnameItem.findFirst({
         where: { id: opnameItemId, session: { roomId: user.roomId } },
         include: { product: true },
@@ -622,6 +713,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Action tidak valid" }, { status: 400 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal memproses operasi inventaris.";
+    if (message.startsWith("NOT_FOUND:")) {
+      return NextResponse.json({ error: message.slice(10) }, { status: 404 });
+    }
+    if (message.startsWith("CONFLICT:")) {
+      return NextResponse.json({ error: message.slice(9) }, { status: 400 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

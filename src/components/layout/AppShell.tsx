@@ -17,6 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { isStoreAdmin, type ModuleKey, type PermissionRow, type UserRole } from "@/lib/rbac-shared";
 import { clearAllClientCache } from "@/lib/client-cache";
+import { applyUiPreferencesToDom, readUiPreferences, subscribeUiPreferences } from "@/lib/ui-preferences";
 
 interface ToastMessage {
   id: string;
@@ -38,6 +39,11 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  useEffect(() => {
+    applyUiPreferencesToDom(readUiPreferences());
+    return subscribeUiPreferences(() => {});
+  }, []);
 
   const showToast = useCallback((title: string, type: "success" | "error" | "info" = "success") => {
     const id = `${Date.now()}-${Math.random()}`;
@@ -117,6 +123,7 @@ type NavIconKey =
   | "penjualan"
   | "laporan"
   | "pengguna"
+  | "pengaturan"
   | "aktivitas";
 
 function Nav3DIcon({ iconKey }: { iconKey: NavIconKey }) {
@@ -137,7 +144,7 @@ const NAV_ITEMS: NavEntry[] = [
   { key: "produk", label: "Produk & Bahan", shortLabel: "Produk", href: "/produk" },
   { key: "penjualan", label: "Riwayat Transaksi", shortLabel: "Transaksi", href: "/penjualan" },
   { key: "laporan", label: "Laporan", shortLabel: "Laporan", href: "/laporan" },
-  { key: "pengguna", label: "Tim", shortLabel: "Tim", href: "/pengguna", adminOnly: true },
+  { key: "pengaturan", label: "Pengaturan", shortLabel: "Pengaturan", href: "/pengaturan", adminOnly: true },
   { key: "aktivitas", label: "Aktivitas", shortLabel: "Aktivitas", href: "/aktivitas" },
 ];
 
@@ -273,6 +280,7 @@ function ShellFrame({
             {visibleNavItems.map((item) => {
               const isActive =
                 pathname === item.href ||
+                (item.href === "/pengaturan" && pathname === "/pengguna") ||
                 (item.href !== "/dashboard" && pathname?.startsWith(item.href));
               const isPending = pendingHref === item.href && !isActive;
 

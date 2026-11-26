@@ -4,28 +4,34 @@ import { createPasswordResetToken } from "@/lib/auth";
 import { ensureSystemBaseline } from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
 import { sendPasswordResetEmail, getConfiguredAppBaseUrl } from "@/lib/email";
+import { checkRateLimit, getClientIpKey } from "@/lib/rate-limit";
 import { z } from "zod";
 
 const forgotSchema = z.object({
   email: z.string().trim().email("Masukkan alamat email yang valid."),
 });
 
-function resolveAppBaseUrl(request: Request): string {
+function resolveAppBaseUrl(request: Request): string | null {
   const configured = getConfiguredAppBaseUrl();
   if (configured) return configured;
 
-  const forwardedHost = request.headers.get("x-forwarded-host")?.trim();
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.trim() || "https";
-  if (forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`.replace(/\/+$/, "");
+  const vercelUrl = process.env.VERCEL_URL?.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  if (vercelUrl && /^[a-zA-Z0-9.-]+(:\d+)?$/.test(vercelUrl)) {
+    return `https://${vercelUrl}`;
   }
 
-  const vercelUrl = process.env.VERCEL_URL?.trim().replace(/\/+$/, "");
-  if (vercelUrl) {
-    return vercelUrl.startsWith("http") ? vercelUrl : `https://${vercelUrl}`;
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const parsed = new URL(request.url);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.origin;
+      }
+    } catch {
+      return null;
+    }
   }
 
-  return new URL(request.url).origin;
+  return null;
 }
 
 const GENERIC_SENT_MESSAGE =
@@ -34,6 +40,14 @@ const GENERIC_SENT_MESSAGE =
 export async function POST(request: Request) {
   try {
     await ensureSystemBaseline();
+    const ipLimit = checkRateLimit(`forgot:ip:${getClientIpKey(request)}`, 10, 15 * 60_000);
+    if (ipLimit.limited) {
+      return NextResponse.json(
+        { error: "Terlalu banyak permintaan atur ulang kata sandi. Coba beberapa saat lagi." },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const parsed = forgotSchema.safeParse(body);
     if (!parsed.success) {
@@ -44,6 +58,13 @@ export async function POST(request: Request) {
     }
 
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
+    const emailLimit = checkRateLimit(`forgot:email:${normalizedEmail}`, 5, 15 * 60_000);
+    if (emailLimit.limited) {
+      return NextResponse.json(
+        { error: "Terlalu banyak permintaan untuk email ini. Tunggu beberapa menit." },
+        { status: 429 }
+      );
+    }
 
     // Jangan kirim email ke domain internal placeholder
     if (normalizedEmail.endsWith(".trasir.local")) {
@@ -97,6 +118,12 @@ export async function POST(request: Request) {
     });
 
     const baseUrl = resolveAppBaseUrl(request);
+    if (!baseUrl) {
+      return NextResponse.json(
+        { error: "Konfigurasi URL aplikasi server belum diatur." },
+        { status: 503 }
+      );
+    }
     const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
 
     const emailResult = await sendPasswordResetEmail({
@@ -136,10 +163,11 @@ export async function POST(request: Request) {
         ? { devPreviewUrl: resetUrl }
         : {}),
     });
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Gagal memproses permintaan lupa kata sandi.";
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    return NextResponse.json(
+      { error: "Gagal memproses permintaan lupa kata sandi." },
+      { status: 500 }
+    );
   }
 }
 

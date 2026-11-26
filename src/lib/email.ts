@@ -9,6 +9,13 @@ export interface SendPasswordResetEmailParams {
   resetUrl: string;
 }
 
+export interface SendEmailChangeVerificationParams {
+  to: string;
+  recipientName: string;
+  newEmail: string;
+  code: string;
+}
+
 export interface SendEmailResult {
   ok: boolean;
   provider: "RESEND" | "SMTP" | "DEV_CONSOLE" | "NONE";
@@ -61,8 +68,18 @@ function getEmailEnv(key: string): string | undefined {
 }
 
 export function getConfiguredAppBaseUrl(): string | undefined {
-  const val = getEmailEnv("NEXT_PUBLIC_APP_URL");
-  return val ? val.replace(/\/+$/, "") : undefined;
+  const val = getEmailEnv("APP_URL") || getEmailEnv("NEXT_PUBLIC_APP_URL");
+  if (!val) return undefined;
+  try {
+    const parsed = new URL(val);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined;
+    }
+    const basePath = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.origin}${basePath}`;
+  } catch {
+    return undefined;
+  }
 }
 
 function escapeHtml(raw: string): string {
@@ -129,6 +146,54 @@ function buildResetEmailContent(params: SendPasswordResetEmailParams) {
   return { subject, text, html };
 }
 
+function buildEmailChangeContent(params: SendEmailChangeVerificationParams) {
+  const safeName = escapeHtml(params.recipientName || "Pengguna TRASIR");
+  const safeNewEmail = escapeHtml(params.newEmail);
+  const safeCode = escapeHtml(params.code);
+
+  const subject = "Kode Verifikasi Perubahan Email TRASIR";
+
+  const text = [
+    `Halo ${params.recipientName || "Pengguna TRASIR"},`,
+    "",
+    `Anda meminta penggantian alamat email akun TRASIR menjadi: ${params.newEmail}`,
+    `Kode verifikasi Anda: ${params.code} (berlaku 15 menit).`,
+    "",
+    "Jika Anda tidak pernah meminta penggantian email ini, abaikan pesan ini.",
+    "",
+    "TRASIR (Transparan Kasir)",
+  ].join("\n");
+
+  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${subject}</title>
+</head>
+<body style="margin:0;padding:24px 16px;background-color:#FFFFFF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#202531;">
+  <div style="max-width:520px;margin:0 auto;background-color:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;padding:24px;">
+    <div style="border-bottom:1px solid #E5E7EB;padding-bottom:14px;margin-bottom:20px;">
+      <div style="font-size:16px;font-weight:800;color:#202531;">TRASIR</div>
+      <div style="font-size:12px;color:#525866;margin-top:2px;">Verifikasi Perubahan Email Akun</div>
+    </div>
+    <p style="margin:0 0 12px;font-size:14px;color:#202531;">Halo <strong>${safeName}</strong>,</p>
+    <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#374151;">
+      Masukkan kode verifikasi berikut di halaman Pengaturan untuk mengonfirmasi email baru <strong>${safeNewEmail}</strong>. Berlaku <strong>15 menit</strong>:
+    </p>
+    <div style="margin:0 0 18px;padding:14px 18px;background-color:#F3F4F6;border-radius:10px;text-align:center;font-family:monospace;font-size:26px;font-weight:800;letter-spacing:6px;color:#202531;">
+      ${safeCode}
+    </div>
+    <p style="margin:0;font-size:12px;color:#6B7280;border-top:1px solid #E5E7EB;padding-top:14px;">
+      Jika Anda tidak meminta perubahan email ini, abaikan email ini.
+    </p>
+  </div>
+</body>
+</html>`;
+
+  return { subject, text, html };
+}
+
 export function isEmailServiceConfigured(): boolean {
   const hasResend = Boolean(getEmailEnv("RESEND_API_KEY"));
   const hasSmtp = Boolean(
@@ -139,14 +204,18 @@ export function isEmailServiceConfigured(): boolean {
   return hasResend || hasSmtp;
 }
 
-export async function sendPasswordResetEmail(
-  params: SendPasswordResetEmailParams
-): Promise<SendEmailResult> {
+async function dispatchEmail(params: {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  devLogMessage: string;
+}): Promise<SendEmailResult> {
   if (process.env.VITEST === "true") {
     return { ok: true, provider: "DEV_CONSOLE" };
   }
 
-  const { subject, text, html } = buildResetEmailContent(params);
+  const { subject, text, html } = params;
 
   // Jalur 1: Resend HTTPS API (paling direkomendasikan saat deploy ke Vercel/serverless)
   const resendApiKey = getEmailEnv("RESEND_API_KEY");
@@ -261,9 +330,7 @@ export async function sendPasswordResetEmail(
   // Mode Development/Test lokal ketika provider email belum dipasang
   if (process.env.NODE_ENV !== "production") {
     if (process.env.NODE_ENV === "development") {
-      console.info(
-        `[TRASIR DEV EMAIL] Tautan reset password untuk ${params.to} belum terkirim via SMTP karena konfigurasi kosong.`
-      );
+      console.info(params.devLogMessage);
     }
     return { ok: true, provider: "DEV_CONSOLE" };
   }
@@ -274,5 +341,31 @@ export async function sendPasswordResetEmail(
     reason: "EMAIL_NOT_CONFIGURED",
     errorMessage: "RESEND_API_KEY atau konfigurasi SMTP_* belum diatur di server.",
   };
+}
+
+export async function sendPasswordResetEmail(
+  params: SendPasswordResetEmailParams
+): Promise<SendEmailResult> {
+  const { subject, text, html } = buildResetEmailContent(params);
+  return dispatchEmail({
+    to: params.to,
+    subject,
+    text,
+    html,
+    devLogMessage: `[TRASIR DEV EMAIL] Tautan reset password untuk ${params.to} belum terkirim via SMTP karena konfigurasi kosong.`,
+  });
+}
+
+export async function sendEmailChangeVerificationEmail(
+  params: SendEmailChangeVerificationParams
+): Promise<SendEmailResult> {
+  const { subject, text, html } = buildEmailChangeContent(params);
+  return dispatchEmail({
+    to: params.to,
+    subject,
+    text,
+    html,
+    devLogMessage: `[TRASIR DEV EMAIL] Kode verifikasi ganti email (${params.newEmail}): ${params.code}`,
+  });
 }
 

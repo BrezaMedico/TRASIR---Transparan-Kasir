@@ -8,9 +8,21 @@ import { ensureSystemBaseline, UserRole } from "./rbac";
 
 export const SESSION_COOKIE_NAME = "trasir_session";
 
+export function resolveSecretString(
+  env: Record<string, string | undefined> = process.env
+): string {
+  const secret = env.AUTH_SECRET?.trim();
+  if (env.NODE_ENV === "production") {
+    if (!secret || secret.length < 32) {
+      throw new Error("AUTH_SECRET wajib diatur minimal 32 karakter di lingkungan produksi.");
+    }
+    return secret;
+  }
+  return secret || "trasir_fallback_secret_key_for_dev_and_test_2026";
+}
+
 function getSecretKey(): Uint8Array {
-  const secret = process.env.AUTH_SECRET || "trasir_fallback_secret_key_for_dev_and_test_2026";
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(resolveSecretString());
 }
 
 export interface SessionUser {
@@ -56,7 +68,10 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
 
 export async function verifySessionToken(token: string): Promise<SessionUser | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecretKey());
+    const { payload } = await jwtVerify(token, getSecretKey(), {
+      algorithms: ["HS256"],
+    });
+    if (payload.purpose) return null;
     if (!payload.sub || !payload.role) return null;
     return {
       id: String(payload.sub),
@@ -156,6 +171,7 @@ export function attachSessionCookie(res: NextResponse, token: string): void {
   res.cookies.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24,
   });
@@ -163,6 +179,64 @@ export function attachSessionCookie(res: NextResponse, token: string): void {
 
 export function computePasswordFingerprint(passwordHash: string): string {
   return crypto.createHash("sha256").update(passwordHash).digest("hex").slice(0, 16);
+}
+
+export function hashVerificationCode(code: string): string {
+  return crypto.createHash("sha256").update(code.trim()).digest("hex");
+}
+
+export async function createEmailChangeToken(params: {
+  userId: string;
+  currentEmail: string;
+  newEmail: string;
+  tokenVersion: number;
+  code: string;
+}): Promise<string> {
+  return new SignJWT({
+    purpose: "email-change",
+    sub: params.userId,
+    currentEmail: params.currentEmail,
+    newEmail: params.newEmail,
+    tokenVersion: params.tokenVersion,
+    codeHash: hashVerificationCode(params.code),
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("15m")
+    .sign(getSecretKey());
+}
+
+export async function verifyEmailChangeToken(token: string): Promise<{
+  userId: string;
+  currentEmail: string;
+  newEmail: string;
+  tokenVersion: number;
+  codeHash: string;
+} | null> {
+  try {
+    const { payload } = await jwtVerify(token, getSecretKey(), {
+      algorithms: ["HS256"],
+    });
+    if (
+      payload.purpose !== "email-change" ||
+      !payload.sub ||
+      typeof payload.currentEmail !== "string" ||
+      typeof payload.newEmail !== "string" ||
+      typeof payload.tokenVersion !== "number" ||
+      typeof payload.codeHash !== "string"
+    ) {
+      return null;
+    }
+    return {
+      userId: String(payload.sub),
+      currentEmail: payload.currentEmail,
+      newEmail: payload.newEmail,
+      tokenVersion: payload.tokenVersion,
+      codeHash: payload.codeHash,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function createPasswordResetToken(params: {
@@ -191,7 +265,9 @@ export async function verifyPasswordResetToken(token: string): Promise<{
   pwdSig: string;
 } | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecretKey());
+    const { payload } = await jwtVerify(token, getSecretKey(), {
+      algorithms: ["HS256"],
+    });
     if (
       payload.purpose !== "password-reset" ||
       !payload.sub ||

@@ -8,6 +8,7 @@ import {
   UserRole,
 } from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
+import { checkRateLimit, getClientIpKey } from "@/lib/rate-limit";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -28,6 +29,18 @@ export async function POST(request: Request) {
     }
 
     const identifier = parsed.data.identifier.trim().toLowerCase();
+    const rateCheck = checkRateLimit(
+      `login:${getClientIpKey(request)}:${identifier}`,
+      15,
+      5 * 60_000
+    );
+    if (rateCheck.limited) {
+      return NextResponse.json(
+        { error: "Terlalu banyak percobaan masuk. Coba lagi beberapa menit lagi." },
+        { status: 429 }
+      );
+    }
+
     const user = await prisma.user.findFirst({
       where: {
         OR: [{ username: identifier }, { email: identifier }],
@@ -41,18 +54,18 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!user.isActive) {
-      return NextResponse.json(
-        { error: "Akun Anda sedang dinonaktifkan oleh Pemilik atau Manajer ruangan." },
-        { status: 403 }
-      );
-    }
-
     const valid = await verifyPassword(parsed.data.password, user.passwordHash);
     if (!valid) {
       return NextResponse.json(
         { error: "Akun tidak ditemukan atau kata sandi salah." },
         { status: 401 }
+      );
+    }
+
+    if (!user.isActive) {
+      return NextResponse.json(
+        { error: "Akun Anda sedang dinonaktifkan oleh Pemilik atau Manajer ruangan." },
+        { status: 403 }
       );
     }
 
@@ -100,8 +113,7 @@ export async function POST(request: Request) {
 
     attachSessionCookie(res, token);
     return res;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Gagal memproses autentikasi.";
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Gagal memproses autentikasi." }, { status: 500 });
   }
 }

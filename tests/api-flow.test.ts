@@ -25,6 +25,7 @@ import { GET as getDashboard } from "../src/app/api/dashboard/route";
 import { GET as getReports } from "../src/app/api/reports/route";
 import {
   POST as createProduct,
+  PUT as updateProduct,
   GET as listProducts,
   DELETE as deleteProduct,
 } from "../src/app/api/products/route";
@@ -40,18 +41,26 @@ import { PATCH as updateProductRequestReceipt } from "../src/app/api/product-req
 import { GET as listSales, POST as createSale } from "../src/app/api/sales/route";
 import { POST as handleSaleAmendment } from "../src/app/api/sales/amendments/route";
 import { GET as getShifts, POST as postShift } from "../src/app/api/shifts/route";
+import {
+  GET as getCounters,
+  POST as createCounter,
+  DELETE as deleteCounter,
+} from "../src/app/api/counters/route";
 import { GET as getPurchases, POST as createPurchase } from "../src/app/api/purchases/route";
 import { POST as analyzePurchase } from "../src/app/api/purchases/analyze/route";
 import { PATCH as updatePurchaseReceipt } from "../src/app/api/purchases/receipt/route";
 import { POST as reviewPurchase } from "../src/app/api/purchases/review/route";
 import { NEUTRAL_AI_DISCLAIMER } from "../src/lib/gemini";
-import { GET as getInventory } from "../src/app/api/inventory/route";
+import { GET as getInventory, POST as postInventory } from "../src/app/api/inventory/route";
+import { POST as postAudit } from "../src/app/api/audit/route";
 import { POST as createInvitation } from "../src/app/api/invitations/route";
 import { DELETE as revokeInvitation } from "../src/app/api/invitations/[id]/route";
 import { GET as verifyInvitation } from "../src/app/api/invitations/verify/route";
 import { PATCH as updateUserRole } from "../src/app/api/users/[id]/role/route";
 import { PATCH as revokeUserAccess } from "../src/app/api/users/[id]/revoke/route";
+import { GET as getUsers } from "../src/app/api/users/route";
 import { POST as postSettings } from "../src/app/api/settings/route";
+import { POST as changeEmailApi } from "../src/app/api/account/change-email/route";
 
 function extractSessionToken(res: Response): string | null {
   const setCookie = res.headers.get("set-cookie");
@@ -905,7 +914,7 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
 
     // Skenario 22 & 23: Fitur Tutup Shift tetap berjalan, dan fitur melihat selisih hasil tutup shift sudah tidak ada
     activeSessionToken = kasirToken;
-    const shiftGetBefore = await getShifts();
+    const shiftGetBefore = await getShifts(new Request("http://localhost/api/shifts"));
     expect(shiftGetBefore.status).toBe(200);
 
     const shiftPostRes = await postShift(
@@ -925,7 +934,7 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     expect(shiftPostJson.closing).not.toHaveProperty("digitalDifference");
     expect(shiftPostJson.closing).not.toHaveProperty("totalDifference");
 
-    const shiftGetAfter = await (await getShifts()).json();
+    const shiftGetAfter = await (await getShifts(new Request("http://localhost/api/shifts"))).json();
     expect(shiftGetAfter.closings.length).toBe(1);
     expect(shiftGetAfter.closings[0]).not.toHaveProperty("cashDifference");
     expect(shiftGetAfter.closings[0]).not.toHaveProperty("digitalDifference");
@@ -1780,5 +1789,916 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     activeSessionToken = gudangToken;
     const empListFinal = await (await listProductRequests(new Request("http://localhost/api/product-requests"))).json();
     expect(empListFinal.requests.some((r: { sku: string }) => r.sku === "DEL-REQ-02")).toBe(false);
+  });
+
+  it("Scenario 30: Blind Buka Shift & Tutup Shift with denomination counting, handover sync, and admin audit", async () => {
+    const ownerRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Owner Shift",
+        username: "owner_shift30",
+        password: "PasswordAman123",
+        roomName: "Kedai Kopi Shift",
+      })
+    );
+    expect(ownerRes.status).toBe(201);
+    const ownerToken = extractSessionToken(ownerRes)!;
+    const ownerJson = await ownerRes.json();
+    const roomId = ownerJson.user.roomId as string;
+
+    activeSessionToken = ownerToken;
+    const category = await prisma.category.findFirstOrThrow({ where: { roomId } });
+
+    const prodRes = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "KOPI-SHIFT-01",
+        name: "Kopi Susu Shift",
+        categoryId: category.id,
+        stockMethod: "TETAP",
+        isRawMaterial: false,
+        purchaseUnit: "Cup",
+        sellUnit: "Cup",
+        conversionRatio: 1,
+        costPrice: 10000,
+        sellPrice: 20000,
+        currentStock: 50,
+        minStockAlert: 5,
+      })
+    );
+    expect(prodRes.status).toBe(201);
+    const prod = (await prodRes.json()).product;
+
+    const invKasirCode = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+
+    const kasirRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "JOIN_ROOM",
+        name: "Kasir Pagi",
+        username: "kasir_shift30",
+        password: "PasswordAman123",
+        inviteCode: invKasirCode,
+      })
+    );
+    expect(kasirRes.status).toBe(201);
+    const kasirToken = extractSessionToken(kasirRes)!;
+
+    // 1. Kasir Buka Shift 1 dengan modal pecahan Rp 250.000
+    activeSessionToken = kasirToken;
+    const open1Res = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        denominations: { "100000": 2, "50000": 1 },
+        openingNote: "Modal awal pagi",
+        readyConfirmed: true,
+      })
+    );
+    expect(open1Res.status).toBe(201);
+    const open1Json = await open1Res.json();
+    expect(open1Json.activeShift.openingCashTotal).toBe(250000);
+    expect(open1Json.activeShift.handoverSyncStatus).toBe("SHIFT_PERTAMA");
+    expect(open1Json.activeShift).not.toHaveProperty("previousShiftClosingCash");
+    expect(open1Json.activeShift).not.toHaveProperty("handoverDifference");
+
+    // Tidak boleh buka shift ganda
+    const dupOpenRes = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        denominations: { "100000": 1 },
+        readyConfirmed: true,
+      })
+    );
+    expect(dupOpenRes.status).toBe(409);
+
+    // 2. Kasir catat transaksi tunai Rp 40.000
+    const sale1Res = await createSale(
+      jsonReq("http://localhost/api/sales", "POST", {
+        items: [{ productId: prod.id, quantity: 2 }],
+        paymentMethod: "TUNAI",
+        cashReceived: 50000,
+      })
+    );
+    expect(sale1Res.status).toBe(200);
+
+    // 3. Kasir Tutup Shift Buta (Rp 280.000 + operasional Rp 10.000 => 250rb + 40rb - 10rb = 280rb, KLOP)
+    const close1Res = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "CLOSE",
+        shiftId: open1Json.activeShift.id,
+        denominations: { "100000": 2, "50000": 1, "20000": 1, "10000": 1 },
+        operationalExpenses: [{ description: "Beli es batu", amount: 10000 }],
+        closingNote: "Loker aman",
+        honestyConfirmed: true,
+      })
+    );
+    expect(close1Res.status).toBe(201);
+    const close1Json = await close1Res.json();
+    expect(close1Json.closing.actualCashTotal).toBe(280000);
+    expect(close1Json.closing.operationalExpenseTotal).toBe(10000);
+    expect(close1Json.closing.status).toBe("TERCATAT");
+    expect(close1Json.closing).not.toHaveProperty("cashDifference");
+    expect(close1Json.closing).not.toHaveProperty("expectedCashAtClose");
+    expect(close1Json.closing).not.toHaveProperty("systemCashTotal");
+
+    // 4. Kasir Buka Shift 2 dengan modal Rp 250.000 (seharusnya Rp 280.000 => estafet TIDAK_SINKRON -30rb)
+    await new Promise((r) => setTimeout(r, 20));
+    const open2Res = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        denominations: { "100000": 2, "50000": 1 },
+        readyConfirmed: true,
+      })
+    );
+    expect(open2Res.status).toBe(201);
+
+    const sale2Res = await createSale(
+      jsonReq("http://localhost/api/sales", "POST", {
+        items: [{ productId: prod.id, quantity: 1 }],
+        paymentMethod: "TUNAI",
+        cashReceived: 20000,
+      })
+    );
+    expect(sale2Res.status).toBe(200);
+
+    // 5. Kasir Tutup Shift 2 dengan fisik Rp 240.000 (seharusnya 250rb + 20rb = 270rb => kurang -30rb)
+    const close2Res = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "CLOSE",
+        denominations: { "100000": 2, "20000": 2 },
+        honestyConfirmed: true,
+      })
+    );
+    expect(close2Res.status).toBe(201);
+    const close2Json = await close2Res.json();
+    // Masih buta untuk kasir meskipun ada selisih -30rb!
+    expect(close2Json.closing.status).toBe("TERCATAT");
+    expect(close2Json.closing).not.toHaveProperty("cashDifference");
+    expect(close2Json.closing).not.toHaveProperty("expectedCashAtClose");
+
+    // Verifikasi GET /api/shifts oleh kasir tidak membocorkan ringkasan sistem atau rincian envelope rahasia
+    const kasirGetJson = await (await getShifts(new Request("http://localhost/api/shifts"))).json();
+    expect(kasirGetJson.summary).toBeNull();
+    expect(kasirGetJson.closings.length).toBe(2);
+    const kasirClosingsRaw = JSON.stringify(kasirGetJson.closings);
+    expect(kasirClosingsRaw).not.toContain("expectedCashAtClose");
+    expect(kasirClosingsRaw).not.toContain("closingCashDifference");
+    expect(kasirClosingsRaw).not.toContain("handoverDifference");
+    expect(kasirClosingsRaw).not.toContain("systemCashTotal");
+
+    // Verifikasi notifikasi SHIFT dibuat untuk admin (estafet & selisih)
+    const shiftNotifs = await prisma.notification.findMany({
+      where: { roomId, category: "SHIFT" },
+    });
+    expect(shiftNotifs.length).toBe(2);
+
+    // 6. Pemilik memeriksa Audit Shift di /api/reports & /api/dashboard
+    activeSessionToken = ownerToken;
+    const reportRes = await getReports(new Request("http://localhost/api/reports?period=monthly"));
+    expect(reportRes.status).toBe(200);
+    const reportJson = await reportRes.json();
+    expect(reportJson.shiftSummary.totalShifts).toBe(2);
+    expect(reportJson.shiftSummary.discrepancyCount).toBe(1);
+    expect(reportJson.shiftSummary.handoverMismatchCount).toBe(1);
+    expect(reportJson.shiftSummary.netCashDifferenceRp).toBe(-30000);
+
+    const shift2Audit = reportJson.shiftAudits[0];
+    expect(shift2Audit.handoverSyncStatus).toBe("TIDAK_SINKRON");
+    expect(shift2Audit.handoverDifference).toBe(-30000);
+    expect(shift2Audit.expectedCashAtClose).toBe(270000);
+    expect(shift2Audit.actualCashTotal).toBe(240000);
+    expect(shift2Audit.cashDifference).toBe(-30000);
+    expect(shift2Audit.status).toBe("PERLU_DIPERIKSA");
+
+    const dashRes = await getDashboard(new Request("http://localhost/api/dashboard?range=month"));
+    expect(dashRes.status).toBe(200);
+    const dashJson = await dashRes.json();
+    expect(dashJson.anomalies).not.toHaveProperty("discrepantShifts");
+    expect(dashJson.anomalies.flaggedShifts.length).toBe(1);
+    expect(dashJson.anomalies.flaggedShifts[0].cashDifference).toBe(-30000);
+  });
+
+  it("Scenario 31: Multi-Loket registration, exclusive 1-cashier lock, independent per-loket handover, company rename & dashboard comparison", async () => {
+    // 1. Register perusahaan sekaligus mengatur 2 loket awal
+    const ownerRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Owner Multi Loket",
+        username: "owner_loket31",
+        password: "PasswordAman123",
+        roomName: "Minimarket Nusantara",
+        counterNames: ["Loket 1", "Loket 2"],
+      })
+    );
+    expect(ownerRes.status).toBe(201);
+    const ownerJson = await ownerRes.json();
+    const ownerToken = extractSessionToken(ownerRes)!;
+    const roomId = ownerJson.user.roomId as string;
+    expect(ownerJson.counters.map((c: { name: string }) => c.name)).toEqual(["Loket 1", "Loket 2"]);
+
+    activeSessionToken = ownerToken;
+    const cat = await prisma.category.findFirstOrThrow({ where: { roomId } });
+    const prod = (
+      await (
+        await createProduct(
+          jsonReq("http://localhost/api/products", "POST", {
+            sku: "ITEM-LOKET-01",
+            name: "Air Mineral Botol",
+            categoryId: cat.id,
+            stockMethod: "TETAP",
+            isRawMaterial: false,
+            purchaseUnit: "Botol",
+            sellUnit: "Botol",
+            conversionRatio: 1,
+            costPrice: 3000,
+            sellPrice: 5000,
+            currentStock: 100,
+            minStockAlert: 10,
+          })
+        )
+      ).json()
+    ).product;
+
+    // Tambah Loket 3 via Manajemen Loket
+    const addCounterRes = await createCounter(
+      jsonReq("http://localhost/api/counters", "POST", { name: "Loket 3" })
+    );
+    expect(addCounterRes.status).toBe(201);
+
+    const inv1 = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+    const inv2 = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+
+    const kasir1Token = extractSessionToken(
+      await registerUser(
+        jsonReq("http://localhost/api/auth/register", "POST", {
+          mode: "JOIN_ROOM",
+          name: "Kasir Satu",
+          username: "kasir1_loket31",
+          password: "PasswordAman123",
+          inviteCode: inv1,
+        })
+      )
+    )!;
+    const kasir2Token = extractSessionToken(
+      await registerUser(
+        jsonReq("http://localhost/api/auth/register", "POST", {
+          mode: "JOIN_ROOM",
+          name: "Kasir Dua",
+          username: "kasir2_loket31",
+          password: "PasswordAman123",
+          inviteCode: inv2,
+        })
+      )
+    )!;
+
+    // Non-admin kasir dilarang menambah atau menghapus loket
+    activeSessionToken = kasir1Token;
+    expect(
+      (await createCounter(jsonReq("http://localhost/api/counters", "POST", { name: "Loket Gelap" }))).status
+    ).toBe(403);
+    expect(
+      (await deleteCounter(new Request("http://localhost/api/counters?id=loket-3", { method: "DELETE" }))).status
+    ).toBe(403);
+
+    // Multi-loket wajib memilih counterId saat buka shift
+    const missingLoketRes = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        denominations: { "100000": 2 },
+        readyConfirmed: true,
+      })
+    );
+    expect(missingLoketRes.status).toBe(400);
+
+    // 2. Kasir 1 membuka Loket 1 dengan Rp 200.000
+    const openK1 = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        counterId: "loket-1",
+        denominations: { "100000": 2 },
+        readyConfirmed: true,
+      })
+    );
+    expect(openK1.status).toBe(201);
+    const openK1Json = await openK1.json();
+    expect(openK1Json.activeShift.counterId).toBe("loket-1");
+    expect(openK1Json.activeShift.counterName).toBe("Loket 1");
+
+    // Verifikasi Loket 1 statusnya sedang dipakai Kasir Satu
+    const liveCounters = await (await getCounters()).json();
+    const l1 = liveCounters.counters.find((c: { id: string }) => c.id === "loket-1");
+    expect(l1.isOccupied).toBe(true);
+    expect(l1.occupiedBy.userName).toBe("Kasir Satu");
+
+    // 3. Kasir 2 mencoba masuk ke Loket 1 yang terkunci -> DITOLAK 409!
+    activeSessionToken = kasir2Token;
+    const blockedOpen = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        counterId: "loket-1",
+        denominations: { "100000": 2 },
+        readyConfirmed: true,
+      })
+    );
+    expect(blockedOpen.status).toBe(409);
+
+    // Pemilik mencoba hapus Loket 1 yang sedang aktif -> DITOLAK 409, hapus Loket 3 yg kosong -> BERHASIL 200
+    activeSessionToken = ownerToken;
+    const delOccupied = await deleteCounter(
+      new Request("http://localhost/api/counters?id=loket-1", { method: "DELETE" })
+    );
+    expect(delOccupied.status).toBe(409);
+    const delFree = await deleteCounter(
+      new Request("http://localhost/api/counters?id=loket-3", { method: "DELETE" })
+    );
+    expect(delFree.status).toBe(200);
+
+    // 4. Kasir 2 membuka Loket 2 (Rp 300.000) secara paralel sambil Kasir 1 aktif di Loket 1
+    activeSessionToken = kasir2Token;
+    const openK2 = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        counterId: "loket-2",
+        denominations: { "100000": 3 },
+        readyConfirmed: true,
+      })
+    );
+    expect(openK2.status).toBe(201);
+
+    // Penjualan masing-masing kasir harus terisolasi per loket
+    activeSessionToken = kasir1Token;
+    await createSale(
+      jsonReq("http://localhost/api/sales", "POST", {
+        items: [{ productId: prod.id, quantity: 4 }], // Rp 20.000
+        paymentMethod: "TUNAI",
+        cashReceived: 20000,
+      })
+    );
+    activeSessionToken = kasir2Token;
+    await createSale(
+      jsonReq("http://localhost/api/sales", "POST", {
+        items: [{ productId: prod.id, quantity: 10 }], // Rp 50.000
+        paymentMethod: "TUNAI",
+        cashReceived: 50000,
+      })
+    );
+
+    // Kasir 1 tutup Loket 1 dengan Rp 220.000 (200rb + 20rb = 220rb -> KLOP)
+    activeSessionToken = kasir1Token;
+    const closeK1 = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "CLOSE",
+        denominations: { "100000": 2, "20000": 1 },
+        honestyConfirmed: true,
+      })
+    );
+    expect(closeK1.status).toBe(201);
+
+    // Kasir 2 tutup Loket 2 dengan Rp 340.000 (300rb + 50rb = 350rb -> kurang -10rb)
+    activeSessionToken = kasir2Token;
+    const closeK2 = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "CLOSE",
+        denominations: { "100000": 3, "20000": 2 },
+        honestyConfirmed: true,
+      })
+    );
+    expect(closeK2.status).toBe(201);
+
+    // 5. Loket 1 kini bebas & Kasir 2 membuka Loket 1 dengan Rp 220.000 -> SINKRON dengan shift lalu Loket 1 (bukan Loket 2!)
+    await new Promise((r) => setTimeout(r, 20));
+    const reopenL1 = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        counterId: "loket-1",
+        denominations: { "100000": 2, "20000": 1 },
+        readyConfirmed: true,
+      })
+    );
+    expect(reopenL1.status).toBe(201);
+    expect((await reopenL1.json()).activeShift.handoverSyncStatus).toBe("SINKRON");
+
+    // 6. Pemilik mengganti nama perusahaan & cek grafik perbandingan per loket di /api/dashboard
+    activeSessionToken = ownerToken;
+    const renameRes = await postSettings(
+      jsonReq("http://localhost/api/settings", "POST", {
+        action: "UPDATE_AUDIT_SETTINGS",
+        storeName: "Nusantara Mart Group",
+        storeAddress: "Jakarta Pusat",
+      })
+    );
+    expect(renameRes.status).toBe(200);
+    expect((await renameRes.json()).settings.storeName).toBe("Nusantara Mart Group");
+
+    const dashJson = await (
+      await getDashboard(new Request("http://localhost/api/dashboard?range=month"))
+    ).json();
+    expect(dashJson.anomalies).not.toHaveProperty("discrepantShifts");
+    const c1 = dashJson.counterComparison.find((c: { counterId: string }) => c.counterId === "loket-1");
+    const c2 = dashJson.counterComparison.find((c: { counterId: string }) => c.counterId === "loket-2");
+    expect(c1.isOccupied).toBe(true);
+    expect(c1.occupiedByName).toBe("Kasir Dua");
+    expect(c1.totalExpectedCash).toBe(220000);
+    expect(c1.totalActualCash).toBe(220000);
+    expect(c1.totalCashDifference).toBe(0);
+    expect(c2.isOccupied).toBe(false);
+    expect(c2.totalExpectedCash).toBe(350000);
+    expect(c2.totalActualCash).toBe(340000);
+    expect(c2.totalCashDifference).toBe(-10000);
+    expect(c2.discrepancyCount).toBe(1);
+  });
+
+  it("Scenario 32: Verified email change flow & accurate team collaborator active shift listing", async () => {
+    const ownerRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Owner Email",
+        username: "owner_email32",
+        email: "owner.lama@toko.id",
+        password: "PasswordAman123",
+        roomName: "Toko Verifikasi Email",
+      })
+    );
+    expect(ownerRes.status).toBe(201);
+    const ownerToken = extractSessionToken(ownerRes)!;
+    const ownerJson = await ownerRes.json();
+
+    activeSessionToken = ownerToken;
+    const invKasir = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+
+    const kasirRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "JOIN_ROOM",
+        name: "Kasir Email",
+        username: "kasir_email32",
+        email: "kasir.tetap@toko.id",
+        password: "PasswordAman123",
+        inviteCode: invKasir,
+      })
+    );
+    expect(kasirRes.status).toBe(201);
+    const kasirToken = extractSessionToken(kasirRes)!;
+
+    // Kasir membuka shift aktif (belum ada penjualan)
+    activeSessionToken = kasirToken;
+    const openRes = await postShift(
+      jsonReq("http://localhost/api/shifts", "POST", {
+        action: "OPEN",
+        denominations: { "50000": 2 },
+        readyConfirmed: true,
+      })
+    );
+    expect(openRes.status).toBe(201);
+
+    // Owner memuat daftar tim (/api/users) -> harus berhasil dan mendeteksi hasOpenShift=true untuk Kasir
+    activeSessionToken = ownerToken;
+    const usersRes = await getUsers();
+    expect(usersRes.status).toBe(200);
+    const usersJson = await usersRes.json();
+    const listedKasir = usersJson.users.find(
+      (u: { username: string }) => u.username === "kasir_email32"
+    );
+    expect(listedKasir).toBeDefined();
+    expect(listedKasir.hasOpenShift).toBe(true);
+
+    // Ganti email: salah kata sandi -> 400
+    const badPassRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "REQUEST",
+        newEmail: "owner.baru@toko.id",
+        currentPassword: "SalahPassword",
+      })
+    );
+    expect(badPassRes.status).toBe(400);
+
+    // Ganti email: email sudah dipakai akun lain -> 409
+    const dupEmailRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "REQUEST",
+        newEmail: "kasir.tetap@toko.id",
+        currentPassword: "PasswordAman123",
+      })
+    );
+    expect(dupEmailRes.status).toBe(409);
+
+    // Permintaan verifikasi email valid -> mengeluarkan verificationToken + devCode (mode test/dev)
+    const reqEmailRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "REQUEST",
+        newEmail: "owner.baru@toko.id",
+        currentPassword: "PasswordAman123",
+      })
+    );
+    expect(reqEmailRes.status).toBe(200);
+    const reqEmailJson = await reqEmailRes.json();
+    expect(reqEmailJson.verificationToken).toBeTruthy();
+    expect(reqEmailJson.devCode).toMatch(/^\d{6}$/);
+
+    // Kode verifikasi salah -> 400
+    const wrongOtpRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "CONFIRM",
+        verificationToken: reqEmailJson.verificationToken,
+        code: reqEmailJson.devCode === "000000" ? "111111" : "000000",
+      })
+    );
+    expect(wrongOtpRes.status).toBe(400);
+
+    // Konfirmasi kode benar -> email berubah di DB
+    const confirmEmailRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "CONFIRM",
+        verificationToken: reqEmailJson.verificationToken,
+        code: reqEmailJson.devCode,
+      })
+    );
+    expect(confirmEmailRes.status).toBe(200);
+    const updatedUser = await prisma.user.findUniqueOrThrow({
+      where: { id: ownerJson.user.id },
+      select: { email: true },
+    });
+    expect(updatedUser.email).toBe("owner.baru@toko.id");
+  });
+
+  it("Scenario 33: Blocks cross-tenant IDORs, RBAC global tamper, host header poisoning, OTP brute force/replay, and invalidates old sessions on password change", async () => {
+    // 1. Setup Room A (Owner + Kasir + Material + Category) and Room B (Owner + Raw Material + Warehouse)
+    const ownerARes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Owner Alpha",
+        username: "owner_alpha33",
+        email: "alpha33@toko.id",
+        password: "PasswordAman123",
+        roomName: "Toko Alpha 33",
+      })
+    );
+    expect(ownerARes.status).toBe(201);
+    const ownerAToken = extractSessionToken(ownerARes)!;
+    const ownerAJson = await ownerARes.json();
+
+    activeSessionToken = ownerAToken;
+    const invKasirA = (
+      await (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR",
+          })
+        )
+      ).json()
+    ).inviteCode as string;
+
+    const kasirARes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "JOIN_ROOM",
+        name: "Kasir Alpha",
+        username: "kasir_alpha33",
+        email: "kasir33@toko.id",
+        password: "PasswordAman123",
+        inviteCode: invKasirA,
+      })
+    );
+    expect(kasirARes.status).toBe(201);
+    const kasirAToken = extractSessionToken(kasirARes)!;
+
+    const ownerBRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Owner Beta",
+        username: "owner_beta33",
+        email: "beta33@toko.id",
+        password: "PasswordAman123",
+        roomName: "Toko Beta 33",
+      })
+    );
+    expect(ownerBRes.status).toBe(201);
+    const ownerBToken = extractSessionToken(ownerBRes)!;
+    const ownerBJson = await ownerBRes.json();
+
+    activeSessionToken = ownerBToken;
+    const catB = await prisma.category.findFirstOrThrow({ where: { roomId: ownerBJson.room.id } });
+    const whB = await prisma.warehouse.findFirstOrThrow({ where: { roomId: ownerBJson.room.id } });
+    const matBRes = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "BHN-BETA-33",
+        name: "Bahan Rahasia Beta",
+        categoryId: catB.id,
+        stockMethod: "TETAP",
+        isRawMaterial: true,
+        purchaseUnit: "kg",
+        sellUnit: "kg",
+        conversionRatio: 1,
+        costPrice: 10000,
+        sellPrice: 0,
+        currentStock: 50,
+      })
+    );
+    expect(matBRes.status).toBe(201);
+    const matB = (await matBRes.json()).product;
+
+    // 2. Cross-tenant Recipe Ingredient IDOR -> DITOLAK (409) on POST & PUT /api/products
+    activeSessionToken = ownerAToken;
+    const catA = await prisma.category.findFirstOrThrow({ where: { roomId: ownerAJson.room.id } });
+    const crossRecipePost = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "MNU-IDOR-33",
+        name: "Menu IDOR",
+        categoryId: catA.id,
+        stockMethod: "RESEP",
+        purchaseUnit: "pcs",
+        sellUnit: "pcs",
+        conversionRatio: 1,
+        costPrice: 0,
+        sellPrice: 15000,
+        variants: [
+          {
+            name: "Regular",
+            sellPrice: 15000,
+            ingredients: [{ materialId: matB.id, quantity: 1, unit: "kg" }],
+          },
+        ],
+      })
+    );
+    expect(crossRecipePost.status).toBe(409);
+
+    const ownProdRes = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "PRD-OWN-33",
+        name: "Produk Lokal Alpha",
+        categoryId: catA.id,
+        stockMethod: "TETAP",
+        purchaseUnit: "pcs",
+        sellUnit: "pcs",
+        conversionRatio: 1,
+        costPrice: 5000,
+        sellPrice: 10000,
+        currentStock: 10,
+      })
+    );
+    expect(ownProdRes.status).toBe(201);
+    const ownProd = (await ownProdRes.json()).product;
+
+    const crossRecipePut = await updateProduct(
+      jsonReq("http://localhost/api/products", "PUT", {
+        id: ownProd.id,
+        sku: "PRD-OWN-33",
+        name: "Produk Lokal Alpha",
+        categoryId: catA.id,
+        stockMethod: "RESEP",
+        purchaseUnit: "pcs",
+        sellUnit: "pcs",
+        conversionRatio: 1,
+        costPrice: 0,
+        sellPrice: 12000,
+        variants: [
+          {
+            name: "Regular",
+            sellPrice: 12000,
+            ingredients: [{ materialId: matB.id, quantity: 1, unit: "kg" }],
+          },
+        ],
+      })
+    );
+    expect(crossRecipePut.status).toBe(409);
+
+    // 3. Cross-tenant Warehouse IDOR & spoofed proof attachment on /api/inventory
+    const spoofedAdjRes = await postInventory(
+      jsonReq("http://localhost/api/inventory", "POST", {
+        action: "REQUEST_ADJUSTMENT",
+        productId: ownProd.id,
+        adjustmentType: "RUSAK",
+        quantity: 1,
+        reason: "Lampiran HTML menyamar sebagai PNG",
+        proofImageData: "data:image/png;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+      })
+    );
+    expect(spoofedAdjRes.status).toBe(400);
+
+    const crossWhAdjRes = await postInventory(
+      jsonReq("http://localhost/api/inventory", "POST", {
+        action: "REQUEST_ADJUSTMENT",
+        productId: ownProd.id,
+        adjustmentType: "PINDAH_GUDANG",
+        quantity: 1,
+        reason: "Mencoba pindah stok ke gudang ruangan lain",
+        proofImageData: "data:image/png;base64,iVBORw0KGgo=",
+        toWarehouseId: whB.id,
+      })
+    );
+    expect(crossWhAdjRes.status).toBe(400);
+
+    const crossWhOpnameRes = await postInventory(
+      jsonReq("http://localhost/api/inventory", "POST", {
+        action: "SUBMIT_OPNAME",
+        title: "Opname Lintas Ruangan",
+        scheduleType: "HARIAN",
+        warehouseId: whB.id,
+        counts: [{ productId: ownProd.id, physicalStock: 9 }],
+      })
+    );
+    expect(crossWhOpnameRes.status).toBe(400);
+
+    // 4. Global RBAC table tamper via UPDATE_PERMISSIONS blocked (403)
+    const rbacTamperRes = await postSettings(
+      jsonReq("http://localhost/api/settings", "POST", {
+        action: "UPDATE_PERMISSIONS",
+        permissions: [{ role: "KASIR", module: "pembelian", canView: true }],
+      })
+    );
+    expect(rbacTamperRes.status).toBe(403);
+
+    // 5. Audit Notification MARK_READ scoped so Kasir cannot mark Pemilik-only alert as read
+    const ownerNotif = await prisma.notification.create({
+      data: {
+        roomId: ownerAJson.room.id,
+        title: "Alert Rahasia Pemilik",
+        message: "Khusus pemilik",
+        severity: "CRITICAL",
+        category: "SHIFT",
+        targetRole: "PEMILIK",
+        linkUrl: "/laporan",
+      },
+    });
+    activeSessionToken = kasirAToken;
+    const markReadRes = await postAudit(
+      jsonReq("http://localhost/api/audit", "POST", {
+        action: "MARK_READ",
+        notificationId: ownerNotif.id,
+      })
+    );
+    expect(markReadRes.status).toBe(200);
+    const notifAfter = await prisma.notification.findUniqueOrThrow({
+      where: { id: ownerNotif.id },
+    });
+    expect(notifAfter.isRead).toBe(false);
+
+    // 6. SaleAmendment PERUBAHAN rejects invalid paymentMethod
+    const saleForAmend = (
+      await (
+        await createSale(
+          jsonReq("http://localhost/api/sales", "POST", {
+            paymentMethod: "TUNAI",
+            items: [{ productId: ownProd.id, quantity: 1 }],
+          })
+        )
+      ).json()
+    ).sale;
+    const badAmendRes = await handleSaleAmendment(
+      jsonReq("http://localhost/api/sales/amendments", "POST", {
+        action: "REQUEST",
+        saleId: saleForAmend.id,
+        amendmentType: "PERUBAHAN",
+        reason: "Ubah metode pembayaran tidak valid",
+        proposedPayload: JSON.stringify({ paymentMethod: "CRYPTO_FAKE" }),
+      })
+    );
+    expect(badAmendRes.status).toBe(400);
+
+    // 7. Forgot-password ignores spoofed X-Forwarded-Host header
+    const forgotSpoofReq = new Request("http://localhost:3000/api/auth/forgot-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-host": "attacker.example",
+        "x-forwarded-proto": "https",
+      },
+      body: JSON.stringify({ email: "alpha33@toko.id" }),
+    });
+    const forgotSpoofRes = await forgotPasswordApi(forgotSpoofReq);
+    expect(forgotSpoofRes.status).toBe(200);
+    const forgotSpoofJson = await forgotSpoofRes.json();
+    if (forgotSpoofJson.devPreviewUrl) {
+      expect(forgotSpoofJson.devPreviewUrl).not.toContain("attacker.example");
+    }
+
+    // 8. Change-email OTP brute-force lockout (5 attempts -> 429) & single-use replay rejection (400)
+    activeSessionToken = ownerAToken;
+    const otpReqRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "REQUEST",
+        newEmail: "alpha33-next@toko.id",
+        currentPassword: "PasswordAman123",
+      })
+    );
+    expect(otpReqRes.status).toBe(200);
+    const otpReqJson = await otpReqRes.json();
+
+    // 8a. Request 1: brute-force 5 wrong guesses -> 5th triggers 429 lockout
+    const lockReqRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "REQUEST",
+        newEmail: "alpha33-lock@toko.id",
+        currentPassword: "PasswordAman123",
+      })
+    );
+    expect(lockReqRes.status).toBe(200);
+    const lockReqJson = await lockReqRes.json();
+    const lockBadCode = lockReqJson.devCode === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 4; i++) {
+      const r = await changeEmailApi(
+        jsonReq("http://localhost/api/account/change-email", "POST", {
+          action: "CONFIRM",
+          verificationToken: lockReqJson.verificationToken,
+          code: lockBadCode,
+        })
+      );
+      expect(r.status).toBe(400);
+    }
+    const fifthLockRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "CONFIRM",
+        verificationToken: lockReqJson.verificationToken,
+        code: lockBadCode,
+      })
+    );
+    expect(fifthLockRes.status).toBe(429);
+
+    const postLockRightCodeRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "CONFIRM",
+        verificationToken: lockReqJson.verificationToken,
+        code: lockReqJson.devCode,
+      })
+    );
+    expect(postLockRightCodeRes.status).toBe(429);
+
+    // 8b. Request 2: valid confirm succeeds (200) and replays are rejected (400)
+    const confirmValidRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "CONFIRM",
+        verificationToken: otpReqJson.verificationToken,
+        code: otpReqJson.devCode,
+      })
+    );
+    expect(confirmValidRes.status).toBe(200);
+
+    const replayRes = await changeEmailApi(
+      jsonReq("http://localhost/api/account/change-email", "POST", {
+        action: "CONFIRM",
+        verificationToken: otpReqJson.verificationToken,
+        code: otpReqJson.devCode,
+      })
+    );
+    expect(replayRes.status).toBe(400);
+
+    // 9. UPDATE_PROFILE password change bumps tokenVersion (old session invalidated, refreshed session works)
+    const oldTokenBeforePassChange = ownerAToken;
+    const passChangeRes = await postSettings(
+      jsonReq("http://localhost/api/settings", "POST", {
+        action: "UPDATE_PROFILE",
+        currentPassword: "PasswordAman123",
+        newPassword: "PasswordBaru456",
+      })
+    );
+    expect(passChangeRes.status).toBe(200);
+    const refreshedToken = extractSessionToken(passChangeRes);
+    expect(refreshedToken).toBeTruthy();
+    expect(refreshedToken).not.toBe(oldTokenBeforePassChange);
+
+    activeSessionToken = oldTokenBeforePassChange;
+    const oldSessBlocked = await getDashboard(
+      new Request("http://localhost/api/dashboard?range=month")
+    );
+    expect(oldSessBlocked.status).toBe(401);
+
+    activeSessionToken = refreshedToken;
+    const newSessAllowed = await getDashboard(
+      new Request("http://localhost/api/dashboard?range=month")
+    );
+    expect(newSessAllowed.status).toBe(200);
   });
 });

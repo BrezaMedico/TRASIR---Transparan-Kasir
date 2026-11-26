@@ -666,11 +666,13 @@ export default function PenjualanPage() {
 
                               {item.proofImageData && (
                                 <div className="pt-1">
-                                  {item.proofImageData.startsWith("data:image/") ? (
+                                  {/^data:image\/(jpeg|png|webp);base64,/i.test(
+                                    item.proofImageData
+                                  ) ? (
                                     <a
                                       href={item.proofImageData}
                                       target="_blank"
-                                      rel="noreferrer"
+                                      rel="noopener noreferrer"
                                       className="inline-block"
                                     >
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -680,7 +682,7 @@ export default function PenjualanPage() {
                                         className="h-20 w-auto rounded-lg border border-slate-300 object-cover"
                                       />
                                     </a>
-                                  ) : (
+                                  ) : /^data:application\/pdf;base64,/i.test(item.proofImageData) ? (
                                     <a
                                       href={item.proofImageData}
                                       download={`bukti-${item.sale.receiptNumber}.pdf`}
@@ -688,7 +690,7 @@ export default function PenjualanPage() {
                                     >
                                       Unduh Lampiran Bukti (PDF)
                                     </a>
-                                  )}
+                                  ) : null}
                                 </div>
                               )}
                             </div>

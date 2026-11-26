@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { canViewFinancials } from "@/lib/rbac";
+import { parseShiftEnvelope } from "@/lib/shift-session";
+import { DEFAULT_COUNTER_ID, DEFAULT_COUNTER_NAME } from "@/lib/counters";
 import {
   addJakartaDays,
   enumerateJakartaDateKeys,
@@ -89,15 +91,26 @@ export async function GET(request: Request) {
       startDate = b.startDate;
       endDate = b.endDate;
     } else if (period === "custom" && startParam && endParam) {
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(startParam) || !dateRegex.test(endParam)) {
+        return NextResponse.json({ error: "Rentang tanggal laporan tidak valid." }, { status: 400 });
+      }
       startDate = new Date(`${startParam}T00:00:00+07:00`);
       endDate = new Date(`${endParam}T23:59:59.999+07:00`);
+      if (
+        Number.isNaN(startDate.getTime()) ||
+        Number.isNaN(endDate.getTime()) ||
+        startDate > endDate
+      ) {
+        return NextResponse.json({ error: "Rentang tanggal laporan tidak valid." }, { status: 400 });
+      }
     } else {
       const b = getJakartaPeriodBounds("month");
       startDate = b.startDate;
       endDate = b.endDate;
     }
 
-    const [validSales, approvedPurchases, opnameDiscrepancies] = await Promise.all([
+    const [validSales, approvedPurchases, opnameDiscrepancies, shiftClosingsRaw] = await Promise.all([
       prisma.sale.findMany({
         where: {
           roomId: user.roomId,
@@ -130,6 +143,18 @@ export async function GET(request: Request) {
           product: { include: { category: true } },
           session: { select: { title: true, createdAt: true } },
         },
+      }),
+      prisma.shiftClosing.findMany({
+        where: {
+          roomId: user.roomId,
+          status: { not: "AKTIF" },
+          createdAt: { gte: startDate, lte: endDate },
+        },
+        include: {
+          cashier: { select: { id: true, name: true, username: true, role: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
       }),
     ]);
 
@@ -424,6 +449,57 @@ export async function GET(request: Request) {
       (a, b) => b.discrepancyFrequency - a.discrepancyFrequency || b.totalLossRp - a.totalLossRp
     );
 
+    const shiftAudits = shiftClosingsRaw.map((row) => {
+      const env = parseShiftEnvelope(row.notes);
+      const openingCashTotal = env?.openingCashTotal ?? 0;
+      const operationalExpenseTotal = env?.operationalExpenseTotal ?? 0;
+      const expectedCashAtClose =
+        env?.expectedCashAtClose ??
+        openingCashTotal + row.systemCashTotal - operationalExpenseTotal;
+      const cashDifference = env?.closingCashDifference ?? row.cashDifference;
+      const systemDigitalTotal =
+        row.systemQrisTotal + row.systemTransferTotal + row.systemCardTotal;
+
+      return {
+        id: row.id,
+        counterId: env?.counterId || DEFAULT_COUNTER_ID,
+        counterName: env?.counterName || DEFAULT_COUNTER_NAME,
+        openedAt: env?.openedAt ?? row.shiftDate.toISOString(),
+        closedAt: env?.closedAt ?? row.createdAt.toISOString(),
+        cashier: row.cashier,
+        status: row.status,
+        openingCashTotal,
+        openingDenominations: env?.openingDenominations ?? null,
+        openingNote: env?.openingNote ?? null,
+        closingDenominations: env?.closingDenominations ?? null,
+        closingNote: env?.closingNote ?? (!env && row.notes ? row.notes : null),
+        operationalExpenses: env?.operationalExpenses ?? [],
+        operationalExpenseTotal,
+        systemTxCount: row.systemTxCount,
+        systemCashTotal: row.systemCashTotal,
+        systemQrisTotal: row.systemQrisTotal,
+        systemTransferTotal: row.systemTransferTotal,
+        systemCardTotal: row.systemCardTotal,
+        systemDigitalTotal,
+        systemGrandTotal: row.systemGrandTotal,
+        expectedCashAtClose,
+        actualCashTotal: row.actualCashTotal,
+        cashDifference,
+        handoverSyncStatus: env?.handoverSyncStatus ?? "SHIFT_PERTAMA",
+        handoverDifference: env?.handoverDifference ?? 0,
+        previousShiftClosingCash: env?.previousShiftClosingCash ?? null,
+      };
+    });
+
+    const shiftSummary = {
+      totalShifts: shiftAudits.length,
+      discrepancyCount: shiftAudits.filter((s) => s.status === "PERLU_DIPERIKSA").length,
+      handoverMismatchCount: shiftAudits.filter(
+        (s) => s.handoverSyncStatus === "TIDAK_SINKRON"
+      ).length,
+      netCashDifferenceRp: shiftAudits.reduce((sum, s) => sum + s.cashDifference, 0),
+    };
+
     return NextResponse.json({
       granularity,
       summary: {
@@ -437,6 +513,8 @@ export async function GET(request: Request) {
       chartSeries,
       profitableProducts,
       problematicProducts,
+      shiftSummary,
+      shiftAudits,
       salesHistory: validSales,
       purchasesHistory: approvedPurchases,
     });

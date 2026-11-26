@@ -68,6 +68,9 @@ export async function deductStockForSaleItem(
 
     // First verify all ingredient stocks are sufficient
     for (const ing of variant.ingredients) {
+      if (ing.material.roomId !== product.roomId) {
+        throw new Error("Komposisi bahan baku tidak valid untuk ruangan ini.");
+      }
       const neededQty = Number((ing.quantity * qty).toFixed(4));
       if (ing.material.currentStock < neededQty) {
         throw new Error(
@@ -151,7 +154,11 @@ export async function restoreStockForSaleItem(
     include: {
       variants: {
         include: {
-          ingredients: true,
+          ingredients: {
+            include: {
+              material: { select: { roomId: true } },
+            },
+          },
         },
       },
     },
@@ -168,6 +175,7 @@ export async function restoreStockForSaleItem(
 
     if (variant) {
       for (const ing of variant.ingredients) {
+        if (ing.material.roomId !== product.roomId) continue;
         const restoreQty = Number((ing.quantity * qty).toFixed(4));
         await tx.product.update({
           where: { id: ing.materialId },

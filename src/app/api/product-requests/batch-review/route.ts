@@ -10,7 +10,7 @@ const batchReviewSchema = z.object({
   batchId: z.string().trim().optional(),
   requestIds: z.array(z.string().min(1)).optional(),
   decision: z.enum(["DISETUJUI", "DITOLAK"], {
-    errorMap: () => ({ message: "Keputusan harus DISETUJUI atau DITOLAK." }),
+    error: "Keputusan harus DISETUJUI atau DITOLAK.",
   }),
   rejectionReason: z.string().trim().max(500).optional(),
 });

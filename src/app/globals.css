@@ -393,13 +393,13 @@
 }
 
 .nav-3d-icon-produk {
-  background-image: url("/icons/nav/produk.png?v=2");
+  background-image: url("/icons/nav/produk.png?v=3");
   background-image: image-set(
-    url("/icons/nav/produk-1x.avif?v=2") type("image/avif") 1x,
-    url("/icons/nav/produk-2x.avif?v=2") type("image/avif") 2x,
-    url("/icons/nav/produk-1x.webp?v=2") type("image/webp") 1x,
-    url("/icons/nav/produk-2x.webp?v=2") type("image/webp") 2x,
-    url("/icons/nav/produk.png?v=2") type("image/png") 2x
+    url("/icons/nav/produk-1x.avif?v=3") type("image/avif") 1x,
+    url("/icons/nav/produk-2x.avif?v=3") type("image/avif") 2x,
+    url("/icons/nav/produk-1x.webp?v=3") type("image/webp") 1x,
+    url("/icons/nav/produk-2x.webp?v=3") type("image/webp") 2x,
+    url("/icons/nav/produk.png?v=3") type("image/png") 2x
   );
 }
 
@@ -447,6 +447,17 @@
   );
 }
 
+.nav-3d-icon-pengaturan {
+  background-image: url("/icons/nav/pengaturan.png?v=3");
+  background-image: image-set(
+    url("/icons/nav/pengaturan-1x.avif?v=3") type("image/avif") 1x,
+    url("/icons/nav/pengaturan-2x.avif?v=3") type("image/avif") 2x,
+    url("/icons/nav/pengaturan-1x.webp?v=3") type("image/webp") 1x,
+    url("/icons/nav/pengaturan-2x.webp?v=3") type("image/webp") 2x,
+    url("/icons/nav/pengaturan.png?v=3") type("image/png") 2x
+  );
+}
+
 /* Native modal dialog containment */
 dialog.trasir-modal:modal {
   overscroll-behavior: contain;
@@ -458,4 +469,211 @@ dialog.trasir-modal::backdrop {
   backdrop-filter: blur(1px);
   overflow: hidden;
   overscroll-behavior: contain;
+}
+
+/* Form validation state deferred until after user interaction */
+input:is(:user-invalid),
+textarea:is(:user-invalid),
+select:is(:user-invalid) {
+  border-color: #D41448;
+  background-color: #FFF0F4;
+}
+
+input:is(:user-invalid):focus-visible,
+textarea:is(:user-invalid):focus-visible,
+select:is(:user-invalid):focus-visible {
+  outline: 2px solid #D41448;
+  outline-offset: 1px;
+}
+
+/* Global Theme (light / dark / system), 3 Font Sizes & 5 Readable Font Families */
+:root {
+  color-scheme: light dark;
+  --font-sans: var(--font-jakarta), system-ui, sans-serif;
+  --trasir-canvas: #EBEBEB;
+  --trasir-surface: #FFFFFF;
+  --trasir-surface-muted: #F1F5F9;
+  --trasir-ink: #202531;
+  --trasir-ink-muted: #525866;
+  --trasir-border: rgba(32, 37, 49, 0.14);
+  --trasir-chart-primary: #202531;
+  --trasir-chart-profit: #008F8C;
+  --trasir-chart-grid: #EBEBEB;
+  --trasir-chart-axis: #525866;
+  --trasir-chart-future: #F8FAFC;
+  --trasir-chart-dot-bg: #FFFFFF;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+  color-scheme: dark;
+}
+
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+  color-scheme: light;
+}
+
+html[data-font-size="small"] {
+  font-size: 14px;
+}
+
+html[data-font-size="medium"] {
+  font-size: 16px;
+}
+
+html[data-font-size="large"] {
+  font-size: 18px;
+}
+
+html[data-font-family="jakarta"] {
+  --font-sans: var(--font-jakarta), system-ui, sans-serif;
+}
+
+html[data-font-family="inter"] {
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+}
+
+html[data-font-family="dm-sans"] {
+  --font-sans: var(--font-dm-sans), system-ui, sans-serif;
+}
+
+html[data-font-family="nunito"] {
+  --font-sans: var(--font-nunito), system-ui, sans-serif;
+}
+
+html[data-font-family="ibm-plex"] {
+  --font-sans: var(--font-ibm-plex), system-ui, sans-serif;
+}
+
+body.trasir-theme-root {
+  background-color: var(--trasir-canvas);
+  color: var(--trasir-ink);
+  font-family: var(--font-sans);
+}
+
+/* Accessible Settings Tablist with shape + bottom-border selection indicator */
+.settings-tablist {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  gap: 0.25rem;
+}
+
+.settings-tablist [role="tab"] {
+  position: relative;
+  flex: none;
+}
+
+.settings-tablist [role="tab"][aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0.5rem -1px;
+  border-block-end: 3px solid #01DAD7;
+  border-radius: 2px;
+}
+
+/* Cohesive Dark Mode System across Workspace & Auth pages (excluding light .landing-root) */
+html[data-resolved-theme="dark"] {
+  --trasir-canvas: #0B1018;
+  --trasir-surface: #131A26;
+  --trasir-surface-muted: #1B2434;
+  --trasir-ink: #F1F5F9;
+  --trasir-ink-muted: #94A3B8;
+  --trasir-border: rgba(241, 245, 249, 0.14);
+  --trasir-chart-primary: #93C5FD;
+  --trasir-chart-profit: #01DAD7;
+  --trasir-chart-grid: rgba(148, 163, 184, 0.16);
+  --trasir-chart-axis: #94A3B8;
+  --trasir-chart-future: rgba(255, 255, 255, 0.03);
+  --trasir-chart-dot-bg: #131A26;
+}
+
+html[data-resolved-theme="dark"] :focus-visible {
+  outline-color: #01DAD7;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root .min-h-screen.bg-\[\#EBEBEB\],
+html[data-resolved-theme="dark"] body.trasir-theme-root .bg-\[\#EBEBEB\]:not(.landing-root):not(.landing-root *) {
+  background-color: #0B1018;
+  color: #F1F5F9;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(aside, header, nav, section, article, main, div, table, form, button, a, span, tr, th, td):not(.landing-root):not(.landing-root *):is(.bg-white, .bg-white\/75, .bg-white\/90) {
+  background-color: #131A26;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.bg-slate-50, .bg-slate-50\/60, .bg-slate-50\/70, .bg-slate-100, .bg-\[\#EBEBEB\]\/30, .bg-\[\#EBEBEB\]\/35, .bg-\[\#EBEBEB\]\/40, .bg-\[\#EBEBEB\]\/45, .bg-\[\#EBEBEB\]\/50, .bg-\[\#EBEBEB\]\/55, .bg-\[\#EBEBEB\]\/60, .bg-\[\#EBEBEB\]\/70, .bg-\[\#EBEBEB\]\/75, .bg-\[\#EBEBEB\]\/80):not(.landing-root):not(.landing-root *) {
+  background-color: #1B2434;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.hover\:bg-\[\#EBEBEB\], .hover\:bg-\[\#EBEBEB\]\/60, .hover\:bg-\[\#EBEBEB\]\/70, .hover\:bg-slate-50, .hover\:bg-slate-100, .hover\:bg-slate-200):not(.landing-root):not(.landing-root *):hover {
+  background-color: #222D40;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.bg-\[\#202531\]):not(.landing-root):not(.landing-root *) {
+  background-color: #1F2A3C;
+  border-color: rgba(241, 245, 249, 0.16);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.bg-\[\#01DAD7\]):not(.landing-root):not(.landing-root *) {
+  background-color: #01DAD7;
+  color: #0B1018;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root .bg-\[\#01DAD7\] *:not(.landing-root *) {
+  color: #0B1018;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.text-\[\#202531\], .text-slate-900, .text-slate-800):not(.bg-\[\#01DAD7\]):not(.bg-\[\#01DAD7\] *):not(.landing-root):not(.landing-root *) {
+  color: #F1F5F9;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.text-\[\#525866\], .text-slate-700, .text-slate-600, .text-slate-500, .text-slate-400):not(.bg-\[\#01DAD7\] *):not(.landing-root):not(.landing-root *) {
+  color: #94A3B8;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.text-\[\#006B69\], .text-\[\#008F8C\]):not(.bg-\[\#01DAD7\] *) {
+  color: #2CE6E3;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.bg-\[\#E6FBFB\], .bg-\[\#E6FBFB\]\/45, .bg-\[\#E6FBFB\]\/55, .bg-\[\#01DAD7\]\/15, .bg-\[\#01DAD7\]\/25) {
+  background-color: rgba(1, 218, 215, 0.14);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.bg-\[\#FFF0F4\], .bg-\[\#FFF0F4\]\/40, .bg-\[\#FFF0F4\]\/60) {
+  background-color: rgba(255, 42, 99, 0.14);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.text-\[\#D41448\]) {
+  color: #FF789E;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.bg-\[\#FFFBEB\]) {
+  background-color: rgba(245, 158, 11, 0.16);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.text-\[\#B45309\]) {
+  color: #FCD34D;
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.border-\[\#FDE68A\]) {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.border-slate-200, .border-slate-200\/80, .border-slate-300, .border-\[\#202531\], .border-\[\#202531\]\/10, .border-\[\#202531\]\/12, .border-\[\#202531\]\/15, .border-\[\#202531\]\/20, .border-\[\#202531\]\/25, .border-\[\#202531\]\/30, .divide-slate-100 > *, .divide-slate-200 > *, .divide-\[\#202531\]\/10 > *):not(.landing-root):not(.landing-root *) {
+  border-color: rgba(241, 245, 249, 0.15);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(.ring-\[\#202531\]) {
+  --tw-ring-color: rgba(1, 218, 215, 0.75);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):not(.landing-root *) {
+  background-color: #0E141F;
+  color: #F1F5F9;
+  border-color: rgba(241, 245, 249, 0.22);
+}
+
+html[data-resolved-theme="dark"] body.trasir-theme-root :is(input, textarea):not(.landing-root *)::placeholder {
+  color: #64748B;
 }

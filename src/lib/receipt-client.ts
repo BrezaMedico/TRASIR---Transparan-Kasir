@@ -109,7 +109,10 @@ export function dataUrlToBlobUrl(dataUrl: string): string | null {
   try {
     const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
     if (!match) return null;
-    const mime = match[1];
+    const mime = match[1].toLowerCase();
+    if (!(ALLOWED_PROOF_MIME_TYPES as readonly string[]).includes(mime)) {
+      return null;
+    }
     const binary = atob(match[2].replace(/\s+/g, ""));
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) {

@@ -24,13 +24,23 @@ import {
   NEUTRAL_AI_DISCLAIMER,
 } from "../src/lib/gemini";
 import {
+  createEmailChangeToken,
   createPasswordResetToken,
   createSessionToken,
+  hashVerificationCode,
+  resolveSecretString,
+  verifyEmailChangeToken,
   verifyPasswordResetToken,
   verifySessionToken,
   hashPassword,
   verifyPassword,
 } from "../src/lib/auth";
+import {
+  checkRateLimit,
+  isOtpTokenBlocked,
+  markOtpTokenConsumed,
+  recordOtpFailedAttempt,
+} from "../src/lib/rate-limit";
 import { recordAuditLog } from "../src/lib/audit";
 import {
   formatActionTypeLabel,
@@ -44,6 +54,19 @@ import {
   parseProductRequestEnvelope,
   serializeProductRequestEnvelope,
 } from "../src/lib/product-request-batch";
+import {
+  computeDenominationTotal,
+  computeOperationalExpenseTotal,
+  evaluateHandoverSync,
+  evaluateShiftAudit,
+  parseShiftEnvelope,
+  serializeShiftEnvelope,
+} from "../src/lib/shift-session";
+import {
+  buildInitialCounters,
+  parseStoredCounters,
+  slugifyCounterId,
+} from "../src/lib/counters";
 import {
   buildAreaPath,
   buildMonotonePath,
@@ -692,5 +715,185 @@ describe("TRASIR Core Financial, Inventory, RBAC, Timezone, & Security Engine", 
 
     const invalid = await verifyPasswordResetToken("invalid.token.value");
     expect(invalid).toBeNull();
+  });
+
+  it("computes Rupiah denominations, handover sync, and blind shift audit accuracy", () => {
+    const openingTotal = computeDenominationTotal({
+      "100000": 2,
+      "50000": 1,
+      "2000": 3,
+      "500": 2,
+    });
+    expect(openingTotal).toBe(257000);
+
+    const opsTotal = computeOperationalExpenseTotal([
+      { description: "Es batu", amount: 12000 },
+      { description: "Plastik", amount: 8000 },
+    ]);
+    expect(opsTotal).toBe(20000);
+
+    expect(evaluateHandoverSync(257000, null)).toEqual({
+      handoverSyncStatus: "SHIFT_PERTAMA",
+      handoverDifference: 0,
+    });
+    expect(evaluateHandoverSync(300000, 300000)).toEqual({
+      handoverSyncStatus: "SINKRON",
+      handoverDifference: 0,
+    });
+    expect(evaluateHandoverSync(250000, 300000)).toEqual({
+      handoverSyncStatus: "TIDAK_SINKRON",
+      handoverDifference: -50000,
+    });
+
+    // Expected = 257000 + 100000 - 20000 = 337000
+    const exactAudit = evaluateShiftAudit({
+      openingCashTotal: 257000,
+      systemCashTotal: 100000,
+      actualCashTotal: 337000,
+      operationalExpenseTotal: 20000,
+    });
+    expect(exactAudit.expectedCashAtClose).toBe(337000);
+    expect(exactAudit.cashDifference).toBe(0);
+    expect(exactAudit.status).toBe("SESUAI");
+
+    const tolAudit = evaluateShiftAudit({
+      openingCashTotal: 257000,
+      systemCashTotal: 100000,
+      actualCashTotal: 334000,
+      operationalExpenseTotal: 20000,
+    });
+    expect(tolAudit.cashDifference).toBe(-3000);
+    expect(tolAudit.status).toBe("DALAM_TOLERANSI");
+
+    const anomalyAudit = evaluateShiftAudit({
+      openingCashTotal: 257000,
+      systemCashTotal: 100000,
+      actualCashTotal: 310000,
+      operationalExpenseTotal: 20000,
+    });
+    expect(anomalyAudit.cashDifference).toBe(-27000);
+    expect(anomalyAudit.status).toBe("PERLU_DIPERIKSA");
+
+    const raw = serializeShiftEnvelope({
+      version: 2,
+      openedAt: "2026-11-26T08:00:00.000Z",
+      closedAt: "2026-11-26T16:00:00.000Z",
+      openingCashTotal: 257000,
+      openingDenominations: { "100000": 2, "50000": 1, "2000": 3, "500": 2 },
+      openingNote: "Laci aman",
+      previousShiftId: null,
+      previousShiftClosingCash: null,
+      handoverSyncStatus: "SHIFT_PERTAMA",
+      handoverDifference: 0,
+      closingDenominations: { "100000": 3, "10000": 1 },
+      operationalExpenses: [{ description: "Es batu", amount: 12000 }],
+      operationalExpenseTotal: 12000,
+      closingNote: "Selesai",
+      expectedCashAtClose: 345000,
+      closingCashDifference: -35000,
+    });
+    const parsed = parseShiftEnvelope(raw);
+    expect(parsed?.openingCashTotal).toBe(257000);
+    expect(parsed?.closingCashDifference).toBe(-35000);
+    expect(parseShiftEnvelope("Catatan biasa")).toBeNull();
+  });
+
+  it("builds, parses, and slugifies room counters cleanly with single-default fallback", () => {
+    const existing = new Set<string>(["loket-1"]);
+    expect(slugifyCounterId("Loket 1", existing)).toBe("loket-1-2");
+    expect(slugifyCounterId("Kasir Drive Thru!", existing)).toBe("kasir-drive-thru");
+
+    const built = buildInitialCounters({
+      counterNames: ["Loket 1", "  Loket 2 ", "loket 1", "Kasir Atas"],
+    });
+    expect(built.map((c) => c.name)).toEqual(["Loket 1", "Loket 2", "Kasir Atas"]);
+    expect(built[0].id).toBe("loket-1");
+
+    const parsedFallback = parseStoredCounters(null);
+    expect(parsedFallback).toHaveLength(1);
+    expect(parsedFallback[0].id).toBe("loket-1");
+    expect(parsedFallback[0].name).toBe("Loket 1");
+
+    const parsedRoundTrip = parseStoredCounters(JSON.stringify(built));
+    expect(parsedRoundTrip.map((c) => c.id)).toEqual(built.map((c) => c.id));
+    expect(parsedRoundTrip.map((c) => c.name)).toEqual(["Loket 1", "Loket 2", "Kasir Atas"]);
+  });
+
+  it("creates and verifies email-change verification tokens with hashed OTP codes", async () => {
+    const code = "482910";
+    const token = await createEmailChangeToken({
+      userId: "usr-email-1",
+      currentEmail: "lama@toko.id",
+      newEmail: "baru@toko.id",
+      tokenVersion: 2,
+      code,
+    });
+    const decoded = await verifyEmailChangeToken(token);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.userId).toBe("usr-email-1");
+    expect(decoded?.currentEmail).toBe("lama@toko.id");
+    expect(decoded?.newEmail).toBe("baru@toko.id");
+    expect(decoded?.codeHash).toBe(hashVerificationCode(code));
+    expect(decoded?.codeHash).not.toBe(hashVerificationCode("000000"));
+  });
+
+  it("enforces attachment magic bytes, hardens internal redirects, isolates JWT purposes, requires production AUTH_SECRET, and enforces rate/OTP limits", async () => {
+    // 1. Magic-byte validation: HTML/SVG disguised as PNG or PDF must be rejected
+    expect(validateProofAttachment("data:image/png;base64,PHNjcmlwdD4=").valid).toBe(false);
+    expect(validateProofAttachment("data:application/pdf;base64,PHN2Zz4=").valid).toBe(false);
+    // Valid magic headers (PNG, JPEG, WEBP, PDF)
+    expect(validateProofAttachment("data:image/png;base64,iVBORw0KGgo=").valid).toBe(true);
+    expect(validateProofAttachment("data:image/jpeg;base64,/9j/4AAQSkZJRg==").valid).toBe(true);
+    expect(validateProofAttachment("data:image/webp;base64,UklGRgAAAABXRUJQ").valid).toBe(true);
+    expect(validateProofAttachment("data:application/pdf;base64,JVBERi0xLjQ=").valid).toBe(true);
+
+    // 2. Redirect hardening against backslash and control-char smuggling
+    expect(sanitizeInternalRedirect("/\\evil.example", "/dashboard")).toBe("/dashboard");
+    expect(sanitizeInternalRedirect("/ok\t/evil.example", "/dashboard")).toBe("/dashboard");
+    expect(sanitizeInternalRedirect("/ok\r\nSet-Cookie:x", "/dashboard")).toBe("/dashboard");
+
+    // 3. Fail-closed production AUTH_SECRET check
+    expect(() => resolveSecretString({ NODE_ENV: "production" })).toThrow();
+    expect(() =>
+      resolveSecretString({ NODE_ENV: "production", AUTH_SECRET: "short-secret" })
+    ).toThrow();
+    const strongSecret = "a".repeat(32);
+    expect(resolveSecretString({ NODE_ENV: "production", AUTH_SECRET: strongSecret })).toBe(
+      strongSecret
+    );
+
+    // 4. Purpose isolation: password-reset and email-change tokens must never validate as sessions
+    const resetTok = await createPasswordResetToken({
+      userId: "u-sec-1",
+      email: "sec@toko.id",
+      tokenVersion: 1,
+      passwordHash: "$2b$12$examplehashvalue1234567890",
+    });
+    const emailTok = await createEmailChangeToken({
+      userId: "u-sec-1",
+      currentEmail: "sec@toko.id",
+      newEmail: "next@toko.id",
+      tokenVersion: 1,
+      code: "123456",
+    });
+    expect(await verifySessionToken(resetTok)).toBeNull();
+    expect(await verifySessionToken(emailTok)).toBeNull();
+
+    // 5. Rate limiter + OTP attempt lockout + single-use replay guard
+    const rateKey = `unit-rate-${Date.now()}`;
+    expect(checkRateLimit(rateKey, 2, 60_000, { enforceInTest: true }).limited).toBe(false);
+    expect(checkRateLimit(rateKey, 2, 60_000, { enforceInTest: true }).limited).toBe(false);
+    expect(checkRateLimit(rateKey, 2, 60_000, { enforceInTest: true }).limited).toBe(true);
+
+    const lockTok = `lock-tok-${Date.now()}`;
+    for (let i = 0; i < 4; i++) {
+      expect(recordOtpFailedAttempt(lockTok, 5).locked).toBe(false);
+    }
+    expect(recordOtpFailedAttempt(lockTok, 5).locked).toBe(true);
+    expect(isOtpTokenBlocked(lockTok)).toEqual({ blocked: true, reason: "LOCKED" });
+
+    const singleTok = `single-tok-${Date.now()}`;
+    markOtpTokenConsumed(singleTok);
+    expect(isOtpTokenBlocked(singleTok)).toEqual({ blocked: true, reason: "USED" });
   });
 });

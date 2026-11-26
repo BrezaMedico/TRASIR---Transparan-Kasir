@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAssignedUser, hashPassword, verifyPassword } from "@/lib/auth";
+import {
+  attachSessionCookie,
+  createSessionToken,
+  hashPassword,
+  requireAssignedUser,
+  verifyPassword,
+} from "@/lib/auth";
 import {
   DEFAULT_ROOM_ID,
   ensureSystemBaseline,
@@ -9,6 +15,7 @@ import {
   seedRoomDefaults,
   validateRoleManagementAction,
   validateUsername,
+  type UserRole,
 } from "@/lib/rbac";
 import { recordAuditLog } from "@/lib/audit";
 import { z } from "zod";
@@ -275,63 +282,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ user: updated });
     }
 
-    // 3. UPDATE RBAC PERMISSION MATRIX (Pemilik / Manajer)
+    // 3. UPDATE RBAC PERMISSION MATRIX (Ditutup: kebijakan RBAC bersifat global)
     if (body.action === "UPDATE_PERMISSIONS") {
-      if (!isOwner) {
-        return NextResponse.json(
-          { error: "Hanya Pemilik atau Manajer yang dapat mengubah matriks hak akses (RBAC)." },
-          { status: 403 }
-        );
-      }
-
-      const permissions = Array.isArray(body.permissions) ? body.permissions : [];
-      await prisma.$transaction(async (tx) => {
-        for (const p of permissions) {
-          const roleKey = String(p.role);
-          const modKey = String(p.module);
-          if (isStoreAdmin(roleKey)) continue;
-          // Modul keuangan & approval tidak boleh dibuka untuk pegawai lewat RBAC matrix
-          const isFinancial = modKey === "dashboard" || modKey === "laporan";
-          await tx.rolePermission.upsert({
-            where: {
-              role_module: { role: roleKey, module: modKey },
-            },
-            update: {
-              canView: isFinancial ? false : Boolean(p.canView),
-              canCreate: isFinancial ? false : Boolean(p.canCreate),
-              canEdit: isFinancial ? false : Boolean(p.canEdit),
-              canApprove: false,
-            },
-            create: {
-              role: roleKey,
-              module: modKey,
-              canView: isFinancial ? false : Boolean(p.canView),
-              canCreate: isFinancial ? false : Boolean(p.canCreate),
-              canEdit: isFinancial ? false : Boolean(p.canEdit),
-              canApprove: false,
-            },
-          });
-        }
-
-        await recordAuditLog(
-          {
-            roomId: user.roomId,
-            actorId: user.id,
-            actorName: user.name,
-            actorRole: user.role,
-            actionType: "HAK_AKSES",
-            actionSummary: "Memperbarui matriks hak akses (RBAC) jabatan pegawai",
-            entityType: "RolePermission",
-            afterData: { updatedRows: permissions.length },
-            approvalState: "DISETUJUI",
-            linkUrl: "/pengaturan",
-          },
-          tx
-        );
-      });
-
-      const updatedPermissions = await prisma.rolePermission.findMany();
-      return NextResponse.json({ rolePermissions: updatedPermissions });
+      return NextResponse.json(
+        {
+          error:
+            "Matriks hak akses dikelola oleh kebijakan sistem terpusat dan tidak dapat diubah per ruangan.",
+        },
+        { status: 403 }
+      );
     }
 
     // 4. UPDATE ROOM & AUDIT SETTINGS (Pemilik / Manajer)
@@ -343,28 +302,38 @@ export async function POST(request: Request) {
         );
       }
 
+      const auditSettingsSchema = z.object({
+        storeName: z.string().trim().min(2, "Nama perusahaan minimal 2 karakter").max(120).optional(),
+        storeAddress: z.string().trim().max(250).optional(),
+        toleranceThresholdRp: z.number().finite().min(0).max(1_000_000_000).optional(),
+        opnameSchedule: z.enum(["HARIAN", "MINGGUAN", "BULANAN"]).optional(),
+        openAreaPolicy: z.string().trim().max(500).optional(),
+        closedAreaPolicy: z.string().trim().max(500).optional(),
+        autoBackupInterval: z.enum(["HARIAN", "MINGGUAN", "NONAKTIF"]).optional(),
+      });
+      const parsedSettings = auditSettingsSchema.safeParse(body);
+      if (!parsedSettings.success) {
+        return NextResponse.json(
+          { error: parsedSettings.error.issues[0]?.message || "Data pengaturan ruangan tidak valid." },
+          { status: 400 }
+        );
+      }
+      const settingsData = parsedSettings.data;
+
       const prev = await prisma.room.findUnique({ where: { id: user.roomId } });
       const updatedRoom = await prisma.room.update({
         where: { id: user.roomId },
         data: {
-          name: body.storeName ? String(body.storeName).trim() : prev?.name,
-          address: body.storeAddress ? String(body.storeAddress).trim() : prev?.address,
+          name: settingsData.storeName ? settingsData.storeName : prev?.name,
+          address: settingsData.storeAddress !== undefined && settingsData.storeAddress !== "" ? settingsData.storeAddress : prev?.address,
           toleranceThresholdRp:
-            typeof body.toleranceThresholdRp === "number"
-              ? Math.max(0, Math.round(body.toleranceThresholdRp))
+            typeof settingsData.toleranceThresholdRp === "number"
+              ? Math.max(0, Math.round(settingsData.toleranceThresholdRp))
               : prev?.toleranceThresholdRp ?? 50000,
-          opnameSchedule: body.opnameSchedule
-            ? String(body.opnameSchedule)
-            : prev?.opnameSchedule,
-          openAreaPolicy: body.openAreaPolicy
-            ? String(body.openAreaPolicy)
-            : prev?.openAreaPolicy,
-          closedAreaPolicy: body.closedAreaPolicy
-            ? String(body.closedAreaPolicy)
-            : prev?.closedAreaPolicy,
-          autoBackupInterval: body.autoBackupInterval
-            ? String(body.autoBackupInterval)
-            : prev?.autoBackupInterval,
+          opnameSchedule: settingsData.opnameSchedule || prev?.opnameSchedule,
+          openAreaPolicy: settingsData.openAreaPolicy || prev?.openAreaPolicy,
+          closedAreaPolicy: settingsData.closedAreaPolicy || prev?.closedAreaPolicy,
+          autoBackupInterval: settingsData.autoBackupInterval || prev?.autoBackupInterval,
         },
       });
 
@@ -425,11 +394,23 @@ export async function POST(request: Request) {
     // 5. CREATE MASTER UNIT / CATEGORY / WAREHOUSE
     if (body.action === "CREATE_UNIT") {
       if (!isOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const unitSchema = z.object({
+        name: z.string().trim().min(1, "Nama satuan wajib diisi").max(30),
+        label: z.string().trim().min(1).max(60).optional(),
+        group: z.enum(["BERAT", "VOLUME", "PANJANG", "HITUNGAN"]).optional(),
+      });
+      const parsedUnit = unitSchema.safeParse(body);
+      if (!parsedUnit.success) {
+        return NextResponse.json(
+          { error: parsedUnit.error.issues[0]?.message || "Data satuan tidak valid." },
+          { status: 400 }
+        );
+      }
       const unit = await prisma.unit.create({
         data: {
-          name: String(body.name).trim().toLowerCase(),
-          label: String(body.label || body.name).trim(),
-          group: String(body.group || "HITUNGAN"),
+          name: parsedUnit.data.name.toLowerCase(),
+          label: parsedUnit.data.label || parsedUnit.data.name,
+          group: parsedUnit.data.group || "HITUNGAN",
         },
       });
       return NextResponse.json({ unit });
@@ -482,9 +463,10 @@ export async function POST(request: Request) {
 
       const updateData: Record<string, unknown> = {};
       if (body.name && String(body.name).trim().length >= 2) {
-        updateData.name = String(body.name).trim();
+        updateData.name = String(body.name).trim().slice(0, 120);
       }
 
+      let passwordChanged = false;
       if (body.newPassword) {
         if (!body.currentPassword) {
           return NextResponse.json(
@@ -496,16 +478,31 @@ export async function POST(request: Request) {
         if (!valid) {
           return NextResponse.json({ error: "Kata sandi saat ini tidak sesuai." }, { status: 400 });
         }
-        if (String(body.newPassword).length < 6) {
-          return NextResponse.json({ error: "Kata sandi baru minimal 6 karakter." }, { status: 400 });
+        const nextPassword = String(body.newPassword);
+        if (nextPassword.length < 6 || nextPassword.length > 128) {
+          return NextResponse.json(
+            { error: "Kata sandi baru harus antara 6 hingga 128 karakter." },
+            { status: 400 }
+          );
         }
-        updateData.passwordHash = await hashPassword(String(body.newPassword));
+        updateData.passwordHash = await hashPassword(nextPassword);
+        updateData.tokenVersion = { increment: 1 };
+        passwordChanged = true;
       }
 
       const updated = await prisma.user.update({
         where: { id: user.id },
         data: updateData,
-        select: { id: true, username: true, email: true, name: true, role: true },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          name: true,
+          role: true,
+          isAssigned: true,
+          roomId: true,
+          tokenVersion: true,
+        },
       });
 
       await recordAuditLog({
@@ -521,7 +518,31 @@ export async function POST(request: Request) {
         linkUrl: "/pengaturan",
       });
 
-      return NextResponse.json({ user: updated });
+      const res = NextResponse.json({
+        user: {
+          id: updated.id,
+          username: updated.username,
+          email: updated.email,
+          name: updated.name,
+          role: updated.role,
+        },
+      });
+
+      if (passwordChanged || updateData.name) {
+        const refreshedToken = await createSessionToken({
+          id: updated.id,
+          username: updated.username,
+          email: updated.email,
+          name: updated.name,
+          role: updated.role as UserRole,
+          isAssigned: Boolean(updated.isAssigned && updated.roomId),
+          roomId: updated.roomId,
+          tokenVersion: updated.tokenVersion,
+        });
+        attachSessionCookie(res, refreshedToken);
+      }
+
+      return res;
     }
 
     return NextResponse.json({ error: "Action tidak dikenali" }, { status: 400 });

@@ -7,6 +7,8 @@ import { createNotification, recordAuditLog } from "@/lib/audit";
 import { validateProofAttachment } from "@/lib/attachment";
 import { z } from "zod";
 
+const VALID_PAYMENT_METHODS = ["TUNAI", "QRIS", "TRANSFER", "KARTU"] as const;
+
 const requestAmendmentSchema = z.object({
   action: z.literal("REQUEST"),
   saleId: z.string().min(1, "ID transaksi wajib disertakan."),
@@ -55,6 +57,28 @@ export async function POST(request: Request) {
       }
 
       const { saleId, amendmentType, reason, proofImageData, proposedPayload } = parsed.data;
+
+      if (amendmentType === "PERUBAHAN" && proposedPayload) {
+        try {
+          const parsedProposed = JSON.parse(proposedPayload) as { paymentMethod?: unknown };
+          if (
+            parsedProposed &&
+            parsedProposed.paymentMethod !== undefined &&
+            (typeof parsedProposed.paymentMethod !== "string" ||
+              !(VALID_PAYMENT_METHODS as readonly string[]).includes(parsedProposed.paymentMethod))
+          ) {
+            return NextResponse.json(
+              { error: "Metode pembayaran usulan tidak valid." },
+              { status: 400 }
+            );
+          }
+        } catch {
+          return NextResponse.json(
+            { error: "Format usulan perubahan transaksi tidak valid." },
+            { status: 400 }
+          );
+        }
+      }
 
       // Validasi tipe file dan ukuran lampiran bukti pendukung (opsional)
       const proofCheck = validateProofAttachment(proofImageData);
@@ -267,11 +291,14 @@ export async function POST(request: Request) {
               nextSaleStatus = "DIUBAH";
               if (amendment.proposedPayload) {
                 try {
-                  const payload = JSON.parse(amendment.proposedPayload);
-                  if (payload.paymentMethod) {
+                  const payload = JSON.parse(amendment.proposedPayload) as { paymentMethod?: unknown };
+                  if (
+                    typeof payload.paymentMethod === "string" &&
+                    (VALID_PAYMENT_METHODS as readonly string[]).includes(payload.paymentMethod)
+                  ) {
                     await tx.sale.update({
                       where: { id: amendment.saleId },
-                      data: { paymentMethod: String(payload.paymentMethod) },
+                      data: { paymentMethod: payload.paymentMethod },
                     });
                   }
                 } catch {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
-import { checkUserPermission } from "@/lib/rbac";
+import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
 import { validateProofAttachment } from "@/lib/attachment";
 import { computeReceiptHash } from "@/lib/gemini";
@@ -134,6 +134,9 @@ export async function POST(request: Request) {
 
     const savedPurchase = await prisma.$transaction(async (tx) => {
       if (data.id) {
+        if (!canEdit) {
+          throw new Error("FORBIDDEN:Anda tidak memiliki izin mengubah pengajuan pembelian.");
+        }
         const prev = await tx.purchase.findFirst({
           where: { id: data.id, roomId: user.roomId },
         });
@@ -141,7 +144,20 @@ export async function POST(request: Request) {
           throw new Error("Pengajuan pembelian yang ingin diperbaiki tidak ditemukan.");
         }
         if (prev.approvalStatus === "DISETUJUI") {
-          throw new Error("Pembelian yang sudah disetujui tidak dapat diubah langsung.");
+          throw new Error("BAD_REQUEST:Pembelian yang sudah disetujui tidak dapat diubah langsung.");
+        }
+        if (!isStoreAdmin(user.role) && prev.submittedById !== user.id) {
+          throw new Error(
+            "FORBIDDEN:Anda hanya dapat memperbaiki pengajuan pembelian milik Anda sendiri."
+          );
+        }
+        if (
+          prev.approvalStatus !== "MENUNGGU_PERSETUJUAN" &&
+          prev.approvalStatus !== "PERLU_PERBAIKAN"
+        ) {
+          throw new Error(
+            "BAD_REQUEST:Hanya pengajuan berstatus Menunggu Persetujuan atau Perlu Perbaikan yang dapat diubah."
+          );
         }
 
         await tx.purchaseItem.deleteMany({ where: { purchaseId: prev.id } });
@@ -314,6 +330,12 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal menyimpan pengajuan pembelian.";
+    if (message.startsWith("FORBIDDEN:")) {
+      return NextResponse.json({ error: message.slice(10) }, { status: 403 });
+    }
+    if (message.startsWith("BAD_REQUEST:")) {
+      return NextResponse.json({ error: message.slice(12) }, { status: 400 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

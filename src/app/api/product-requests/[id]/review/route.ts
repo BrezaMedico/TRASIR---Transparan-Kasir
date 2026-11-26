@@ -7,7 +7,7 @@ import { z } from "zod";
 
 const reviewSchema = z.object({
   decision: z.enum(["DISETUJUI", "DITOLAK"], {
-    errorMap: () => ({ message: "Keputusan harus DISETUJUI atau DITOLAK." }),
+    error: "Keputusan harus DISETUJUI atau DITOLAK.",
   }),
   rejectionReason: z.string().trim().max(500).optional(),
 });
@@ -136,15 +136,29 @@ export async function POST(
 
           for (const v of parsedVariants) {
             let calculatedCost = v.costPrice ?? 0;
+            const resolvedIngredients: {
+              materialId: string;
+              quantity: number;
+              unit: string;
+            }[] = [];
+
             if (v.ingredients && v.ingredients.length > 0) {
               let sumCost = 0;
               for (const ing of v.ingredients) {
                 const mat = await tx.product.findFirst({
                   where: { id: ing.materialId, roomId: reviewer.roomId },
                 });
-                if (mat) {
-                  sumCost += Math.round(mat.costPrice * ing.quantity);
+                if (!mat) {
+                  throw new Error(
+                    `CONFLICT:Bahan baku resep untuk "${reqRow.name}" tidak ditemukan pada ruangan ini.`
+                  );
                 }
+                sumCost += Math.round(mat.costPrice * ing.quantity);
+                resolvedIngredients.push({
+                  materialId: mat.id,
+                  quantity: ing.quantity,
+                  unit: ing.unit,
+                });
               }
               if (sumCost > 0) calculatedCost = sumCost;
             }
@@ -160,15 +174,16 @@ export async function POST(
                 name: v.name.trim(),
                 sellPrice: v.sellPrice,
                 costPrice: calculatedCost,
-                ingredients: v.ingredients
-                  ? {
-                      create: v.ingredients.map((ing) => ({
-                        materialId: ing.materialId,
-                        quantity: ing.quantity,
-                        unit: ing.unit,
-                      })),
-                    }
-                  : undefined,
+                ingredients:
+                  resolvedIngredients.length > 0
+                    ? {
+                        create: resolvedIngredients.map((ing) => ({
+                          materialId: ing.materialId,
+                          quantity: ing.quantity,
+                          unit: ing.unit,
+                        })),
+                      }
+                    : undefined,
               },
             });
           }

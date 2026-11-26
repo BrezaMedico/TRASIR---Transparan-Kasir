@@ -65,6 +65,23 @@ export async function POST(request: Request) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      const claim = await tx.purchase.updateMany({
+        where: {
+          id: existing.id,
+          roomId: user.roomId,
+          approvalStatus: { not: "DISETUJUI" },
+        },
+        data: {
+          approvalStatus: decision,
+          ownerNotes: ownerNotes?.trim() || null,
+          reviewedById: user.id,
+          reviewedAt: new Date(),
+        },
+      });
+      if (claim.count !== 1) {
+        throw new Error("CONFLICT:Pengajuan pembelian ini sudah disetujui sebelumnya.");
+      }
+
       if (decision === "DISETUJUI") {
         let defaultCategory = await tx.category.findFirst({
           where: { roomId: user.roomId, areaType: "TERBUKA" },
@@ -154,14 +171,8 @@ export async function POST(request: Request) {
         }
       }
 
-      const result = await tx.purchase.update({
+      const result = await tx.purchase.findUniqueOrThrow({
         where: { id: existing.id },
-        data: {
-          approvalStatus: decision,
-          ownerNotes: ownerNotes?.trim() || null,
-          reviewedById: user.id,
-          reviewedAt: new Date(),
-        },
         include: { items: true },
       });
 
@@ -223,6 +234,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ purchase: updated });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal memproses keputusan pembelian.";
+    if (message.startsWith("CONFLICT:")) {
+      return NextResponse.json({ error: message.slice(9) }, { status: 400 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

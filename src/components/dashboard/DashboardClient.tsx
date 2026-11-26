@@ -6,10 +6,13 @@ import { AppShell } from "@/components/layout/AppShell";
 import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
 import { fetchJsonCached, getCachedData, setCachedData } from "@/lib/client-cache";
 import { SalesLineChart } from "@/components/charts/SalesLineChart";
+import { CounterComparisonChart } from "@/components/charts/CounterComparisonChart";
+import type { CounterComparisonMetric } from "@/lib/counters";
 import { groupProductRequestsIntoBatches } from "@/lib/product-request-batch";
 import type { GrossProfitReport } from "@/lib/queries/profit";
 import {
   ArrowUpRight,
+  GearSix,
   Storefront,
   Receipt,
   Package,
@@ -30,6 +33,7 @@ interface DashboardPayload {
     lowStockCount: number;
   };
   chartSeries: GrossProfitReport["chartSeries"];
+  counterComparison?: CounterComparisonMetric[];
   approvalQueue: {
     productRequests: {
       id: string;
@@ -54,6 +58,18 @@ interface DashboardPayload {
       requestedBy: { id: string; name: string; role: string };
     }[];
   };
+  anomalies?: {
+    flaggedShifts?: {
+      id: string;
+      counterName?: string;
+      cashierName: string;
+      closedAt: string;
+      status: string;
+      cashDifference: number;
+      handoverSyncStatus: string;
+      handoverDifference: number;
+    }[];
+  };
   lowStockProducts: {
     id: string;
     sku: string;
@@ -71,6 +87,7 @@ export function DashboardClient({
   initialData?: DashboardPayload | null;
 }) {
   const [range, setRange] = useState<"today" | "week" | "month">("month");
+  const [chartMode, setChartMode] = useState<"sales" | "counters">("sales");
   const [queueTab, setQueueTab] = useState<"productRequests" | "amendments">("productRequests");
   const [data, setData] = useState<DashboardPayload | null>(() => {
     if (initialData) {
@@ -155,32 +172,42 @@ export function DashboardClient({
                 </p>
               </div>
 
-              <div
-                role="group"
-                aria-label="Pilih jangka waktu"
-                className="inline-flex p-1 rounded-xl bg-white border border-[#202531]/15 self-start sm:self-auto"
-              >
-                {(
-                  [
-                    { id: "today", label: "Harian" },
-                    { id: "week", label: "Mingguan" },
-                    { id: "month", label: "Bulanan" },
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-pressed={range === item.id}
-                    onClick={() => setRange(item.id)}
-                    className={`px-4 min-h-[44px] sm:min-h-[40px] rounded-lg text-xs font-bold transition-colors duration-150 cursor-pointer ${
-                      range === item.id
-                        ? "bg-[#202531] text-white"
-                        : "text-[#525866] hover:text-[#202531]"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+                <div
+                  role="group"
+                  aria-label="Pilih jangka waktu"
+                  className="inline-flex p-1 rounded-xl bg-white border border-[#202531]/15"
+                >
+                  {(
+                    [
+                      { id: "today", label: "Harian" },
+                      { id: "week", label: "Mingguan" },
+                      { id: "month", label: "Bulanan" },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={range === item.id}
+                      onClick={() => setRange(item.id)}
+                      className={`px-4 min-h-[44px] sm:min-h-[40px] rounded-lg text-xs font-bold transition-colors duration-150 cursor-pointer ${
+                        range === item.id
+                          ? "bg-[#202531] text-white"
+                          : "text-[#525866] hover:text-[#202531]"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <Link
+                  href="/pengaturan"
+                  className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-white border border-[#202531]/20 text-xs font-extrabold text-[#202531] hover:border-[#202531] transition-colors shrink-0"
+                >
+                  <GearSix size={17} weight="duotone" aria-hidden="true" />
+                  <span>Pengaturan Sistem</span>
+                </Link>
               </div>
             </div>
 
@@ -305,6 +332,48 @@ export function DashboardClient({
                   </section>
                 )}
 
+                {/* Peringatan Audit Shift Kasir (Selisih Loker atau Estafet Tidak Sinkron) */}
+                {(data.anomalies?.flaggedShifts?.length ?? 0) > 0 && (
+                  <section
+                    aria-label="Peringatan Selisih Shift Kasir"
+                    className="p-4 sm:p-5 rounded-2xl bg-[#FFF0F4] border border-[#FF2A63]/35 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <Warning
+                        size={22}
+                        weight="fill"
+                        className="text-[#D41448] shrink-0 mt-0.5"
+                        aria-hidden="true"
+                      />
+                      <div className="space-y-1">
+                        <h2 className="text-sm font-extrabold text-[#202531]">
+                          {data.anomalies?.flaggedShifts?.length} Shift Kasir Memerlukan Pemeriksaan Selisih Kas
+                        </h2>
+                        <p className="text-xs text-[#525866]">
+                          Terdapat selisih uang loker saat tutup shift atau ketidaksinkronan modal awal dengan shift sebelumnya.{" "}
+                          {data.anomalies?.flaggedShifts?.[0] && (
+                            <span className="font-semibold text-[#D41448] tabular-nums">
+                              Terbaru:{" "}
+                              {data.anomalies.flaggedShifts[0].counterName
+                                ? `${data.anomalies.flaggedShifts[0].counterName} · `
+                                : ""}
+                              {data.anomalies.flaggedShifts[0].cashierName} (
+                              {formatRupiah(data.anomalies.flaggedShifts[0].cashDifference)})
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      href="/laporan#audit-shift"
+                      className="inline-flex items-center justify-center gap-1.5 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold shrink-0 hover:bg-[#2c3344]"
+                    >
+                      <span>Tinjau Audit Shift</span>
+                      <ArrowUpRight size={15} weight="bold" aria-hidden="true" />
+                    </Link>
+                  </section>
+                )}
+
                 {/* BARIS 3: 3 Kartu Angka Keuangan Sederhana */}
                 <section aria-label="Ringkasan Keuangan">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -401,42 +470,111 @@ export function DashboardClient({
                   </div>
                 )}
 
-                {/* BARIS 4: Grafik Garis Penjualan & Keuntungan */}
-                <SalesLineChart
-                  headingId="chart-section-heading"
-                  title={`Grafik Penjualan & Keuntungan (${profit.periodLabel})`}
-                  subtitle={
-                    range === "today"
-                      ? "Perkembangan penjualan dan keuntungan per jam hari ini (WIB)"
-                      : range === "week"
-                      ? "Tren penjualan dan keuntungan harian dari Senin sampai Minggu"
-                      : "Tren penjualan dan keuntungan harian sepanjang bulan ini"
-                  }
-                  granularity={range === "today" ? "hourly" : "daily"}
-                  loading={refreshing}
-                  periodControl={{
-                    value: range,
-                    onChange: setRange,
-                    ariaLabel: "Pilih rentang grafik penjualan",
-                    options: [
-                      { id: "today", label: "Harian" },
-                      { id: "week", label: "Mingguan" },
-                      { id: "month", label: "Bulanan" },
-                    ],
-                  }}
-                  data={data.chartSeries.map((row) => ({
-                    key: row.key,
-                    label: row.label,
-                    shortLabel: row.shortLabel,
-                    revenue: row.netRevenue,
-                    grossProfit: row.grossProfit,
-                    cogs: row.cogs,
-                    salesCount: row.salesCount,
-                    isFuture: row.isFuture,
-                  }))}
-                  emptyTitle={`Belum ada transaksi pada periode ${profit.periodLabel}.`}
-                  emptySubtitle="Grafik garis akan terisi otomatis setelah Anda mencatat penjualan di Kasir."
-                />
+                {/* BARIS 4: Mode Grafik Penjualan vs Perbandingan Per Loket */}
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div
+                      role="tablist"
+                      aria-label="Pilih mode grafik dashboard"
+                      className="inline-flex p-1 rounded-xl bg-white border border-[#202531]/15"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={chartMode === "sales"}
+                        onClick={() => setChartMode("sales")}
+                        className={`px-3.5 min-h-[38px] rounded-lg text-xs font-extrabold cursor-pointer transition-colors ${
+                          chartMode === "sales"
+                            ? "bg-[#202531] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
+                        }`}
+                      >
+                        Grafik Penjualan &amp; Untung
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={chartMode === "counters"}
+                        onClick={() => setChartMode("counters")}
+                        className={`px-3.5 min-h-[38px] rounded-lg text-xs font-extrabold cursor-pointer transition-colors inline-flex items-center gap-1.5 ${
+                          chartMode === "counters"
+                            ? "bg-[#202531] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
+                        }`}
+                      >
+                        <Storefront size={14} weight="bold" aria-hidden="true" />
+                        <span>Perbandingan Per Loket ({data.counterComparison?.length ?? 1})</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {chartMode === "sales" ? (
+                    <SalesLineChart
+                      headingId="chart-section-heading"
+                      title={`Grafik Penjualan & Keuntungan (${profit.periodLabel})`}
+                      subtitle={
+                        range === "today"
+                          ? "Perkembangan penjualan dan keuntungan per jam hari ini (WIB)"
+                          : range === "week"
+                          ? "Tren penjualan dan keuntungan harian dari Senin sampai Minggu"
+                          : "Tren penjualan dan keuntungan harian sepanjang bulan ini"
+                      }
+                      granularity={range === "today" ? "hourly" : "daily"}
+                      loading={refreshing}
+                      periodControl={{
+                        value: range,
+                        onChange: setRange,
+                        ariaLabel: "Pilih rentang grafik penjualan",
+                        options: [
+                          { id: "today", label: "Harian" },
+                          { id: "week", label: "Mingguan" },
+                          { id: "month", label: "Bulanan" },
+                        ],
+                      }}
+                      data={data.chartSeries.map((row) => ({
+                        key: row.key,
+                        label: row.label,
+                        shortLabel: row.shortLabel,
+                        revenue: row.netRevenue,
+                        grossProfit: row.grossProfit,
+                        cogs: row.cogs,
+                        salesCount: row.salesCount,
+                        isFuture: row.isFuture,
+                      }))}
+                      emptyTitle={`Belum ada transaksi pada periode ${profit.periodLabel}.`}
+                      emptySubtitle="Grafik garis akan terisi otomatis setelah Anda mencatat penjualan di Kasir."
+                    />
+                  ) : (
+                    <section
+                      aria-labelledby="counter-comparison-heading"
+                      className="bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 space-y-4"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <h2
+                            id="counter-comparison-heading"
+                            className="text-base font-extrabold text-[#202531]"
+                          >
+                            Perbandingan Kas Sistem vs Loker Fisik Per Loket ({profit.periodLabel})
+                          </h2>
+                          <p className="text-xs text-[#525866] mt-0.5">
+                            Membandingkan total uang tunai yang seharusnya terkumpul dengan hitungan fisik kasir di setiap loket.
+                          </p>
+                        </div>
+                        <Link
+                          href="/pengaturan?tab=loket"
+                          className="self-start sm:self-auto px-3.5 min-h-[38px] inline-flex items-center justify-center rounded-xl border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] shrink-0"
+                        >
+                          Kelola Loket
+                        </Link>
+                      </div>
+                      <CounterComparisonChart
+                        data={data.counterComparison || []}
+                        periodLabel={profit.periodLabel}
+                      />
+                    </section>
+                  )}
+                </div>
 
                 {/* BARIS 5: 2 Panel Ringkas (Persetujuan & Stok Hampir Habis) */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

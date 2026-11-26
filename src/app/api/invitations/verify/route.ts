@@ -1,20 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { formatRoleLabel, normalizeInviteCode } from "@/lib/rbac";
-
-const verifyWindow = new Map<string, number[]>();
-
-function checkVerifyRateLimit(key: string): boolean {
-  const now = Date.now();
-  const list = (verifyWindow.get(key) || []).filter((ts) => now - ts < 60_000);
-  if (list.length >= 40) {
-    verifyWindow.set(key, list);
-    return true;
-  }
-  list.push(now);
-  verifyWindow.set(key, list);
-  return false;
-}
+import { checkRateLimit, getClientIpKey } from "@/lib/rate-limit";
 
 /**
  * Verifikasi publik untuk kode undangan ruangan sebelum menyelesaikan pendaftaran / bergabung.
@@ -24,9 +11,9 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const rawCode = searchParams.get("code") || "";
-    const clientIp = request.headers.get("x-forwarded-for") || "local";
+    const clientIp = getClientIpKey(request);
 
-    if (checkVerifyRateLimit(clientIp)) {
+    if (checkRateLimit(`invite-verify:${clientIp}`, 40, 60_000).limited) {
       return NextResponse.json(
         { valid: false, error: "Terlalu banyak percobaan verifikasi. Coba lagi sebentar lagi." },
         { status: 429 }

@@ -59,6 +59,7 @@ export function RegisterClient({
   // Mode CREATE_ROOM
   const [roomName, setRoomName] = useState("");
   const [roomAddress, setRoomAddress] = useState("");
+  const [counterNames, setCounterNames] = useState<string[]>(["Loket 1"]);
 
   // Mode JOIN_ROOM
   const [inviteCode, setInviteCode] = useState(initialInviteCode || "");
@@ -141,6 +142,9 @@ export function RegisterClient({
             ? {
                 roomName: roomName.trim(),
                 roomAddress: roomAddress.trim() || undefined,
+                counterNames: counterNames
+                  .map((c) => c.trim())
+                  .filter((c) => c.length > 0),
               }
             : {
                 inviteCode: inviteCode.trim(),
@@ -302,6 +306,88 @@ export function RegisterClient({
                     placeholder="Contoh: Jakarta Selatan"
                     className="w-full min-h-[44px] rounded-xl border border-slate-300 bg-white px-3.5 text-sm text-slate-900 focus:border-[#202531] focus:outline-none"
                   />
+                </div>
+
+                {/* Manajemen Loket Awal Saat Mendaftar Perusahaan */}
+                <div className="pt-2 border-t border-slate-200 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-extrabold text-[#202531]">
+                        Jumlah &amp; Nama Loket Kasir
+                      </p>
+                      <p className="text-[11px] text-slate-600">
+                        Pegawai akan memilih loket ini sebelum membuka shift agar kas tidak tercampur.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {[1, 2, 3].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() =>
+                            setCounterNames(
+                              Array.from({ length: preset }, (_, idx) =>
+                                counterNames[idx]?.trim() || `Loket ${idx + 1}`
+                              )
+                            )
+                          }
+                          className={`px-2.5 min-h-[32px] rounded-lg text-[11px] font-bold border cursor-pointer ${
+                            counterNames.length === preset
+                              ? "bg-[#202531] text-white border-[#202531]"
+                              : "bg-white text-slate-700 border-slate-300"
+                          }`}
+                        >
+                          {preset} Loket
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {counterNames.map((cname, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          required
+                          minLength={1}
+                          maxLength={40}
+                          aria-label={`Nama loket ${idx + 1}`}
+                          value={cname}
+                          onChange={(e) =>
+                            setCounterNames((prev) =>
+                              prev.map((item, i) => (i === idx ? e.target.value : item))
+                            )
+                          }
+                          placeholder={`Loket ${idx + 1}`}
+                          className="flex-1 min-h-[40px] rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-900"
+                        />
+                        {counterNames.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCounterNames((prev) => prev.filter((_, i) => i !== idx))
+                            }
+                            aria-label={`Hapus ${cname || `Loket ${idx + 1}`}`}
+                            className="px-3 min-h-[40px] rounded-xl border border-[#FF2A63]/30 bg-[#FFF0F4] text-[11px] font-bold text-[#D41448] cursor-pointer"
+                          >
+                            Hapus
+                          </button>
+                        )}
+                      </div>
+                    ))}
+
+                    {counterNames.length < 10 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCounterNames((prev) => [...prev, `Loket ${prev.length + 1}`])
+                        }
+                        className="text-xs font-extrabold text-[#006B69] hover:underline cursor-pointer"
+                      >
+                        + Tambah Loket Lainnya
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

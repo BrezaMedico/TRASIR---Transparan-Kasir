@@ -5,7 +5,13 @@ import Link from "next/link";
 import { AppShell, useToast } from "@/components/layout/AppShell";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { BarcodeScannerModal } from "@/components/ui/BarcodeScannerModal";
-import { formatNumber, formatRupiah } from "@/lib/format";
+import {
+  ShiftWorkflowPanel,
+  type ClosedShiftReceipt,
+} from "@/components/kasir/ShiftWorkflowPanel";
+import type { ActiveShiftSummary } from "@/lib/shift-session";
+import type { CounterLiveStatus } from "@/lib/counters";
+import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
 import { fetchJsonCached, getCachedData, invalidateCache, setCachedData } from "@/lib/client-cache";
 import {
   MagnifyingGlass,
@@ -22,6 +28,8 @@ import {
   Bank,
   CaretUp,
   CaretDown,
+  LockKey,
+  ClockCounterClockwise,
 } from "@phosphor-icons/react";
 
 interface ProductVariantData {
@@ -80,8 +88,12 @@ interface InitialCatalogData {
 
 export function KasirClient({
   initialCatalog = null,
+  initialActiveShift,
+  initialCounters = [],
 }: {
   initialCatalog?: InitialCatalogData | null;
+  initialActiveShift?: ActiveShiftSummary | null;
+  initialCounters?: CounterLiveStatus[];
 }) {
   const { showToast } = useToast();
 
@@ -97,6 +109,16 @@ export function KasirClient({
       initialVariantMap[p.id] = p.variants[0].id;
     }
   }
+
+  const [activeShift, setActiveShift] = useState<ActiveShiftSummary | null>(
+    initialActiveShift ?? null
+  );
+  const [counters, setCounters] = useState<CounterLiveStatus[]>(initialCounters);
+  const [shiftPhase, setShiftPhase] = useState<"OPEN" | "POS" | "CLOSE" | "CLOSED_RECEIPT">(
+    initialActiveShift ? "POS" : "OPEN"
+  );
+  const [closedReceipt, setClosedReceipt] = useState<ClosedShiftReceipt | null>(null);
+  const [shiftChecked, setShiftChecked] = useState(initialActiveShift !== undefined);
 
   const [products, setProducts] = useState<CatalogProduct[]>(initialSellable);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>(
@@ -115,6 +137,33 @@ export function KasirClient({
   const [scannerOpen, setScannerOpen] = useState(false);
   const [mobileCartExpanded, setMobileCartExpanded] = useState(false);
   const skippedInitialFetch = useRef(Boolean(initialCatalog));
+
+  const refreshShiftAndCounters = useCallback(async () => {
+    try {
+      const res = await fetch("/api/shifts", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      if (Array.isArray(json.counters)) {
+        setCounters(json.counters);
+      }
+      if (json.activeShift) {
+        setActiveShift(json.activeShift);
+        setShiftPhase((prev) => (prev === "CLOSE" ? "CLOSE" : "POS"));
+      } else {
+        setActiveShift(null);
+      }
+    } catch {
+      // Abaikan gangguan sementara
+    } finally {
+      setShiftChecked(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!shiftChecked || counters.length === 0) {
+      refreshShiftAndCounters();
+    }
+  }, [shiftChecked, counters.length, refreshShiftAndCounters]);
 
   const loadProducts = useCallback(async (force = false) => {
     const cached = !force ? getCachedData<InitialCatalogData>("/api/products") : undefined;
@@ -340,6 +389,90 @@ export function KasirClient({
           );
         }
 
+        if (shiftPhase === "OPEN" || (!activeShift && shiftPhase !== "CLOSED_RECEIPT")) {
+          return (
+            <ShiftWorkflowPanel
+              mode="OPEN"
+              sessionUser={{
+                id: session.user.id,
+                name: session.user.name,
+                username: session.user.username,
+                role: session.user.role,
+                roomName: session.storeName,
+              }}
+              counters={counters}
+              onRefreshCounters={refreshShiftAndCounters}
+              activeShift={null}
+              closedReceipt={null}
+              onShiftOpened={(shift) => {
+                setActiveShift(shift);
+                setClosedReceipt(null);
+                setShiftPhase("POS");
+                refreshShiftAndCounters();
+              }}
+              onShiftClosed={() => {}}
+              onError={(msg) => showToast(msg, "error")}
+              onSuccess={(msg) => showToast(msg, "success")}
+            />
+          );
+        }
+
+        if (shiftPhase === "CLOSE" && activeShift) {
+          return (
+            <ShiftWorkflowPanel
+              mode="CLOSE"
+              sessionUser={{
+                id: session.user.id,
+                name: session.user.name,
+                username: session.user.username,
+                role: session.user.role,
+                roomName: session.storeName,
+              }}
+              activeShift={activeShift}
+              closedReceipt={null}
+              onShiftOpened={() => {}}
+              onShiftClosed={(receipt) => {
+                setActiveShift(null);
+                setCart([]);
+                setCashReceivedInput("");
+                setNotes("");
+                setClosedReceipt(receipt);
+                setShiftPhase("CLOSED_RECEIPT");
+                invalidateCache("/api/reports");
+                refreshShiftAndCounters();
+              }}
+              onCancelClose={() => setShiftPhase("POS")}
+              onError={(msg) => showToast(msg, "error")}
+              onSuccess={(msg) => showToast(msg, "success")}
+            />
+          );
+        }
+
+        if (shiftPhase === "CLOSED_RECEIPT" && closedReceipt) {
+          return (
+            <ShiftWorkflowPanel
+              mode="CLOSED_RECEIPT"
+              sessionUser={{
+                id: session.user.id,
+                name: session.user.name,
+                username: session.user.username,
+                role: session.user.role,
+                roomName: session.storeName,
+              }}
+              activeShift={null}
+              closedReceipt={closedReceipt}
+              onShiftOpened={() => {}}
+              onShiftClosed={() => {}}
+              onStartNewShift={() => {
+                setClosedReceipt(null);
+                setShiftPhase("OPEN");
+              }}
+              onError={(msg) => showToast(msg, "error")}
+              onSuccess={(msg) => showToast(msg, "success")}
+            />
+          );
+        }
+
         const q = search.trim().toLowerCase();
         const filteredProducts = products.filter((p) => {
           if (selectedCategory !== "ALL" && p.categoryId !== selectedCategory) return false;
@@ -355,6 +488,34 @@ export function KasirClient({
           <div className="flex flex-col lg:flex-row gap-6 items-start">
             {/* CENTER COLUMN: Search, Barcode Scanner, Category Filter Pills & Product Grid */}
             <div className="flex-1 w-full space-y-4">
+              {/* Bar Status Shift Aktif */}
+              {activeShift && (
+                <div className="bg-white rounded-2xl border border-[#006B69]/25 px-4 py-3 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E6FBFB] border border-[#006B69]/25 px-2.5 py-1 text-[11px] font-extrabold text-[#006B69] shrink-0">
+                      <span className="w-2 h-2 rounded-full bg-[#006B69]" aria-hidden="true" />
+                      {activeShift.counterName} · Terkunci
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-extrabold text-[#202531] truncate">
+                        {activeShift.cashierName} · Dibuka {formatDateTimeJakarta(activeShift.openedAt)}
+                      </p>
+                      <p className="text-[11px] font-semibold text-[#525866] tabular-nums">
+                        Modal Awal Loker: {formatRupiah(activeShift.openingCashTotal)}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShiftPhase("CLOSE")}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2c3344] cursor-pointer shrink-0 transition-colors duration-150"
+                  >
+                    <LockKey size={15} weight="bold" className="text-[#01DAD7]" aria-hidden="true" />
+                    <span>Tutup Shift</span>
+                  </button>
+                </div>
+              )}
+
               <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -362,14 +523,15 @@ export function KasirClient({
                       Kasir (Point of Sale / POS)
                     </h1>
                     <p className="text-xs text-slate-600">
-                      Pencatatan penjualan real-time dengan pemotongan stok satuan & bahan baku resep otomatis
+                      Pencatatan penjualan real-time dengan pemotongan stok satuan &amp; bahan baku resep otomatis
                     </p>
                   </div>
                   <Link
                     href="/penjualan"
-                    className="inline-flex items-center justify-center px-3.5 py-2 min-h-[40px] rounded-xl border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB]"
+                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl border border-[#202531]/20 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB]"
                   >
-                    Riwayat Transaksi
+                    <ClockCounterClockwise size={15} weight="bold" aria-hidden="true" />
+                    <span>Riwayat Transaksi</span>
                   </Link>
                 </div>
 

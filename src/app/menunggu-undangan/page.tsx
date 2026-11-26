@@ -62,6 +62,7 @@ export default function WaitingInvitationPage() {
   // Buat ruangan baru
   const [roomName, setRoomName] = useState("");
   const [roomAddress, setRoomAddress] = useState("");
+  const [counterNames, setCounterNames] = useState<string[]>(["Loket 1"]);
   const [creatingRoom, setCreatingRoom] = useState(false);
 
   useEffect(() => {
@@ -157,6 +158,9 @@ export default function WaitingInvitationPage() {
         body: JSON.stringify({
           roomName: roomName.trim(),
           roomAddress: roomAddress.trim() || undefined,
+          counterNames: counterNames
+            .map((c) => c.trim())
+            .filter((c) => c.length > 0),
         }),
       });
       const data = await res.json();
@@ -365,6 +369,76 @@ export default function WaitingInvitationPage() {
                   placeholder="Contoh: Bandung"
                   className="w-full min-h-[44px] rounded-xl border border-slate-300 px-3.5 text-sm text-slate-900"
                 />
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-700">Loket Kasir Perusahaan</span>
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() =>
+                          setCounterNames(
+                            Array.from({ length: preset }, (_, i) =>
+                              counterNames[i]?.trim() || `Loket ${i + 1}`
+                            )
+                          )
+                        }
+                        className={`px-2 min-h-[28px] rounded-md text-[11px] font-bold border cursor-pointer ${
+                          counterNames.length === preset
+                            ? "bg-[#202531] text-white border-[#202531]"
+                            : "bg-white text-slate-700 border-slate-300"
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {counterNames.map((cname, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        required
+                        maxLength={40}
+                        aria-label={`Nama loket ${idx + 1}`}
+                        value={cname}
+                        onChange={(e) =>
+                          setCounterNames((prev) =>
+                            prev.map((item, i) => (i === idx ? e.target.value : item))
+                          )
+                        }
+                        placeholder={`Loket ${idx + 1}`}
+                        className="flex-1 min-h-[38px] rounded-xl border border-slate-300 px-3 text-xs font-bold text-slate-900"
+                      />
+                      {counterNames.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCounterNames((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                          className="px-2.5 min-h-[38px] rounded-xl bg-[#FFF0F4] text-[11px] font-bold text-[#D41448] cursor-pointer"
+                        >
+                          Hapus
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {counterNames.length < 10 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCounterNames((prev) => [...prev, `Loket ${prev.length + 1}`])
+                      }
+                      className="text-[11px] font-bold text-[#006B69] hover:underline cursor-pointer"
+                    >
+                      + Tambah Loket
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             <button

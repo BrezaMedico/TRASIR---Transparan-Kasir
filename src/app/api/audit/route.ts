@@ -90,7 +90,19 @@ export async function POST(request: Request) {
     const body = await request.json();
     if (body.action === "MARK_READ" && body.notificationId) {
       await prisma.notification.updateMany({
-        where: { id: String(body.notificationId), roomId: user.roomId },
+        where: {
+          id: String(body.notificationId),
+          roomId: user.roomId,
+          OR: isStoreAdmin(user.role)
+            ? [
+                { userId: user.id },
+                {
+                  userId: null,
+                  OR: [{ targetRole: null }, { targetRole: "PEMILIK" }, { targetRole: "MANAJER" }],
+                },
+              ]
+            : [{ userId: user.id }, { userId: null, targetRole: user.role }],
+        },
         data: { isRead: true },
       });
       return NextResponse.json({ success: true });

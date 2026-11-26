@@ -63,7 +63,7 @@ export async function fetchJsonCached<T>(
 
   const req = fetch(url, { cache: "no-store" })
     .then(async (res) => {
-      const data = (await res.json()) as T;
+      const data = (await res.json().catch(() => ({}))) as T;
       if (res.ok) {
         setCachedData(url, data);
       }

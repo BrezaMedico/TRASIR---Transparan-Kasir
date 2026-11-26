@@ -568,7 +568,7 @@ export function SalesLineChart<T extends string = string>({
                   (slotX(firstFutureIndex) - plotWidth / Math.max(2, (data.length - 1) * 2))
                 }
                 height={plotHeight}
-                fill="#F8FAFC"
+                fill="var(--trasir-chart-future, #F8FAFC)"
                 rx={4}
               />
             )}
@@ -584,7 +584,7 @@ export function SalesLineChart<T extends string = string>({
                     y1={y}
                     x2={padLeft + plotWidth}
                     y2={y}
-                    stroke={isZero ? "#CBD5E1" : "#EBEBEB"}
+                    stroke="var(--trasir-chart-grid, #EBEBEB)"
                     strokeWidth={isZero ? 1.25 : 1}
                     strokeDasharray={isZero ? undefined : "4 4"}
                   />
@@ -594,7 +594,7 @@ export function SalesLineChart<T extends string = string>({
                     textAnchor="end"
                     fontSize={11}
                     fontWeight={isZero ? 700 : 600}
-                    fill="#525866"
+                    fill="var(--trasir-chart-axis, #525866)"
                     className="font-mono"
                   >
                     {formatCompactRupiahAxis(tick)}
@@ -629,7 +629,7 @@ export function SalesLineChart<T extends string = string>({
               <path
                 d={profitLinePath}
                 fill="none"
-                stroke="#008F8C"
+                stroke="var(--trasir-chart-profit, #008F8C)"
                 strokeWidth={2.5}
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -641,7 +641,7 @@ export function SalesLineChart<T extends string = string>({
               <path
                 d={revenueLinePath}
                 fill="none"
-                stroke="#202531"
+                stroke="var(--trasir-chart-primary, #202531)"
                 strokeWidth={2.75}
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -655,8 +655,8 @@ export function SalesLineChart<T extends string = string>({
                 y1={padTop}
                 x2={slotX(activeIndex)}
                 y2={padTop + plotHeight}
-                stroke="#202531"
-                strokeOpacity={0.3}
+                stroke="var(--trasir-chart-primary, #202531)"
+                strokeOpacity={0.35}
                 strokeWidth={1.25}
                 strokeDasharray="3 3"
               />
@@ -679,7 +679,7 @@ export function SalesLineChart<T extends string = string>({
                       cx={cogsPt.x}
                       cy={cogsPt.y}
                       r={isSelected ? 5 : 3.25}
-                      fill="#FFFFFF"
+                      fill="var(--trasir-chart-dot-bg, #FFFFFF)"
                       stroke="#D41448"
                       strokeWidth={2}
                     />
@@ -689,8 +689,8 @@ export function SalesLineChart<T extends string = string>({
                       cx={profPt.x}
                       cy={profPt.y}
                       r={isSelected || elapsedEntries.length === 1 ? 5.5 : 3.75}
-                      fill={isSelected ? "#01DAD7" : "#FFFFFF"}
-                      stroke="#008F8C"
+                      fill={isSelected ? "#01DAD7" : "var(--trasir-chart-dot-bg, #FFFFFF)"}
+                      stroke="var(--trasir-chart-profit, #008F8C)"
                       strokeWidth={2.25}
                     />
                   )}
@@ -709,8 +709,8 @@ export function SalesLineChart<T extends string = string>({
                         cx={revPt.x}
                         cy={revPt.y}
                         r={isSelected || elapsedEntries.length === 1 ? 5.5 : 4}
-                        fill="#202531"
-                        stroke="#FFFFFF"
+                        fill="var(--trasir-chart-primary, #202531)"
+                        stroke="var(--trasir-chart-dot-bg, #FFFFFF)"
                         strokeWidth={2}
                       />
                     </>
@@ -740,7 +740,8 @@ export function SalesLineChart<T extends string = string>({
                   textAnchor={anchor}
                   fontSize={11}
                   fontWeight={isActiveTick ? 800 : 600}
-                  fill={isActiveTick ? "#202531" : item.isFuture ? "#94A3B8" : "#525866"}
+                  fill={isActiveTick ? "var(--trasir-chart-primary, #202531)" : "var(--trasir-chart-axis, #525866)"}
+                  opacity={!isActiveTick && item.isFuture ? 0.65 : 1}
                   className="font-mono"
                 >
                   {textLabel}

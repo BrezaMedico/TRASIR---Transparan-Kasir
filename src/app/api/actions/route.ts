@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAssignedUser } from "@/lib/auth";
+import { isStoreAdmin } from "@/lib/rbac";
 import { prisma, withDbRetry } from "@/lib/prisma";
 
 export async function GET() {
@@ -7,6 +8,10 @@ export async function GET() {
     const auth = await requireAssignedUser();
     if (auth.errorResponse) return auth.errorResponse;
     const user = auth.user;
+
+    if (!isStoreAdmin(user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const [pendingProductRequests, pendingPurchases, pendingAmendments, pendingAdjustments] =
       await withDbRetry(() =>

@@ -199,15 +199,27 @@ export async function POST(request: Request) {
 
           for (const v of data.variants) {
             let calculatedCost = v.costPrice ?? 0;
+            const resolvedIngredients: {
+              materialId: string;
+              quantity: number;
+              unit: string;
+            }[] = [];
+
             if (v.ingredients && v.ingredients.length > 0) {
               let sumCost = 0;
               for (const ing of v.ingredients) {
                 const mat = await tx.product.findFirst({
                   where: { id: ing.materialId, roomId: user.roomId },
                 });
-                if (mat) {
-                  sumCost += Math.round(mat.costPrice * ing.quantity);
+                if (!mat) {
+                  throw new Error("CONFLICT:Bahan baku resep tidak ditemukan pada ruangan ini.");
                 }
+                sumCost += Math.round(mat.costPrice * ing.quantity);
+                resolvedIngredients.push({
+                  materialId: mat.id,
+                  quantity: ing.quantity,
+                  unit: ing.unit,
+                });
               }
               if (sumCost > 0) calculatedCost = sumCost;
             }
@@ -223,15 +235,16 @@ export async function POST(request: Request) {
                 name: v.name.trim(),
                 sellPrice: v.sellPrice,
                 costPrice: calculatedCost,
-                ingredients: v.ingredients
-                  ? {
-                      create: v.ingredients.map((ing) => ({
-                        materialId: ing.materialId,
-                        quantity: ing.quantity,
-                        unit: ing.unit,
-                      })),
-                    }
-                  : undefined,
+                ingredients:
+                  resolvedIngredients.length > 0
+                    ? {
+                        create: resolvedIngredients.map((ing) => ({
+                          materialId: ing.materialId,
+                          quantity: ing.quantity,
+                          unit: ing.unit,
+                        })),
+                      }
+                    : undefined,
               },
             });
           }
@@ -381,6 +394,9 @@ export async function POST(request: Request) {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal menyimpan produk.";
+    if (message.startsWith("CONFLICT:")) {
+      return NextResponse.json({ error: message.slice(9) }, { status: 409 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -478,15 +494,27 @@ export async function PUT(request: Request) {
 
         for (const v of data.variants) {
           let calculatedCost = v.costPrice ?? 0;
+          const resolvedIngredients: {
+            materialId: string;
+            quantity: number;
+            unit: string;
+          }[] = [];
+
           if (v.ingredients && v.ingredients.length > 0) {
             let sumCost = 0;
             for (const ing of v.ingredients) {
               const mat = await tx.product.findFirst({
                 where: { id: ing.materialId, roomId: user.roomId },
               });
-              if (mat) {
-                sumCost += Math.round(mat.costPrice * ing.quantity);
+              if (!mat) {
+                throw new Error("CONFLICT:Bahan baku resep tidak ditemukan pada ruangan ini.");
               }
+              sumCost += Math.round(mat.costPrice * ing.quantity);
+              resolvedIngredients.push({
+                materialId: mat.id,
+                quantity: ing.quantity,
+                unit: ing.unit,
+              });
             }
             if (sumCost > 0) calculatedCost = sumCost;
           }
@@ -502,15 +530,16 @@ export async function PUT(request: Request) {
               name: v.name.trim(),
               sellPrice: v.sellPrice,
               costPrice: calculatedCost,
-              ingredients: v.ingredients
-                ? {
-                    create: v.ingredients.map((ing) => ({
-                      materialId: ing.materialId,
-                      quantity: ing.quantity,
-                      unit: ing.unit,
-                    })),
-                  }
-                : undefined,
+              ingredients:
+                resolvedIngredients.length > 0
+                  ? {
+                      create: resolvedIngredients.map((ing) => ({
+                        materialId: ing.materialId,
+                        quantity: ing.quantity,
+                        unit: ing.unit,
+                      })),
+                    }
+                  : undefined,
             },
           });
         }
@@ -558,6 +587,9 @@ export async function PUT(request: Request) {
     return NextResponse.json({ product: updated });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal memperbarui produk.";
+    if (message.startsWith("CONFLICT:")) {
+      return NextResponse.json({ error: message.slice(9) }, { status: 409 });
+    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

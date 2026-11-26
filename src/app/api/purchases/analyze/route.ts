@@ -7,6 +7,26 @@ import {
   analyzePurchaseReceiptWithGemini,
   computeReceiptHash,
 } from "@/lib/gemini";
+import { z } from "zod";
+
+const analyzeItemSchema = z.object({
+  itemName: z.string().trim().min(1).max(150),
+  quantity: z.number().finite().min(0),
+  unit: z.string().trim().min(1).max(40),
+  unitCost: z.number().finite().min(0),
+  subtotal: z.number().finite().min(0),
+});
+
+const analyzePurchaseSchema = z.object({
+  purchaseId: z.string().trim().optional(),
+  receiptImageData: z.string().optional().nullable(),
+  invoiceNumber: z.string().trim().max(100).optional(),
+  supplierName: z.string().trim().max(120).optional(),
+  purchaseDate: z.string().trim().max(40).optional(),
+  totalAmount: z.number().finite().min(0).optional(),
+  captureMethod: z.enum(["LIVE_CAMERA", "DIGITAL_UPLOAD", "TANPA_NOTA"]).optional(),
+  items: z.array(analyzeItemSchema).max(100).optional(),
+});
 
 export async function POST(request: Request) {
   try {
@@ -21,8 +41,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
-    const purchaseId = body.purchaseId ? String(body.purchaseId).trim() : "";
+    const rawBody = await request.json();
+    const parsed = analyzePurchaseSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message || "Data pemeriksaan nota tidak valid." },
+        { status: 400 }
+      );
+    }
+    const body = parsed.data;
+    const purchaseId = body.purchaseId || "";
 
     const existingPurchase = purchaseId
       ? await prisma.purchase.findFirst({

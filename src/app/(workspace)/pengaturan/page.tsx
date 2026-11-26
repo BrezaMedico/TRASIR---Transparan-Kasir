@@ -3,39 +3,45 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AppShell, useToast } from "@/components/layout/AppShell";
 import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { formatDateTimeJakarta, formatRupiah } from "@/lib/format";
-import { ALL_MODULES, formatRoleLabel, type ModuleKey, type UserRole } from "@/lib/rbac-shared";
+import { formatDateTimeJakarta } from "@/lib/format";
+import { formatRoleLabel } from "@/lib/rbac-shared";
+import { CounterManagementPanel } from "@/components/settings/CounterManagementPanel";
+import { TeamCollaboratorPanel } from "@/components/settings/TeamCollaboratorPanel";
 import {
-  Users,
-  ShieldCheck,
-  Scales,
-  Database,
-  UserCircle,
-  Plus,
-  FloppyDisk,
+  DEFAULT_UI_PREFERENCES,
+  FONT_FAMILY_OPTIONS,
+  FONT_SIZE_OPTIONS,
+  readUiPreferences,
+  resolveEffectiveColorScheme,
+  saveAndApplyUiPreferences,
+  subscribeUiPreferences,
+  type ThemePreference,
+  type UiPreferences,
+} from "@/lib/ui-preferences";
+import {
+  Buildings,
+  Desktop,
   DownloadSimple,
+  EnvelopeSimple,
+  FloppyDisk,
+  GearSix,
   LockKey,
+  Moon,
+  ShieldCheck,
+  Storefront,
+  Sun,
+  UsersThree,
 } from "@phosphor-icons/react";
 
-interface StaffAccount {
-  id: string;
-  username: string;
-  email: string;
-  name: string;
-  role: UserRole;
-  isActive: boolean;
-  lastLoginAt: string | null;
-  createdAt: string;
-}
+type SettingsTab = "umum" | "loket" | "tim" | "lanjutan";
 
-interface PermMatrixRow {
-  role: UserRole;
-  module: ModuleKey;
-  canView: boolean;
-  canCreate: boolean;
-  canEdit: boolean;
-  canApprove: boolean;
+function parseTabFromSearch(): SettingsTab {
+  if (typeof window === "undefined") return "umum";
+  const param = new URLSearchParams(window.location.search).get("tab");
+  if (param === "loket" || param === "tim" || param === "lanjutan" || param === "umum") {
+    return param;
+  }
+  return "umum";
 }
 
 export default function PengaturanPage() {
@@ -43,18 +49,9 @@ export default function PengaturanPage() {
 
   type SettingsApiPayload = {
     isOwner?: boolean;
-    users?: StaffAccount[];
-    rolePermissions?: PermMatrixRow[];
-    units?: { id: string; name: string; label: string; group: string }[];
-    categories?: { id: string; name: string; areaType: string; description: string | null }[];
-    warehouses?: { id: string; name: string; location: string | null }[];
     settings?: {
       storeName?: string;
       storeAddress?: string;
-      toleranceThresholdRp?: number;
-      opnameSchedule?: string;
-      openAreaPolicy?: string;
-      closedAreaPolicy?: string;
       autoBackupInterval?: string;
       lastBackupAt?: string | null;
     };
@@ -62,44 +59,20 @@ export default function PengaturanPage() {
 
   const cachedSettings = getCachedData<SettingsApiPayload>("/api/settings");
 
-  const [activeTab, setActiveTab] = useState<"rbac" | "audit_rules" | "masters" | "profile_backup">(
-    cachedSettings && !cachedSettings.isOwner ? "profile_backup" : "rbac"
-  );
+  const [activeTab, setActiveTab] = useState<SettingsTab>("umum");
   const [isOwner, setIsOwner] = useState(Boolean(cachedSettings?.isOwner));
-  const [users, setUsers] = useState<StaffAccount[]>(cachedSettings?.users || []);
-  const [permissions, setPermissions] = useState<PermMatrixRow[]>(
-    cachedSettings?.rolePermissions || []
-  );
-  const [selectedMatrixRole, setSelectedMatrixRole] = useState<UserRole>("KASIR");
-  const [units, setUnits] = useState<{ id: string; name: string; label: string; group: string }[]>(
-    cachedSettings?.units || []
-  );
-  const [categories, setCategories] = useState<
-    { id: string; name: string; areaType: string; description: string | null }[]
-  >(cachedSettings?.categories || []);
-  const [warehouses, setWarehouses] = useState<
-    { id: string; name: string; location: string | null }[]
-  >(cachedSettings?.warehouses || []);
   const [loading, setLoading] = useState(!cachedSettings);
 
-  // Audit & Tolerance Settings
+  // Tampilan UI
+  const [uiPrefs, setUiPrefs] = useState<UiPreferences>(DEFAULT_UI_PREFERENCES);
+  const [systemSchemeNow, setSystemSchemeNow] = useState<"light" | "dark">("light");
+
+  // Identitas Perusahaan & Backup
   const [storeName, setStoreName] = useState(
     cachedSettings?.settings?.storeName || "TRASIR Toko Utama"
   );
   const [storeAddress, setStoreAddress] = useState(
     cachedSettings?.settings?.storeAddress || "Indonesia"
-  );
-  const [toleranceThresholdRp, setToleranceThresholdRp] = useState(
-    cachedSettings?.settings?.toleranceThresholdRp ?? 50000
-  );
-  const [opnameSchedule, setOpnameSchedule] = useState(
-    cachedSettings?.settings?.opnameSchedule || "MINGGUAN"
-  );
-  const [openAreaPolicy, setOpenAreaPolicy] = useState(
-    cachedSettings?.settings?.openAreaPolicy || ""
-  );
-  const [closedAreaPolicy, setClosedAreaPolicy] = useState(
-    cachedSettings?.settings?.closedAreaPolicy || ""
   );
   const [autoBackupInterval, setAutoBackupInterval] = useState(
     cachedSettings?.settings?.autoBackupInterval || "HARIAN"
@@ -108,54 +81,59 @@ export default function PengaturanPage() {
     cachedSettings?.settings?.lastBackupAt || null
   );
 
-  // Add Staff User Form
-  const [newUserName, setNewUserName] = useState("");
-  const [newUserUsername, setNewUserUsername] = useState("");
-  const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState("");
-  const [newUserRole, setNewUserRole] = useState<UserRole>("KASIR");
-  const [submittingUser, setSubmittingUser] = useState(false);
-
-  // Master Data Forms
-  const [newUnitName, setNewUnitName] = useState("");
-  const [newUnitGroup, setNewUnitGroup] = useState("HITUNGAN");
-  const [newCatName, setNewCatName] = useState("");
-  const [newCatArea, setNewCatArea] = useState<"TERBUKA" | "TERTUTUP">("TERBUKA");
-  const [newWhName, setNewWhName] = useState("");
-  const [newWhLoc, setNewWhLoc] = useState("");
-
-  // Own Profile & Password
+  // Profil & Sandi
   const [profileName, setProfileName] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [savingSettings, setSavingSettings] = useState(false);
 
+  // Ganti Email Terverifikasi
+  const [nextEmailInput, setNextEmailInput] = useState("");
+  const [emailPasswordInput, setEmailPasswordInput] = useState("");
+  const [emailVerificationToken, setEmailVerificationToken] = useState<string | null>(null);
+  const [pendingNewEmail, setPendingNewEmail] = useState<string | null>(null);
+  const [emailOtpCode, setEmailOtpCode] = useState("");
+  const [devEmailCodeHint, setDevEmailCodeHint] = useState<string | null>(null);
+  const [emailSubmitting, setEmailSubmitting] = useState(false);
+
+  useEffect(() => {
+    setActiveTab(parseTabFromSearch());
+    setUiPrefs(readUiPreferences());
+    setSystemSchemeNow(resolveEffectiveColorScheme("system"));
+    return subscribeUiPreferences((next) => {
+      setUiPrefs(next);
+      setSystemSchemeNow(resolveEffectiveColorScheme("system"));
+    });
+  }, []);
+
+  const selectTab = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", tab);
+      window.history.replaceState({}, "", url.toString());
+    }
+  };
+
+  const updateUiPref = (patch: Partial<UiPreferences>, label: string) => {
+    const next = { ...uiPrefs, ...patch };
+    setUiPrefs(next);
+    saveAndApplyUiPreferences(next);
+    showToast(`${label} diterapkan.`, "success");
+  };
+
   const loadSettings = useCallback(async () => {
     const hasCached = Boolean(getCachedData("/api/settings"));
-    if (!hasCached) {
-      setLoading(true);
-    }
+    if (!hasCached) setLoading(true);
     try {
       const { ok, data } = await fetchJsonCached<SettingsApiPayload>("/api/settings", {
         force: true,
       });
       if (ok) {
         setIsOwner(Boolean(data.isOwner));
-        if (!data.isOwner) {
-          setActiveTab("profile_backup");
-        }
-        setUsers(data.users || []);
-        setPermissions(data.rolePermissions || []);
-        setUnits(data.units || []);
-        setCategories(data.categories || []);
-        setWarehouses(data.warehouses || []);
         if (data.settings) {
           setStoreName(data.settings.storeName || "TRASIR Toko Utama");
           setStoreAddress(data.settings.storeAddress || "Indonesia");
-          setToleranceThresholdRp(data.settings.toleranceThresholdRp ?? 50000);
-          setOpnameSchedule(data.settings.opnameSchedule || "MINGGUAN");
-          setOpenAreaPolicy(data.settings.openAreaPolicy || "");
-          setClosedAreaPolicy(data.settings.closedAreaPolicy || "");
           setAutoBackupInterval(data.settings.autoBackupInterval || "HARIAN");
           setLastBackupAt(data.settings.lastBackupAt || null);
         }
@@ -173,125 +151,15 @@ export default function PengaturanPage() {
     loadSettings();
   }, [loadSettings]);
 
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmittingUser(true);
-    try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "CREATE_USER",
-          name: newUserName,
-          username: newUserUsername,
-          email: newUserEmail,
-          password: newUserPassword,
-          role: newUserRole,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error || "Gagal menambahkan akun pegawai.", "error");
-        return;
-      }
-
-      showToast(`Akun pegawai ${data.user.name} (${data.user.role}) berhasil dibuat.`, "success");
-      setNewUserName("");
-      setNewUserUsername("");
-      setNewUserEmail("");
-      setNewUserPassword("");
-      await loadSettings();
-    } catch {
-      showToast("Gagal menghubungi server.", "error");
-    } finally {
-      setSubmittingUser(false);
-    }
-  };
-
-  const handleToggleUserStatus = async (u: StaffAccount) => {
-    try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "UPDATE_USER",
-          userId: u.id,
-          isActive: !u.isActive,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error || "Gagal memperbarui status akun.", "error");
-        return;
-      }
-      showToast(`Status akun ${u.name} diperbarui.`, "info");
-      await loadSettings();
-    } catch {
-      showToast("Gagal memperbarui akun.", "error");
-    }
-  };
-
-  const handleTogglePermission = (
-    role: UserRole,
-    moduleKey: ModuleKey,
-    field: "canView" | "canCreate" | "canEdit" | "canApprove"
-  ) => {
-    setPermissions((prev) => {
-      const existing = prev.find((p) => p.role === role && p.module === moduleKey);
-      if (existing) {
-        return prev.map((p) =>
-          p.role === role && p.module === moduleKey ? { ...p, [field]: !p[field] } : p
-        );
-      }
-      return [
-        ...prev,
-        {
-          role,
-          module: moduleKey,
-          canView: field === "canView",
-          canCreate: field === "canCreate",
-          canEdit: field === "canEdit",
-          canApprove: field === "canApprove",
-        },
-      ];
-    });
-  };
-
-  const handleSavePermissionMatrix = async (refreshSession: () => Promise<void>) => {
-    setSavingSettings(true);
-    try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "UPDATE_PERMISSIONS",
-          permissions,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error || "Gagal menyimpan matriks hak akses.", "error");
-        return;
-      }
-
-      showToast(
-        "Matriks Hak Akses (RBAC) berhasil disimpan dan langsung berlaku real-time untuk seluruh pengguna.",
-        "success"
-      );
-      await loadSettings();
-      await refreshSession();
-    } catch {
-      showToast("Gagal menghubungi server.", "error");
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const handleSaveAuditSettings = async (
+  const handleSaveCompanyIdentity = async (
     e: React.FormEvent,
     refreshSession: () => Promise<void>
   ) => {
     e.preventDefault();
+    if (storeName.trim().length < 2) {
+      showToast("Nama perusahaan minimal 2 karakter.", "error");
+      return;
+    }
     setSavingSettings(true);
     try {
       const res = await fetch("/api/settings", {
@@ -299,85 +167,22 @@ export default function PengaturanPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "UPDATE_AUDIT_SETTINGS",
-          storeName,
-          storeAddress,
-          toleranceThresholdRp: Number(toleranceThresholdRp),
-          opnameSchedule,
-          openAreaPolicy,
-          closedAreaPolicy,
-          autoBackupInterval,
+          storeName: storeName.trim(),
+          storeAddress: storeAddress.trim() || "Indonesia",
         }),
       });
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        showToast("Gagal menyimpan aturan audit.", "error");
+        showToast(json.error || "Gagal memperbarui nama perusahaan.", "error");
         return;
       }
-      showToast("Aturan Audit & Toleransi Selisih Stok berhasil diperbarui.", "success");
+      showToast("Nama perusahaan diperbarui.", "success");
       await loadSettings();
       await refreshSession();
     } catch {
       showToast("Gagal menghubungi server.", "error");
     } finally {
       setSavingSettings(false);
-    }
-  };
-
-  const handleAddUnit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUnitName.trim()) return;
-    const res = await fetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "CREATE_UNIT",
-        name: newUnitName,
-        label: newUnitName,
-        group: newUnitGroup,
-      }),
-    });
-    if (res.ok) {
-      showToast(`Satuan "${newUnitName}" ditambahkan.`, "success");
-      setNewUnitName("");
-      await loadSettings();
-    }
-  };
-
-  const handleAddCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCatName.trim()) return;
-    const res = await fetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "CREATE_CATEGORY",
-        name: newCatName,
-        areaType: newCatArea,
-      }),
-    });
-    if (res.ok) {
-      showToast(`Kategori "${newCatName}" (Area ${newCatArea}) ditambahkan.`, "success");
-      setNewCatName("");
-      await loadSettings();
-    }
-  };
-
-  const handleAddWarehouse = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newWhName.trim()) return;
-    const res = await fetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "CREATE_WAREHOUSE",
-        name: newWhName,
-        location: newWhLoc,
-      }),
-    });
-    if (res.ok) {
-      showToast(`Lokasi gudang "${newWhName}" ditambahkan.`, "success");
-      setNewWhName("");
-      setNewWhLoc("");
-      await loadSettings();
     }
   };
 
@@ -398,13 +203,13 @@ export default function PengaturanPage() {
           newPassword: newPassword || undefined,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error || "Gagal memperbarui profil.", "error");
         return;
       }
 
-      showToast("Profil & keamanan akun pribadi berhasil diperbarui.", "success");
+      showToast("Profil & kata sandi diperbarui.", "success");
       setCurrentPassword("");
       setNewPassword("");
       await refreshSession();
@@ -416,10 +221,77 @@ export default function PengaturanPage() {
     }
   };
 
+  const handleRequestEmailChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailSubmitting(true);
+    try {
+      const res = await fetch("/api/account/change-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "REQUEST",
+          newEmail: nextEmailInput.trim(),
+          currentPassword: emailPasswordInput,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Gagal mengirim kode verifikasi email.", "error");
+        return;
+      }
+      setEmailVerificationToken(data.verificationToken);
+      setPendingNewEmail(data.newEmail);
+      setDevEmailCodeHint(data.devCode || null);
+      setEmailOtpCode("");
+      showToast(`Kode verifikasi dikirim ke ${data.newEmail}.`, "success");
+    } catch {
+      showToast("Gagal menghubungi server saat verifikasi email.", "error");
+    } finally {
+      setEmailSubmitting(false);
+    }
+  };
+
+  const handleConfirmEmailChange = async (
+    e: React.FormEvent,
+    refreshSession: () => Promise<void>
+  ) => {
+    e.preventDefault();
+    if (!emailVerificationToken) return;
+    setEmailSubmitting(true);
+    try {
+      const res = await fetch("/api/account/change-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "CONFIRM",
+          verificationToken: emailVerificationToken,
+          code: emailOtpCode.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Kode verifikasi salah.", "error");
+        return;
+      }
+      showToast(`Email akun berhasil diganti menjadi ${data.email}.`, "success");
+      setEmailVerificationToken(null);
+      setPendingNewEmail(null);
+      setDevEmailCodeHint(null);
+      setNextEmailInput("");
+      setEmailPasswordInput("");
+      setEmailOtpCode("");
+      await refreshSession();
+    } catch {
+      showToast("Gagal memverifikasi kode email.", "error");
+    } finally {
+      setEmailSubmitting(false);
+    }
+  };
+
   const handleManualBackup = async () => {
     try {
       const res = await fetch("/api/backup", { cache: "no-store" });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error || "Gagal mengunduh cadangan data.", "error");
         return;
@@ -432,712 +304,296 @@ export default function PengaturanPage() {
       a.download = `TRASIR-Database-Backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast("Cadangan database penuh (JSON) berhasil diunduh.", "success");
+      showToast("Cadangan database JSON berhasil diunduh.", "success");
       await loadSettings();
     } catch {
       showToast("Gagal membuat cadangan data.", "error");
     }
   };
 
+  const themeOptions: { id: ThemePreference; label: string; icon: React.ReactNode }[] = [
+    { id: "light", label: "Terang", icon: <Sun size={16} weight="bold" aria-hidden="true" /> },
+    { id: "dark", label: "Gelap", icon: <Moon size={16} weight="bold" aria-hidden="true" /> },
+    {
+      id: "system",
+      label: `Sistem (${systemSchemeNow === "dark" ? "Gelap" : "Terang"})`,
+      icon: <Desktop size={16} weight="bold" aria-hidden="true" />,
+    },
+  ];
+
   return (
     <AppShell>
       {(session, refreshSession) => {
+        const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; show: boolean }[] = [
+          {
+            id: "umum",
+            label: "Umum & Tampilan",
+            icon: <GearSix size={16} weight="bold" aria-hidden="true" />,
+            show: true,
+          },
+          {
+            id: "loket",
+            label: "Manajemen Loket",
+            icon: <Storefront size={16} weight="bold" aria-hidden="true" />,
+            show: isOwner,
+          },
+          {
+            id: "tim",
+            label: "Tim & Kolaborator",
+            icon: <UsersThree size={16} weight="bold" aria-hidden="true" />,
+            show: isOwner,
+          },
+          {
+            id: "lanjutan",
+            label: "Akun & Lanjutan",
+            icon: <ShieldCheck size={16} weight="bold" aria-hidden="true" />,
+            show: true,
+          },
+        ];
+
         return (
-          <div className="space-y-6">
-            {/* Header & 4 Clean Horizontal Tabs */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+          <div className="space-y-6 pb-16">
+            {/* Header & Minimal Underline Tabs */}
+            <div className="space-y-3 border-b border-[#202531]/12 pb-1">
               <div>
-                <h1 className="text-xl font-extrabold text-slate-900">
-                  Pengaturan Sistem, RBAC & Aturan Audit
+                <h1 className="text-xl sm:text-2xl font-extrabold text-[#202531]">
+                  Pengaturan Sistem
                 </h1>
-                <p className="text-xs text-slate-600 mt-1">
+                <p className="text-xs text-[#525866] mt-0.5">
                   {isOwner
-                    ? "Kendali penuh Pemilik atas akun pegawai, matriks hak akses granular (RBAC), batas toleransi selisih stok, master satuan/kategori/gudang, dan cadangan data"
-                    : "Pengaturan profil akun pribadi dan keamanan kata sandi"}
+                    ? "Kelola identitas perusahaan, tema layar, loket kasir, dan tim."
+                    : "Atur tema layar, ukuran huruf, dan keamanan akun Anda."}
                 </p>
               </div>
 
               <div
                 role="tablist"
-                aria-label="Tab Pengaturan Sistem"
-                className="flex flex-wrap gap-2 pt-2 border-t border-slate-200"
+                aria-label="Menu Pengaturan Sistem"
+                className="settings-tablist"
               >
-                {isOwner && (
-                  <>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activeTab === "rbac"}
-                      onClick={() => setActiveTab("rbac")}
-                      className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                        activeTab === "rbac"
-                          ? "bg-[#334E6B] text-white"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      }`}
-                    >
-                      <Users size={16} weight="bold" aria-hidden="true" />
-                      <span>1. Pengguna & Hak Akses (RBAC)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activeTab === "audit_rules"}
-                      onClick={() => setActiveTab("audit_rules")}
-                      className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                        activeTab === "audit_rules"
-                          ? "bg-[#334E6B] text-white"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      }`}
-                    >
-                      <Scales size={16} weight="bold" aria-hidden="true" />
-                      <span>2. Aturan Audit & Toleransi</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activeTab === "masters"}
-                      onClick={() => setActiveTab("masters")}
-                      className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                        activeTab === "masters"
-                          ? "bg-[#334E6B] text-white"
-                          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                      }`}
-                    >
-                      <Database size={16} weight="bold" aria-hidden="true" />
-                      <span>3. Master Satuan, Kategori & Gudang</span>
-                    </button>
-                  </>
-                )}
-
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === "profile_backup"}
-                  onClick={() => setActiveTab("profile_backup")}
-                  className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
-                    activeTab === "profile_backup"
-                      ? "bg-[#334E6B] text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  <UserCircle size={16} weight="bold" aria-hidden="true" />
-                  <span>4. Profil, Keamanan & Cadangan Data</span>
-                </button>
+                {tabs
+                  .filter((t) => t.show)
+                  .map((t) => {
+                    const selected = activeTab === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => selectTab(t.id)}
+                        className={`inline-flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] text-xs font-extrabold transition-colors cursor-pointer whitespace-nowrap rounded-t-xl ${
+                          selected
+                            ? "text-[#202531] bg-white/75"
+                            : "text-[#525866] hover:text-[#202531]"
+                        }`}
+                      >
+                        {t.icon}
+                        <span>{t.label}</span>
+                      </button>
+                    );
+                  })}
               </div>
             </div>
 
             {loading ? (
-              <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-600">
+              <div className="bg-white rounded-2xl border border-[#202531]/15 p-8 text-center text-xs text-[#525866]">
                 Memuat pengaturan sistem...
               </div>
             ) : (
               <>
-                {/* TAB 1: PENGGUNA & HAK AKSES (RBAC) */}
-                {activeTab === "rbac" && isOwner && (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                      {/* Form + Tambah Akun Pegawai */}
+                {/* TAB 1: UMUM & TAMPILAN */}
+                {activeTab === "umum" && (
+                  <div className="space-y-5 max-w-4xl">
+                    {isOwner && (
                       <form
-                        onSubmit={handleCreateUser}
-                        className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
+                        onSubmit={(e) => handleSaveCompanyIdentity(e, refreshSession)}
+                        className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4"
                       >
-                        <div>
-                          <h2 className="text-base font-extrabold text-slate-900">
-                            Tambah Akun Pegawai Baru
+                        <div className="flex items-center gap-2.5">
+                          <Buildings size={18} weight="duotone" className="text-[#006B69]" aria-hidden="true" />
+                          <h2 className="text-sm font-extrabold text-[#202531]">
+                            Profil Perusahaan
                           </h2>
-                          <p className="text-xs text-slate-600">
-                            Setiap pegawai wajib memiliki akun individu sesuai jabatannya
-                          </p>
                         </div>
 
-                        <div>
-                          <label
-                            htmlFor="staff-name"
-                            className="block text-xs font-bold text-slate-700 mb-1"
-                          >
-                            Nama Lengkap Pegawai
-                          </label>
-                          <input
-                            id="staff-name"
-                            type="text"
-                            required
-                            value={newUserName}
-                            onChange={(e) => setNewUserName(e.target.value)}
-                            placeholder="Nama lengkap"
-                            className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                           <div>
                             <label
-                              htmlFor="staff-username"
-                              className="block text-xs font-bold text-slate-700 mb-1"
+                              htmlFor="company-name-input"
+                              className="block text-xs font-bold text-[#202531] mb-1"
                             >
-                              Username Login
+                              Nama Perusahaan
                             </label>
                             <input
-                              id="staff-username"
+                              id="company-name-input"
                               type="text"
                               required
-                              value={newUserUsername}
-                              onChange={(e) => setNewUserUsername(e.target.value)}
-                              placeholder="kasir01"
-                              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
+                              minLength={2}
+                              maxLength={120}
+                              value={storeName}
+                              onChange={(e) => setStoreName(e.target.value)}
+                              className="w-full min-h-[44px] rounded-xl border border-[#202531]/20 px-3.5 text-sm font-bold text-[#202531] focus:border-[#006B69] focus:outline-none"
                             />
                           </div>
                           <div>
                             <label
-                              htmlFor="staff-role"
-                              className="block text-xs font-bold text-slate-700 mb-1"
+                              htmlFor="company-address-input"
+                              className="block text-xs font-bold text-[#202531] mb-1"
                             >
-                              Jabatan
+                              Lokasi Singkat
                             </label>
-                            <select
-                              id="staff-role"
-                              value={newUserRole}
-                              onChange={(e) => setNewUserRole(e.target.value as UserRole)}
-                              className="w-full px-3 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs font-bold bg-white"
-                            >
-                              <option value="KASIR">Kasir</option>
-                              <option value="GUDANG">Bagian Gudang</option>
-                              <option value="KASIR_GUDANG">Kasir + Gudang</option>
-                              <option value="MANAJER">Manajer</option>
-                              {session.user.role === "PEMILIK" && (
-                                <option value="PEMILIK">Pemilik</option>
-                              )}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label
-                            htmlFor="staff-email"
-                            className="block text-xs font-bold text-slate-700 mb-1"
-                          >
-                            Email Pegawai
-                          </label>
-                          <input
-                            id="staff-email"
-                            type="email"
-                            required
-                            value={newUserEmail}
-                            onChange={(e) => setNewUserEmail(e.target.value)}
-                            placeholder="pegawai@toko.id"
-                            className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
-                          />
-                        </div>
-
-                        <div>
-                          <label
-                            htmlFor="staff-password"
-                            className="block text-xs font-bold text-slate-700 mb-1"
-                          >
-                            Kata Sandi Awal (Min. 6 Karakter)
-                          </label>
-                          <input
-                            id="staff-password"
-                            type="password"
-                            required
-                            minLength={6}
-                            value={newUserPassword}
-                            onChange={(e) => setNewUserPassword(e.target.value)}
-                            placeholder="Minimal 6 karakter"
-                            className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
-                          />
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={submittingUser}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] cursor-pointer"
-                        >
-                          <Plus size={16} weight="bold" aria-hidden="true" />
-                          <span>{submittingUser ? "Menyimpan..." : "Buat Akun Pegawai"}</span>
-                        </button>
-                      </form>
-
-                      {/* Daftar Akun Pegawai */}
-                      <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                        <h2 className="text-base font-extrabold text-slate-900">
-                          Daftar Akun Pengguna Terdaftar ({users.length})
-                        </h2>
-
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                              <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase text-slate-600">
-                                <th className="py-3 px-4">Nama & Username</th>
-                                <th className="py-3 px-4">Jabatan</th>
-                                <th className="py-3 px-4">Login Terakhir</th>
-                                <th className="py-3 px-4">Status</th>
-                                <th className="py-3 px-4 text-right">Kontrol</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200">
-                              {users.map((u) => (
-                                <tr key={u.id}>
-                                  <td className="py-3 px-4">
-                                    <p className="font-bold text-slate-900">{u.name}</p>
-                                    <p className="text-[11px] text-slate-600">
-                                      @{u.username} • {u.email}
-                                    </p>
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    <span className="px-2.5 py-1 rounded-lg bg-[#E8EEF4] text-[#334E6B] font-extrabold">
-                                      {formatRoleLabel(u.role)}
-                                    </span>
-                                  </td>
-                                  <td className="py-3 px-4 text-slate-600">
-                                    {formatDateTimeJakarta(u.lastLoginAt)}
-                                  </td>
-                                  <td className="py-3 px-4">
-                                    <StatusBadge
-                                      status={u.isActive ? "AMAN" : "DITOLAK"}
-                                      customLabel={u.isActive ? "Aktif" : "Nonaktif"}
-                                    />
-                                  </td>
-                                  <td className="py-3 px-4 text-right">
-                                    {u.id !== session.user.id &&
-                                      !(session.user.role === "MANAJER" && u.role === "PEMILIK") && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleToggleUserStatus(u)}
-                                          className="px-3 py-1.5 min-h-[34px] rounded-lg border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
-                                        >
-                                          {u.isActive ? "Nonaktifkan" : "Aktifkan"}
-                                        </button>
-                                      )}
-                                    {session.user.role === "MANAJER" && u.role === "PEMILIK" && (
-                                      <span className="text-[11px] font-semibold text-slate-400">
-                                        Dilindungi
-                                      </span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Matriks Centang Izin per Modul (RBAC Matrix) */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <ShieldCheck
-                              size={20}
-                              weight="duotone"
-                              className="text-[#334E6B]"
-                              aria-hidden="true"
+                            <input
+                              id="company-address-input"
+                              type="text"
+                              maxLength={250}
+                              value={storeAddress}
+                              onChange={(e) => setStoreAddress(e.target.value)}
+                              className="w-full min-h-[44px] rounded-xl border border-[#202531]/20 px-3.5 text-sm text-[#202531] focus:border-[#006B69] focus:outline-none"
                             />
-                            <h2 className="text-base font-extrabold text-slate-900">
-                              Matriks Centang Izin per Modul (RBAC Granular)
-                            </h2>
                           </div>
-                          <p className="text-xs text-slate-600 mt-0.5">
-                            Pemilik dan Manajer memiliki hak akses penuh yang setara. Matriks di bawah mengatur izin granular untuk Kasir dan Gudang.
-                          </p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          {(["KASIR", "GUDANG"] as UserRole[]).map((r) => (
-                            <button
-                              key={r}
-                              type="button"
-                              onClick={() => setSelectedMatrixRole(r)}
-                              className={`px-3.5 py-2 min-h-[40px] rounded-xl text-xs font-bold cursor-pointer ${
-                                selectedMatrixRole === r
-                                  ? "bg-[#334E6B] text-white"
-                                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                              }`}
-                            >
-                              Jabatan: {r}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-xs">
-                          <thead>
-                            <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase text-slate-600">
-                              <th className="py-3 px-4">Modul Navigasi</th>
-                              <th className="py-3 px-4 text-center">Lihat (View)</th>
-                              <th className="py-3 px-4 text-center">Tambah (Create)</th>
-                              <th className="py-3 px-4 text-center">Ubah (Edit)</th>
-                              <th className="py-3 px-4 text-center">
-                                Setujui / Tolak (Approve)
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-200">
-                            {ALL_MODULES.map((mod) => {
-                              const row = permissions.find(
-                                (p) =>
-                                  p.role === selectedMatrixRole && p.module === mod.key
-                              ) || {
-                                role: selectedMatrixRole,
-                                module: mod.key,
-                                canView: false,
-                                canCreate: false,
-                                canEdit: false,
-                                canApprove: false,
-                              };
-
-                              return (
-                                <tr key={mod.key} className="hover:bg-slate-50">
-                                  <td className="py-3 px-4 font-bold text-slate-900">
-                                    {mod.label}
-                                  </td>
-                                  {(
-                                    ["canView", "canCreate", "canEdit", "canApprove"] as const
-                                  ).map((field) => (
-                                    <td key={field} className="py-3 px-4 text-center">
-                                      <input
-                                        type="checkbox"
-                                        checked={Boolean(row[field])}
-                                        onChange={() =>
-                                          handleTogglePermission(
-                                            selectedMatrixRole,
-                                            mod.key,
-                                            field
-                                          )
-                                        }
-                                        aria-label={`${mod.label} ${field} untuk ${selectedMatrixRole}`}
-                                        className="w-5 h-5 rounded text-[#334E6B] cursor-pointer"
-                                      />
-                                    </td>
-                                  ))}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div className="flex justify-end pt-2">
-                        <button
-                          type="button"
-                          disabled={savingSettings}
-                          onClick={() => handleSavePermissionMatrix(refreshSession)}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] cursor-pointer"
-                        >
-                          <FloppyDisk size={18} weight="bold" aria-hidden="true" />
-                          <span>
-                            {savingSettings
-                              ? "Menyimpan Matriks..."
-                              : "Simpan Matriks Hak Akses (RBAC)"}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* TAB 2: ATURAN AUDIT & TOLERANSI */}
-                {activeTab === "audit_rules" && isOwner && (
-                  <form
-                    onSubmit={(e) => handleSaveAuditSettings(e, refreshSession)}
-                    className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5 max-w-3xl"
-                  >
-                    <div>
-                      <h2 className="text-base font-extrabold text-slate-900">
-                        Pengaturan Batas Toleransi Audit & Standar Area Pengawasan
-                      </h2>
-                      <p className="text-xs text-slate-600 mt-0.5">
-                        Perubahan batas toleransi langsung berlaku pada evaluasi Stok Opname di Halaman 7
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label
-                          htmlFor="set-storename"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Nama Toko / Usaha
-                        </label>
-                        <input
-                          id="set-storename"
-                          type="text"
-                          value={storeName}
-                          onChange={(e) => setStoreName(e.target.value)}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs font-bold"
-                        />
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="set-storeaddr"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Wilayah / Alamat Toko
-                        </label>
-                        <input
-                          id="set-storeaddr"
-                          type="text"
-                          value={storeAddress}
-                          onChange={(e) => setStoreAddress(e.target.value)}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label
-                          htmlFor="set-tolerance"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Batas Toleransi Selisih Stok dalam Rupiah (Rp)
-                        </label>
-                        <input
-                          id="set-tolerance"
-                          type="number"
-                          min={0}
-                          value={toleranceThresholdRp}
-                          onChange={(e) => setToleranceThresholdRp(Number(e.target.value))}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 font-mono text-sm font-extrabold text-[#334E6B]"
-                        />
-                        <p className="text-[11px] text-slate-500 mt-1">
-                           Saat ini: {formatRupiah(toleranceThresholdRp)}. Selisih melebihi angka ini wajib disertai penjelasan pegawai & bukti.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label
-                          htmlFor="set-schedule"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Jadwal Stok Opname Berkala
-                        </label>
-                        <select
-                          id="set-schedule"
-                          value={opnameSchedule}
-                          onChange={(e) => setOpnameSchedule(e.target.value)}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs font-bold bg-white"
-                        >
-                          <option value="HARIAN">Harian (Setiap Akhir Hari)</option>
-                          <option value="MINGGUAN">Mingguan (Setiap Pekan)</option>
-                          <option value="BULANAN">Bulanan (Setiap Akhir Bulan)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 pt-2 border-t border-slate-200">
-                      <div>
-                        <label
-                          htmlFor="set-open-policy"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Standar Perlakuan Area Terbuka (Akses Pelanggan Langsung)
-                        </label>
-                        <textarea
-                          id="set-open-policy"
-                          rows={2}
-                          value={openAreaPolicy}
-                          onChange={(e) => setOpenAreaPolicy(e.target.value)}
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs"
-                        />
-                      </div>
-
-                      <div>
-                        <label
-                          htmlFor="set-closed-policy"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
-                          Standar Perlakuan Area Tertutup (Khusus Akses Pegawai)
-                        </label>
-                        <textarea
-                          id="set-closed-policy"
-                          rows={2}
-                          value={closedAreaPolicy}
-                          onChange={(e) => setClosedAreaPolicy(e.target.value)}
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={savingSettings}
-                      className="inline-flex items-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] cursor-pointer"
-                    >
-                      <FloppyDisk size={18} weight="bold" aria-hidden="true" />
-                      <span>Simpan Aturan Audit & Toleransi</span>
-                    </button>
-                  </form>
-                )}
-
-                {/* TAB 3: MASTER SATUAN, KATEGORI & GUDANG */}
-                {activeTab === "masters" && isOwner && (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                    {/* Master Satuan */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                      <h2 className="text-base font-extrabold text-slate-900">
-                        Master Satuan ({units.length})
-                      </h2>
-                      <form onSubmit={handleAddUnit} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newUnitName}
-                          onChange={(e) => setNewUnitName(e.target.value)}
-                          placeholder="Nama satuan baru..."
-                          aria-label="Nama satuan baru"
-                          className="flex-1 px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs"
-                        />
-                        <select
-                          value={newUnitGroup}
-                          onChange={(e) => setNewUnitGroup(e.target.value)}
-                          aria-label="Kelompok satuan"
-                          className="px-2.5 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold bg-white"
-                        >
-                          <option value="HITUNGAN">Hitungan</option>
-                          <option value="BERAT">Berat</option>
-                          <option value="VOLUME">Volume</option>
-                          <option value="PANJANG">Panjang</option>
-                        </select>
-                        <button
-                          type="submit"
-                          className="px-3 py-2 min-h-[40px] rounded-xl bg-[#334E6B] text-white text-xs font-bold cursor-pointer"
-                        >
-                          +
-                        </button>
-                      </form>
-                      <div className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto">
-                        {units.map((u) => (
-                          <span
-                            key={u.id}
-                            className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800"
-                          >
-                            {u.name} <span className="text-[10px] text-slate-500">({u.group})</span>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Master Kategori & Mode Area */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                      <h2 className="text-base font-extrabold text-slate-900">
-                        Master Kategori & Area ({categories.length})
-                      </h2>
-                      <form onSubmit={handleAddCategory} className="space-y-2">
-                        <input
-                          type="text"
-                          value={newCatName}
-                          onChange={(e) => setNewCatName(e.target.value)}
-                          placeholder="Nama kategori barang..."
-                          aria-label="Nama kategori barang"
-                          className="w-full px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs"
-                        />
-                        <div className="flex gap-2">
-                          <select
-                            value={newCatArea}
-                            onChange={(e) =>
-                              setNewCatArea(e.target.value as "TERBUKA" | "TERTUTUP")
-                            }
-                            aria-label="Mode area kategori"
-                            className="flex-1 px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs font-bold bg-white"
-                          >
-                            <option value="TERBUKA">Area Terbuka (Swalayan/Pelanggan)</option>
-                            <option value="TERTUTUP">Area Tertutup (Gudang/Dapur)</option>
-                          </select>
+                        <div className="flex justify-end">
                           <button
                             type="submit"
-                            className="px-4 py-2 min-h-[40px] rounded-xl bg-[#334E6B] text-white text-xs font-bold cursor-pointer"
+                            disabled={savingSettings}
+                            className="inline-flex items-center gap-2 px-5 min-h-[42px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
                           >
-                            Tambah
+                            <FloppyDisk size={15} weight="bold" aria-hidden="true" />
+                            <span>{savingSettings ? "Menyimpan..." : "Simpan Nama"}</span>
                           </button>
                         </div>
                       </form>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {categories.map((c) => (
-                          <div
-                            key={c.id}
-                            className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs"
-                          >
-                            <span className="font-bold text-slate-900">{c.name}</span>
-                            <StatusBadge status={c.areaType} />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    )}
 
-                    {/* Master Lokasi Gudang */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                      <h2 className="text-base font-extrabold text-slate-900">
-                        Master Lokasi Gudang ({warehouses.length})
+                    {/* Kartu Tampilan Sederhana (Tema + Ukuran + 5 Font) */}
+                    <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-5">
+                      <h2 className="text-sm font-extrabold text-[#202531]">
+                        Tampilan Layar
                       </h2>
-                      <form onSubmit={handleAddWarehouse} className="space-y-2">
-                        <input
-                          type="text"
-                          value={newWhName}
-                          onChange={(e) => setNewWhName(e.target.value)}
-                          placeholder="Nama gudang / etalase..."
-                          aria-label="Nama lokasi gudang"
-                          className="w-full px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs"
-                        />
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={newWhLoc}
-                            onChange={(e) => setNewWhLoc(e.target.value)}
-                            placeholder="Lokasi / keterangan..."
-                            aria-label="Keterangan lokasi gudang"
-                            className="flex-1 px-3 py-2 min-h-[40px] rounded-xl border border-slate-300 text-xs"
-                          />
-                          <button
-                            type="submit"
-                            className="px-4 py-2 min-h-[40px] rounded-xl bg-[#334E6B] text-white text-xs font-bold cursor-pointer"
-                          >
-                            Tambah
-                          </button>
+
+                      {/* Tema */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <span className="text-xs font-bold text-[#525866]">Tema</span>
+                        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 sm:w-auto w-full">
+                          {themeOptions.map((opt) => {
+                            const selected = uiPrefs.theme === opt.id;
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => updateUiPref({ theme: opt.id }, `Tema ${opt.label}`)}
+                                className={`inline-flex items-center justify-center gap-1.5 px-3 min-h-[40px] rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                                  selected
+                                    ? "bg-[#202531] text-white"
+                                    : "text-[#525866] hover:text-[#202531]"
+                                }`}
+                              >
+                                {opt.icon}
+                                <span className="truncate">{opt.label}</span>
+                              </button>
+                            );
+                          })}
                         </div>
-                      </form>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {warehouses.map((w) => (
-                          <div
-                            key={w.id}
-                            className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
-                          >
-                            <p className="font-bold text-slate-900">{w.name}</p>
-                            {w.location && <p className="text-[11px] text-slate-600">{w.location}</p>}
-                          </div>
-                        ))}
                       </div>
-                    </div>
+
+                      {/* Ukuran Huruf */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-4 border-t border-[#202531]/10">
+                        <span className="text-xs font-bold text-[#525866]">Ukuran Huruf</span>
+                        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 sm:w-80 w-full">
+                          {FONT_SIZE_OPTIONS.map((opt) => {
+                            const selected = uiPrefs.fontSize === opt.id;
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() =>
+                                  updateUiPref({ fontSize: opt.id }, `Huruf ${opt.label}`)
+                                }
+                                className={`inline-flex items-center justify-center px-3 min-h-[40px] rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                                  selected
+                                    ? "bg-[#202531] text-white"
+                                    : "text-[#525866] hover:text-[#202531]"
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Jenis Huruf (5 Font Bersih) */}
+                      <div className="space-y-2.5 pt-4 border-t border-[#202531]/10">
+                        <span className="block text-xs font-bold text-[#525866]">
+                          Jenis Huruf
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                          {FONT_FAMILY_OPTIONS.map((font) => {
+                            const selected = uiPrefs.fontFamily === font.id;
+                            return (
+                              <button
+                                key={font.id}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() =>
+                                  updateUiPref({ fontFamily: font.id }, `Font ${font.label}`)
+                                }
+                                style={{ fontFamily: `${font.cssVar}, system-ui, sans-serif` }}
+                                className={`text-left px-3 py-2.5 min-h-[58px] rounded-xl border cursor-pointer transition-colors flex flex-col justify-between ${
+                                  selected
+                                    ? "border-[#006B69] bg-[#E6FBFB]/55 ring-1 ring-[#006B69]"
+                                    : "border-[#202531]/15 bg-white hover:border-[#202531]/35"
+                                }`}
+                              >
+                                <span className="text-xs font-extrabold text-[#202531] truncate">
+                                  {font.label}
+                                </span>
+                                <span className="text-[11px] font-semibold text-[#525866] tabular-nums">
+                                  Aa · Rp 125.000
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </section>
                   </div>
                 )}
 
-                {/* TAB 4: PROFIL, KEAMANAN & CADANGAN DATA */}
-                {activeTab === "profile_backup" && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                    {/* Own Profile & Password Change */}
+                {/* TAB 2: MANAJEMEN LOKET */}
+                {activeTab === "loket" && isOwner && <CounterManagementPanel />}
+
+                {/* TAB 3: TIM & KOLABORATOR */}
+                {activeTab === "tim" && isOwner && (
+                  <TeamCollaboratorPanel session={session} refreshSession={refreshSession} />
+                )}
+
+                {/* TAB 4: AKUN & LANJUTAN */}
+                {activeTab === "lanjutan" && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+                    {/* Profil & Kata Sandi */}
                     <form
                       onSubmit={(e) => handleUpdateOwnProfile(e, refreshSession)}
-                      className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
+                      className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4"
                     >
                       <div className="flex items-center gap-2">
-                        <LockKey size={20} weight="duotone" className="text-[#334E6B]" aria-hidden="true" />
+                        <LockKey size={19} weight="duotone" className="text-[#006B69]" aria-hidden="true" />
                         <div>
-                          <h2 className="text-base font-extrabold text-slate-900">
-                            Profil Akun Pribadi & Ubah Kata Sandi
+                          <h2 className="text-sm font-extrabold text-[#202531]">
+                            Profil &amp; Kata Sandi
                           </h2>
-                          <p className="text-xs text-slate-600">
-                            Akun aktif: @{session.user.username} ({session.user.role})
+                          <p className="text-xs text-[#525866]">
+                            @{session.user.username} · {formatRoleLabel(session.user.role)}
                           </p>
                         </div>
                       </div>
 
                       <div>
-                        <label
-                          htmlFor="prof-name"
-                          className="block text-xs font-bold text-slate-700 mb-1"
-                        >
+                        <label htmlFor="prof-name" className="block text-xs font-bold text-[#202531] mb-1">
                           Nama Tampilan
                         </label>
                         <input
@@ -1146,30 +602,30 @@ export default function PengaturanPage() {
                           value={profileName}
                           onChange={(e) => setProfileName(e.target.value)}
                           placeholder={session.user.name}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
+                          className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
                         />
                       </div>
 
                       <div>
                         <label
                           htmlFor="prof-curr-pass"
-                          className="block text-xs font-bold text-slate-700 mb-1"
+                          className="block text-xs font-bold text-[#202531] mb-1"
                         >
-                          Kata Sandi Saat Ini (Isi jika ingin mengubah kata sandi)
+                          Kata Sandi Saat Ini
                         </label>
                         <input
                           id="prof-curr-pass"
                           type="password"
                           value={currentPassword}
                           onChange={(e) => setCurrentPassword(e.target.value)}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
+                          className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
                         />
                       </div>
 
                       <div>
                         <label
                           htmlFor="prof-new-pass"
-                          className="block text-xs font-bold text-slate-700 mb-1"
+                          className="block text-xs font-bold text-[#202531] mb-1"
                         >
                           Kata Sandi Baru (Min. 6 Karakter)
                         </label>
@@ -1179,46 +635,156 @@ export default function PengaturanPage() {
                           minLength={6}
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
-                          className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl border border-slate-300 text-xs"
+                          className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
                         />
                       </div>
 
                       <button
                         type="submit"
                         disabled={savingSettings}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[44px] rounded-xl bg-[#334E6B] text-white text-xs font-extrabold hover:bg-[#24384E] cursor-pointer"
+                        className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
                       >
-                        <FloppyDisk size={16} weight="bold" aria-hidden="true" />
-                        <span>Simpan Perubahan Profil & Sandi</span>
+                        <FloppyDisk size={15} weight="bold" aria-hidden="true" />
+                        <span>Simpan Profil &amp; Sandi</span>
                       </button>
                     </form>
 
-                    {/* Manual & Scheduled Data Backup (Owner Only) */}
-                    {isOwner && (
-                      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-                        <div className="flex items-center gap-2">
-                          <Database
-                            size={20}
-                            weight="duotone"
-                            className="text-[#0F766E]"
-                            aria-hidden="true"
-                          />
-                          <div>
-                            <h2 className="text-base font-extrabold text-slate-900">
-                              Pencadangan Data (Manual & Jadwal Otomatis)
-                            </h2>
-                            <p className="text-xs text-slate-600">
-                              Mengamankan seluruh data produk, transaksi, stok opname, dan riwayat audit trail
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1 text-xs">
-                          <p className="text-slate-600">
-                            Jadwal Pencadangan Otomatis: <strong>{autoBackupInterval}</strong>
+                    {/* Ganti Email (Wajib Verifikasi Kode Email) */}
+                    <div className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4">
+                      <div className="flex items-center gap-2">
+                        <EnvelopeSimple size={19} weight="duotone" className="text-[#006B69]" aria-hidden="true" />
+                        <div>
+                          <h2 className="text-sm font-extrabold text-[#202531]">
+                            Ganti Email Akun
+                          </h2>
+                          <p className="text-xs text-[#525866]">
+                            Saat ini: <strong>{session.user.email}</strong>
                           </p>
-                          <p className="text-slate-600">
-                            Pencadangan Terakhir:{" "}
+                        </div>
+                      </div>
+
+                      {!emailVerificationToken ? (
+                        <form onSubmit={handleRequestEmailChange} className="space-y-3.5">
+                          <div>
+                            <label
+                              htmlFor="next-email-input"
+                              className="block text-xs font-bold text-[#202531] mb-1"
+                            >
+                              Alamat Email Baru
+                            </label>
+                            <input
+                              id="next-email-input"
+                              type="email"
+                              required
+                              value={nextEmailInput}
+                              onChange={(e) => setNextEmailInput(e.target.value)}
+                              placeholder="emailbaru@toko.id"
+                              className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor="email-pass-input"
+                              className="block text-xs font-bold text-[#202531] mb-1"
+                            >
+                              Konfirmasi Kata Sandi Saat Ini
+                            </label>
+                            <input
+                              id="email-pass-input"
+                              type="password"
+                              required
+                              value={emailPasswordInput}
+                              onChange={(e) => setEmailPasswordInput(e.target.value)}
+                              className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
+                            />
+                          </div>
+
+                          <button
+                            type="submit"
+                            disabled={emailSubmitting}
+                            className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                          >
+                            <EnvelopeSimple size={15} weight="bold" aria-hidden="true" />
+                            <span>
+                              {emailSubmitting ? "Mengirim Kode..." : "Kirim Kode Verifikasi"}
+                            </span>
+                          </button>
+                        </form>
+                      ) : (
+                        <form
+                          onSubmit={(e) => handleConfirmEmailChange(e, refreshSession)}
+                          className="space-y-3.5"
+                        >
+                          <p className="text-xs text-[#525866]">
+                            Masukkan kode 6 digit yang dikirim ke{" "}
+                            <strong className="text-[#202531]">{pendingNewEmail}</strong>.
+                          </p>
+
+                          {devEmailCodeHint && (
+                            <p className="rounded-xl bg-[#E6FBFB]/55 border border-[#006B69]/25 px-3 py-2 text-xs font-bold text-[#006B69] font-mono">
+                              Mode Dev (SMTP belum terpasang): Kode = {devEmailCodeHint}
+                            </p>
+                          )}
+
+                          <div>
+                            <label
+                              htmlFor="email-otp-input"
+                              className="block text-xs font-bold text-[#202531] mb-1"
+                            >
+                              Kode Verifikasi (6 Digit)
+                            </label>
+                            <input
+                              id="email-otp-input"
+                              type="text"
+                              inputMode="numeric"
+                              pattern="\d{6}"
+                              maxLength={6}
+                              required
+                              value={emailOtpCode}
+                              onChange={(e) =>
+                                setEmailOtpCode(e.target.value.replace(/[^0-9]/g, ""))
+                              }
+                              placeholder="123456"
+                              className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 font-mono text-sm font-extrabold tracking-widest"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="submit"
+                              disabled={emailSubmitting}
+                              className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                            >
+                              <span>
+                                {emailSubmitting ? "Memverifikasi..." : "Verifikasi & Ganti Email"}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmailVerificationToken(null);
+                                setPendingNewEmail(null);
+                                setDevEmailCodeHint(null);
+                              }}
+                              className="px-4 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs font-bold text-[#202531] cursor-pointer"
+                            >
+                              Batal
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+
+                    {/* Cadangan Data JSON (Khusus Pemilik/Manajer) */}
+                    {isOwner && (
+                      <div className="lg:col-span-2 bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="space-y-0.5">
+                          <h2 className="text-sm font-extrabold text-[#202531]">
+                            Cadangan Data Perusahaan (JSON)
+                          </h2>
+                          <p className="text-xs text-[#525866]">
+                            Jadwal otomatis: <strong>{autoBackupInterval}</strong> · Terakhir:{" "}
                             <strong>{formatDateTimeJakarta(lastBackupAt)}</strong>
                           </p>
                         </div>
@@ -1226,10 +792,10 @@ export default function PengaturanPage() {
                         <button
                           type="button"
                           onClick={handleManualBackup}
-                          className="w-full flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-[#0F766E] text-white text-xs font-extrabold hover:opacity-95 cursor-pointer"
+                          className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:opacity-95 cursor-pointer shrink-0"
                         >
-                          <DownloadSimple size={18} weight="bold" aria-hidden="true" />
-                          <span>Cadangkan Data Sekarang (Manual Backup JSON)</span>
+                          <DownloadSimple size={16} weight="bold" aria-hidden="true" />
+                          <span>Unduh Cadangan Data</span>
                         </button>
                       </div>
                     )}
@@ -1243,4 +809,3 @@ export default function PengaturanPage() {
     </AppShell>
   );
 }
-

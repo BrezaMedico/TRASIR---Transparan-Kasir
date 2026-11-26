@@ -12,13 +12,13 @@ import {
   validateUsername,
 } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
+import { buildInitialCounters } from "@/lib/counters";
+import { saveRoomCounters } from "@/lib/queries/counters";
 import { z } from "zod";
 
 const registerBaseSchema = z.object({
   mode: z.enum(["CREATE_ROOM", "JOIN_ROOM"], {
-    errorMap: () => ({
-      message: "Pilih jalur pendaftaran: Buat Ruangan Baru atau Gabung ke Ruangan.",
-    }),
+    error: "Pilih jalur pendaftaran: Buat Ruangan Baru atau Gabung ke Ruangan.",
   }),
   name: z.string().trim().min(2, "Nama lengkap minimal 2 karakter"),
   username: z.string().min(1, "Username wajib diisi"),
@@ -27,6 +27,8 @@ const registerBaseSchema = z.object({
   roomName: z.string().trim().optional().or(z.literal("")),
   roomAddress: z.string().trim().optional().or(z.literal("")),
   inviteCode: z.string().trim().optional().or(z.literal("")),
+  counterNames: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  counterCount: z.number().int().min(1).max(10).optional(),
 });
 
 export async function POST(request: Request) {
@@ -96,6 +98,11 @@ export async function POST(request: Request) {
       }
       const roomAddress = (parsed.data.roomAddress || "").trim() || "Indonesia";
 
+      const initialCounters = buildInitialCounters({
+        counterNames: parsed.data.counterNames,
+        counterCount: parsed.data.counterCount,
+      });
+
       const result = await prisma.$transaction(async (tx) => {
         const room = await tx.room.create({
           data: {
@@ -107,6 +114,7 @@ export async function POST(request: Request) {
         });
 
         await seedRoomDefaults(tx, room.id);
+        await saveRoomCounters(room.id, initialCounters, room.name, tx);
 
         const created = await tx.user.create({
           data: {
@@ -129,7 +137,7 @@ export async function POST(request: Request) {
             actorName: created.name,
             actorRole: "PEMILIK",
             actionType: "ROOM_CREATED",
-            actionSummary: `${created.name} (@${created.username}) membuat ruangan baru "${room.name}" dan ditetapkan otomatis sebagai PEMILIK`,
+            actionSummary: `${created.name} (@${created.username}) membuat ruangan baru "${room.name}" dengan ${initialCounters.length} loket dan ditetapkan otomatis sebagai PEMILIK`,
             entityType: "Room",
             entityId: room.id,
             afterData: {
@@ -137,6 +145,7 @@ export async function POST(request: Request) {
               roomName: room.name,
               ownerUsername: created.username,
               role: "PEMILIK",
+              counters: initialCounters.map((c) => c.name),
             },
             approvalState: "DISETUJUI",
             linkUrl: "/dashboard",
@@ -164,6 +173,7 @@ export async function POST(request: Request) {
         {
           user: sessionUser,
           room: { id: result.room.id, name: result.room.name, address: result.room.address },
+          counters: initialCounters,
           permissions,
           redirectTo: "/dashboard",
         },

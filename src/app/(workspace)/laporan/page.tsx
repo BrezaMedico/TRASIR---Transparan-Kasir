@@ -5,13 +5,47 @@ import { AppShell, useToast } from "@/components/layout/AppShell";
 import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SalesLineChart } from "@/components/charts/SalesLineChart";
-import { formatNumber, formatRupiah } from "@/lib/format";
+import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
+import { RUPIAH_DENOMINATIONS, type DenominationMap } from "@/lib/shift-session";
 import {
+  CaretDown,
+  CaretUp,
   DownloadSimple,
   Info,
+  ShieldCheck,
   Trophy,
   WarningOctagon,
 } from "@phosphor-icons/react";
+
+interface ShiftAuditItem {
+  id: string;
+  counterId?: string;
+  counterName?: string;
+  openedAt: string;
+  closedAt: string;
+  cashier: { id: string; name: string; username?: string; role: string };
+  status: string;
+  openingCashTotal: number;
+  openingDenominations: DenominationMap | null;
+  openingNote: string | null;
+  closingDenominations: DenominationMap | null;
+  closingNote: string | null;
+  operationalExpenses: { description: string; amount: number }[];
+  operationalExpenseTotal: number;
+  systemTxCount: number;
+  systemCashTotal: number;
+  systemQrisTotal: number;
+  systemTransferTotal: number;
+  systemCardTotal: number;
+  systemDigitalTotal: number;
+  systemGrandTotal: number;
+  expectedCashAtClose: number;
+  actualCashTotal: number;
+  cashDifference: number;
+  handoverSyncStatus: "SHIFT_PERTAMA" | "SINKRON" | "TIDAK_SINKRON";
+  handoverDifference: number;
+  previousShiftClosingCash: number | null;
+}
 
 interface ReportPayload {
   granularity?: "hourly" | "daily" | "monthly";
@@ -52,6 +86,13 @@ interface ReportPayload {
     totalUnitDiff: number;
     totalLossRp: number;
   }[];
+  shiftSummary?: {
+    totalShifts: number;
+    discrepancyCount: number;
+    handoverMismatchCount: number;
+    netCashDifferenceRp: number;
+  };
+  shiftAudits?: ShiftAuditItem[];
 }
 
 export default function LaporanPage() {
@@ -67,6 +108,9 @@ export default function LaporanPage() {
   const initialReport = getCachedData<ReportPayload>("/api/reports?period=monthly") ?? null;
   const [report, setReport] = useState<ReportPayload | null>(initialReport);
   const [loading, setLoading] = useState(!initialReport);
+  const [shiftFilter, setShiftFilter] = useState<"ALL" | "FLAGGED">("ALL");
+  const [counterFilter, setCounterFilter] = useState<string>("ALL");
+  const [expandedShiftId, setExpandedShiftId] = useState<string | null>(null);
 
   const loadReport = useCallback(async () => {
     const qs =
@@ -123,6 +167,34 @@ export default function LaporanPage() {
           String(c.grossProfit),
           String(c.purchases),
         ]),
+      [],
+      ["AUDIT SHIFT & REKONSILIASI KAS"],
+      [
+        "Loket",
+        "Kasir",
+        "Waktu Tutup",
+        "Estafet Shift Sebelumnya",
+        "Modal Awal (Rp)",
+        "Penjualan Tunai Sistem (Rp)",
+        "Operasional (Rp)",
+        "Seharusnya Ada (Rp)",
+        "Fisik Loker Dihitung (Rp)",
+        "Selisih Kas (Rp)",
+        "Status Audit",
+      ],
+      ...(report.shiftAudits || []).map((s) => [
+        `"${(s.counterName || "Loket 1").replace(/"/g, '""')}"`,
+        `"${s.cashier.name.replace(/"/g, '""')}"`,
+        `"${formatDateTimeJakarta(s.closedAt)}"`,
+        s.handoverSyncStatus,
+        String(s.openingCashTotal),
+        String(s.systemCashTotal),
+        String(s.operationalExpenseTotal),
+        String(s.expectedCashAtClose),
+        String(s.actualCashTotal),
+        String(s.cashDifference),
+        s.status,
+      ]),
     ];
 
     const csvContent = rows.map((r) => r.join(",")).join("\n");
@@ -453,6 +525,407 @@ export default function LaporanPage() {
                     )}
                   </section>
                 </div>
+
+                {/* Section: Audit Shift Kasir & Deteksi Selisih Kas */}
+                <section
+                  id="audit-shift"
+                  aria-labelledby="shift-audit-heading"
+                  className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-5"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldCheck
+                        size={22}
+                        weight="duotone"
+                        className="text-[#006B69] shrink-0 mt-0.5"
+                        aria-hidden="true"
+                      />
+                      <div>
+                        <h2
+                          id="shift-audit-heading"
+                          className="text-base font-extrabold text-[#202531]"
+                        >
+                          Audit Shift Kasir &amp; Deteksi Selisih Kas
+                        </h2>
+                        <p className="text-xs text-[#525866] mt-0.5">
+                          Perbandingan rahasia antara hitungan uang fisik loker kasir dengan penjualan tunai sistem serta estafet modal shift sebelumnya.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      role="group"
+                      aria-label="Filter daftar audit shift"
+                      className="inline-flex p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 self-start md:self-auto"
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={shiftFilter === "ALL"}
+                        onClick={() => setShiftFilter("ALL")}
+                        className={`px-3.5 min-h-[38px] rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                          shiftFilter === "ALL"
+                            ? "bg-[#202531] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
+                        }`}
+                      >
+                        Semua Shift ({report.shiftSummary?.totalShifts ?? 0})
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={shiftFilter === "FLAGGED"}
+                        onClick={() => setShiftFilter("FLAGGED")}
+                        className={`px-3.5 min-h-[38px] rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                          shiftFilter === "FLAGGED"
+                            ? "bg-[#D41448] text-white"
+                            : "text-[#525866] hover:text-[#202531]"
+                        }`}
+                      >
+                        Bermasalah (
+                        {(report.shiftAudits || []).filter(
+                          (s) =>
+                            s.status === "PERLU_DIPERIKSA" ||
+                            s.handoverSyncStatus === "TIDAK_SINKRON"
+                        ).length}
+                        )
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3 Ringkasan Audit Shift */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-[#202531]/12 bg-[#EBEBEB]/35 p-3.5">
+                      <p className="text-xs font-semibold text-[#525866]">Shift Selisih Kas</p>
+                      <p
+                        className={`text-lg font-extrabold mt-0.5 tabular-nums ${
+                          (report.shiftSummary?.discrepancyCount ?? 0) > 0
+                            ? "text-[#D41448]"
+                            : "text-[#006B69]"
+                        }`}
+                      >
+                        {formatNumber(report.shiftSummary?.discrepancyCount ?? 0)} Shift
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-[#202531]/12 bg-[#EBEBEB]/35 p-3.5">
+                      <p className="text-xs font-semibold text-[#525866]">Estafet Modal Tidak Sinkron</p>
+                      <p
+                        className={`text-lg font-extrabold mt-0.5 tabular-nums ${
+                          (report.shiftSummary?.handoverMismatchCount ?? 0) > 0
+                            ? "text-[#D41448]"
+                            : "text-[#006B69]"
+                        }`}
+                      >
+                        {formatNumber(report.shiftSummary?.handoverMismatchCount ?? 0)} Shift
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-[#202531]/12 bg-[#EBEBEB]/35 p-3.5">
+                      <p className="text-xs font-semibold text-[#525866]">Akumulasi Selisih Tunai</p>
+                      <p
+                        className={`text-lg font-extrabold mt-0.5 tabular-nums ${
+                          (report.shiftSummary?.netCashDifferenceRp ?? 0) < 0
+                            ? "text-[#D41448]"
+                            : (report.shiftSummary?.netCashDifferenceRp ?? 0) > 0
+                              ? "text-[#202531]"
+                              : "text-[#006B69]"
+                        }`}
+                      >
+                        {formatRupiah(report.shiftSummary?.netCashDifferenceRp ?? 0)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const counterOptions = Array.from(
+                      new Set(
+                        (report.shiftAudits || []).map((s) => s.counterName || "Loket 1")
+                      )
+                    );
+                    const filteredAudits = (report.shiftAudits || []).filter((s) => {
+                      if (
+                        shiftFilter === "FLAGGED" &&
+                        s.status !== "PERLU_DIPERIKSA" &&
+                        s.handoverSyncStatus !== "TIDAK_SINKRON"
+                      ) {
+                        return false;
+                      }
+                      if (
+                        counterFilter !== "ALL" &&
+                        (s.counterName || "Loket 1") !== counterFilter
+                      ) {
+                        return false;
+                      }
+                      return true;
+                    });
+
+                    if (filteredAudits.length === 0) {
+                      return (
+                        <div className="space-y-3">
+                          {counterOptions.length > 1 && (
+                            <div className="flex justify-end">
+                              <select
+                                aria-label="Filter loket audit shift"
+                                value={counterFilter}
+                                onChange={(e) => setCounterFilter(e.target.value)}
+                                className="min-h-[38px] rounded-xl border border-[#202531]/20 bg-white px-3 text-xs font-bold text-[#202531]"
+                              >
+                                <option value="ALL">Semua Loket</option>
+                                {counterOptions.map((cname) => (
+                                  <option key={cname} value={cname}>
+                                    {cname}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          <div className="py-8 text-center text-xs text-slate-600 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            {shiftFilter === "FLAGGED"
+                              ? "Tidak ada shift dengan selisih kas atau estafet bermasalah pada periode ini."
+                              : "Belum ada catatan tutup shift pada periode ini."}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        {counterOptions.length > 1 && (
+                          <div className="flex justify-end">
+                            <select
+                              aria-label="Filter loket audit shift"
+                              value={counterFilter}
+                              onChange={(e) => setCounterFilter(e.target.value)}
+                              className="min-h-[38px] rounded-xl border border-[#202531]/20 bg-white px-3 text-xs font-bold text-[#202531]"
+                            >
+                              <option value="ALL">Semua Loket</option>
+                              {counterOptions.map((cname) => (
+                                <option key={cname} value={cname}>
+                                  {cname}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase text-slate-600">
+                                <th className="py-2.5 px-3">Loket &amp; Kasir</th>
+                              <th className="py-2.5 px-3">Estafet Modal Sebelumnya</th>
+                              <th className="py-2.5 px-3 text-right">Modal Awal</th>
+                              <th className="py-2.5 px-3 text-right">Tunai Sistem</th>
+                              <th className="py-2.5 px-3 text-right">Operasional</th>
+                              <th className="py-2.5 px-3 text-right">Seharusnya</th>
+                              <th className="py-2.5 px-3 text-right">Fisik Loker</th>
+                              <th className="py-2.5 px-3 text-right">Selisih Kas</th>
+                              <th className="py-2.5 px-3 text-center">Detail</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-200">
+                            {filteredAudits.map((s) => {
+                              const isExpanded = expandedShiftId === s.id;
+                              const isMismatch = s.status === "PERLU_DIPERIKSA";
+                              const isSyncMismatch = s.handoverSyncStatus === "TIDAK_SINKRON";
+
+                              return (
+                                <React.Fragment key={s.id}>
+                                  <tr className={isMismatch ? "bg-[#FFF0F4]/40" : ""}>
+                                    <td className="py-3 px-3">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="inline-flex items-center rounded-md bg-[#202531] px-2 py-0.5 text-[10px] font-extrabold text-white">
+                                          {s.counterName || "Loket 1"}
+                                        </span>
+                                        <p className="font-extrabold text-[#202531]">
+                                          {s.cashier.name}
+                                        </p>
+                                      </div>
+                                      <p className="text-[11px] text-[#525866] tabular-nums mt-0.5">
+                                        {formatDateTimeJakarta(s.openedAt)} s/d{" "}
+                                        {formatDateTimeJakarta(s.closedAt)}
+                                      </p>
+                                    </td>
+                                    <td className="py-3 px-3">
+                                      {s.handoverSyncStatus === "SINKRON" ? (
+                                        <span className="inline-flex items-center rounded-full bg-[#E6FBFB] border border-[#006B69]/25 px-2.5 py-0.5 text-[11px] font-bold text-[#006B69]">
+                                          Sinkron
+                                        </span>
+                                      ) : isSyncMismatch ? (
+                                        <div>
+                                          <span className="inline-flex items-center rounded-full bg-[#FFF0F4] border border-[#FF2A63]/35 px-2.5 py-0.5 text-[11px] font-bold text-[#D41448]">
+                                            Tidak Sinkron ({formatRupiah(s.handoverDifference)})
+                                          </span>
+                                          {s.previousShiftClosingCash !== null && (
+                                            <p className="text-[10px] text-[#525866] mt-0.5 tabular-nums">
+                                              Shift lalu: {formatRupiah(s.previousShiftClosingCash)}
+                                            </p>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="inline-flex items-center rounded-full bg-[#EBEBEB] px-2.5 py-0.5 text-[11px] font-bold text-[#525866]">
+                                          Shift Pertama
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-3 px-3 text-right font-mono tabular-nums">
+                                      {formatRupiah(s.openingCashTotal)}
+                                    </td>
+                                    <td className="py-3 px-3 text-right font-mono tabular-nums">
+                                      {formatRupiah(s.systemCashTotal)}
+                                      <p className="text-[10px] text-[#525866]">
+                                        {s.systemTxCount} tx
+                                      </p>
+                                    </td>
+                                    <td className="py-3 px-3 text-right font-mono tabular-nums">
+                                      {s.operationalExpenseTotal > 0
+                                        ? formatRupiah(s.operationalExpenseTotal)
+                                        : "-"}
+                                    </td>
+                                    <td className="py-3 px-3 text-right font-mono font-bold text-[#202531] tabular-nums">
+                                      {formatRupiah(s.expectedCashAtClose)}
+                                    </td>
+                                    <td className="py-3 px-3 text-right font-mono font-bold text-[#202531] tabular-nums">
+                                      {formatRupiah(s.actualCashTotal)}
+                                    </td>
+                                    <td className="py-3 px-3 text-right">
+                                      <p
+                                        className={`font-mono font-extrabold tabular-nums ${
+                                          isMismatch
+                                            ? "text-[#D41448]"
+                                            : s.cashDifference === 0
+                                              ? "text-[#006B69]"
+                                              : "text-[#202531]"
+                                        }`}
+                                      >
+                                        {s.cashDifference > 0
+                                          ? `+${formatRupiah(s.cashDifference)}`
+                                          : formatRupiah(s.cashDifference)}
+                                      </p>
+                                      <span
+                                        className={`inline-block mt-0.5 text-[10px] font-bold ${
+                                          isMismatch ? "text-[#D41448]" : "text-[#006B69]"
+                                        }`}
+                                      >
+                                        {s.status === "SESUAI"
+                                          ? "Klop"
+                                          : s.status === "DALAM_TOLERANSI"
+                                            ? "Dalam Toleransi"
+                                            : isMismatch
+                                              ? "Perlu Diperiksa"
+                                              : "Tercatat"}
+                                      </span>
+                                    </td>
+                                    <td className="py-3 px-3 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedShiftId(isExpanded ? null : s.id)
+                                        }
+                                        aria-expanded={isExpanded}
+                                        className="inline-flex items-center gap-1 px-2.5 min-h-[34px] rounded-lg border border-[#202531]/15 bg-white text-[11px] font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer"
+                                      >
+                                        <span>{isExpanded ? "Tutup" : "Rincian"}</span>
+                                        {isExpanded ? (
+                                          <CaretUp size={12} weight="bold" aria-hidden="true" />
+                                        ) : (
+                                          <CaretDown size={12} weight="bold" aria-hidden="true" />
+                                        )}
+                                      </button>
+                                    </td>
+                                  </tr>
+
+                                  {isExpanded && (
+                                    <tr className="bg-[#EBEBEB]/30">
+                                      <td colSpan={9} className="p-4">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                                          <div className="space-y-1.5">
+                                            <p className="font-extrabold text-[#202531]">
+                                              Non-Tunai &amp; Total Sistem
+                                            </p>
+                                            <p className="text-[#525866] tabular-nums">
+                                              QRIS: {formatRupiah(s.systemQrisTotal)} · Transfer:{" "}
+                                              {formatRupiah(s.systemTransferTotal)} · Kartu:{" "}
+                                              {formatRupiah(s.systemCardTotal)}
+                                            </p>
+                                            <p className="font-bold text-[#202531] tabular-nums">
+                                              Omzet Total Sistem: {formatRupiah(s.systemGrandTotal)}
+                                            </p>
+                                            {s.openingNote && (
+                                              <p className="text-[#525866]">
+                                                <strong>Catatan Buka:</strong> {s.openingNote}
+                                              </p>
+                                            )}
+                                            {s.closingNote && (
+                                              <p className="text-[#525866]">
+                                                <strong>Catatan Tutup:</strong> {s.closingNote}
+                                              </p>
+                                            )}
+                                          </div>
+
+                                          <div className="space-y-1.5">
+                                            <p className="font-extrabold text-[#202531]">
+                                              Rincian Uang Operasional
+                                            </p>
+                                            {s.operationalExpenses.length === 0 ? (
+                                              <p className="text-[#525866]">
+                                                Tidak ada pengeluaran operasional tercatat.
+                                              </p>
+                                            ) : (
+                                              <ul className="space-y-1">
+                                                {s.operationalExpenses.map((op, i) => (
+                                                  <li
+                                                    key={i}
+                                                    className="flex justify-between text-[#202531] tabular-nums"
+                                                  >
+                                                    <span>{op.description}</span>
+                                                    <span className="font-bold">
+                                                      {formatRupiah(op.amount)}
+                                                    </span>
+                                                  </li>
+                                                ))}
+                                              </ul>
+                                            )}
+                                          </div>
+
+                                          <div className="space-y-1.5">
+                                            <p className="font-extrabold text-[#202531]">
+                                              Pecahan Uang Fisik Tutup Shift
+                                            </p>
+                                            {s.closingDenominations ? (
+                                              <div className="grid grid-cols-2 gap-x-3 gap-y-1 tabular-nums text-[11px]">
+                                                {RUPIAH_DENOMINATIONS.filter(
+                                                  (d) => (s.closingDenominations?.[String(d)] ?? 0) > 0
+                                                ).map((d) => {
+                                                  const qty = s.closingDenominations?.[String(d)] ?? 0;
+                                                  return (
+                                                    <div key={d} className="flex justify-between">
+                                                      <span className="text-[#525866]">
+                                                        {formatRupiah(d)}
+                                                      </span>
+                                                      <span className="font-bold text-[#202531]">
+                                                        x{qty}
+                                                      </span>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            ) : (
+                                              <p className="text-[#525866]">
+                                                Pecahan tidak dirinci (pencatatan lama).
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </section>
               </>
             ) : null}
           </div>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, withDbRetry } from "@/lib/prisma";
 import { getCurrentSessionUser, requireAssignedUser } from "@/lib/auth";
 import {
   formatRoleLabel,
@@ -8,36 +8,23 @@ import {
   validateUsername,
 } from "@/lib/rbac";
 import { createNotification, recordAuditLog } from "@/lib/audit";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_ATTEMPTS = 40;
 
-const inviteRateWindow = new Map<string, number[]>();
-
 function isRateLimited(actorId: string): boolean {
-  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") return false;
-  const now = Date.now();
-  const timestamps = (inviteRateWindow.get(actorId) || []).filter(
-    (ts) => now - ts < RATE_LIMIT_WINDOW_MS
-  );
-  if (timestamps.length >= RATE_LIMIT_MAX_ATTEMPTS) {
-    inviteRateWindow.set(actorId, timestamps);
-    return true;
-  }
-  timestamps.push(now);
-  inviteRateWindow.set(actorId, timestamps);
-  return false;
+  return checkRateLimit(`invite:${actorId}`, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_MS)
+    .limited;
 }
 
 const createInvitationSchema = z.object({
   inviteType: z.enum(["CODE", "USERNAME"]).optional(),
   username: z.string().trim().optional().or(z.literal("")),
   assignedRole: z.enum(["MANAJER", "KASIR", "GUDANG", "KASIR_GUDANG"], {
-    errorMap: () => ({
-      message: "Role undangan harus Kasir, Gudang, Kasir + Gudang, atau Manajer.",
-    }),
+    error: "Role undangan harus Kasir, Gudang, Kasir + Gudang, atau Manajer.",
   }),
   expiresInDays: z.number().int().min(1).max(30).optional(),
 });
@@ -50,46 +37,65 @@ export async function GET() {
     }
 
     const now = new Date();
-    await prisma.storeInvitation.updateMany({
-      where: {
-        status: "PENDING",
-        expiresAt: { lte: now },
-      },
-      data: { status: "EXPIRED" },
-    });
 
     // Pemilik / Manajer aktif melihat seluruh undangan ruangan mereka sendiri
     if (user.isAssigned && user.roomId && isStoreAdmin(user.role)) {
-      const invitations = await prisma.storeInvitation.findMany({
-        where: { roomId: user.roomId },
-        include: {
-          targetUser: {
-            select: { id: true, name: true, username: true, role: true, isAssigned: true },
+      await withDbRetry(() =>
+        prisma.storeInvitation.updateMany({
+          where: {
+            roomId: user.roomId,
+            status: "PENDING",
+            expiresAt: { lte: now },
           },
-          invitedBy: {
-            select: { id: true, name: true, username: true, role: true },
+          data: { status: "EXPIRED" },
+        })
+      );
+
+      const invitations = await withDbRetry(() =>
+        prisma.storeInvitation.findMany({
+          where: { roomId: user.roomId },
+          include: {
+            targetUser: {
+              select: { id: true, name: true, username: true, role: true, isAssigned: true },
+            },
+            invitedBy: {
+              select: { id: true, name: true, username: true, role: true },
+            },
           },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-      });
+          orderBy: { createdAt: "desc" },
+          take: 100,
+        })
+      );
 
       return NextResponse.json({ mode: "OUTGOING", invitations });
     }
 
     // Pengguna belum tergabung melihat kotak masuk undangan miliknya
     if (!user.isAssigned || !user.roomId) {
-      const invitations = await prisma.storeInvitation.findMany({
-        where: { targetUserId: user.id },
-        include: {
-          invitedBy: {
-            select: { id: true, name: true, username: true, role: true },
+      await withDbRetry(() =>
+        prisma.storeInvitation.updateMany({
+          where: {
+            targetUserId: user.id,
+            status: "PENDING",
+            expiresAt: { lte: now },
           },
-          room: { select: { id: true, name: true } },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      });
+          data: { status: "EXPIRED" },
+        })
+      );
+
+      const invitations = await withDbRetry(() =>
+        prisma.storeInvitation.findMany({
+          where: { targetUserId: user.id },
+          include: {
+            invitedBy: {
+              select: { id: true, name: true, username: true, role: true },
+            },
+            room: { select: { id: true, name: true } },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        })
+      );
 
       return NextResponse.json({ mode: "INCOMING", invitations });
     }

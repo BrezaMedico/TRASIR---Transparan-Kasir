@@ -194,7 +194,14 @@ export function sanitizeInternalRedirect(
 ): string {
   if (!redirectParam) return fallback;
   const trimmed = redirectParam.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return fallback;
+  if (
+    !trimmed.startsWith("/") ||
+    trimmed.startsWith("//") ||
+    trimmed.startsWith("/\\") ||
+    /[\r\n\t\\]/.test(trimmed)
+  ) {
+    return fallback;
+  }
   return trimmed;
 }
 
