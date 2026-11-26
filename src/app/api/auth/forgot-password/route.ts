@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: GENERIC_SENT_MESSAGE });
     }
 
-    let user = await prisma.user.findFirst({
+    const user = await prisma.user.findFirst({
       where: {
         email: normalizedEmail,
         isActive: true,
@@ -86,22 +86,6 @@ export async function POST(request: Request) {
         tokenVersion: true,
       },
     });
-
-    if (!user) {
-      const activeUsers = await prisma.user.findMany({
-        where: { isActive: true },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          roomId: true,
-          passwordHash: true,
-          tokenVersion: true,
-        },
-      });
-      user = activeUsers.find((u) => u.email.trim().toLowerCase() === normalizedEmail) ?? null;
-    }
 
     if (!user) {
       if (process.env.NODE_ENV === "development" && process.env.VITEST !== "true") {

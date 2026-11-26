@@ -11,7 +11,6 @@ import { createNotification, recordAuditLog } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_ATTEMPTS = 40;
 
@@ -155,7 +154,7 @@ export async function POST(request: Request) {
     const mode = parsed.data.inviteType || (hasUsername ? "USERNAME" : "CODE");
     const ttlMs = (parsed.data.expiresInDays ?? 7) * 24 * 60 * 60 * 1000;
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + (ttlMs || INVITE_TTL_MS));
+    const expiresAt = new Date(now.getTime() + ttlMs);
 
     const room = await prisma.room.findUnique({ where: { id: user.roomId } });
     const roomName = room?.name ?? "TRASIR Ruangan Kerja";

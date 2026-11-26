@@ -316,6 +316,7 @@ export function ProductBatchReviewDrawer({
         <div className="space-y-2">
           {batch.items.map((item) => {
             const env = parseProductRequestEnvelope(item.variantsJson);
+            const isUpdate = env.requestKind === "UPDATE";
             const initStock = item.stockMethod !== "RESEP" ? env.initialStock ?? 0 : 0;
             const isPending = item.status === "MENUNGGU_PERSETUJUAN";
             const checked = selectedIds.includes(item.id);
@@ -332,12 +333,13 @@ export function ProductBatchReviewDrawer({
               ? "Menu Resep"
               : "Barang Jadi";
             const isExpanded = Boolean(expandedIds[item.id]);
-            const compactQtyLabel =
-              item.stockMethod === "RESEP"
-                ? "Menu Resep"
-                : isPackaged
-                ? `${formatNumber(packCount)} ${item.purchaseUnit || "kemasan"}`
-                : `${formatNumber(initStock)} ${unitLabel}`;
+            const compactQtyLabel = isUpdate
+              ? "Usulan Ubah"
+              : item.stockMethod === "RESEP"
+              ? "Menu Resep"
+              : isPackaged
+              ? `${formatNumber(packCount)} ${item.purchaseUnit || "kemasan"}`
+              : `${formatNumber(initStock)} ${unitLabel}`;
 
             return (
               <div
@@ -398,8 +400,27 @@ export function ProductBatchReviewDrawer({
                       <span className="px-2 py-0.5 rounded bg-[#EBEBEB] text-[#202531] text-[11px] font-bold">
                         {kindLabel}
                       </span>
+                      {isUpdate && (
+                        <span className="px-2 py-0.5 rounded bg-[#E0F7F6] text-[#005B59] text-[11px] font-bold">
+                          Usulan Ubah
+                        </span>
+                      )}
                       <StatusBadge status={item.status} />
                     </div>
+
+                    {isUpdate && env.previousSnapshot && (
+                      <p className="text-[11px] text-[#202531] bg-white border border-[#202531]/10 rounded-lg px-2.5 py-1.5 font-medium">
+                        Perubahan:{" "}
+                        {!item.isRawMaterial &&
+                          `Harga jual ${formatRupiah(env.previousSnapshot.sellPrice)} -> ${formatRupiah(item.sellPrice)}`}
+                        {env.previousSnapshot.costPrice !== item.costPrice &&
+                          `${!item.isRawMaterial ? " • " : ""}Harga modal ${formatRupiah(env.previousSnapshot.costPrice)} -> ${formatRupiah(item.costPrice)}`}
+                        {item.stockMethod !== "RESEP" &&
+                          typeof env.initialStock === "number" &&
+                          env.previousSnapshot.currentStock !== env.initialStock &&
+                          `${!item.isRawMaterial || env.previousSnapshot.costPrice !== item.costPrice ? " • " : ""}Stok ${formatNumber(env.previousSnapshot.currentStock)} -> ${formatNumber(env.initialStock)} ${unitLabel}`}
+                      </p>
+                    )}
 
                     {item.stockMethod === "RESEP" ? (
                       <div className="space-y-1">

@@ -98,9 +98,12 @@ export function KasirClient({
   const { showToast } = useToast();
 
   const resolvedInitial = initialCatalog ?? getCachedData<InitialCatalogData>("/api/products") ?? null;
-  if (initialCatalog) {
-    setCachedData("/api/products", initialCatalog);
-  }
+
+  useEffect(() => {
+    if (initialCatalog) {
+      setCachedData("/api/products", initialCatalog);
+    }
+  }, [initialCatalog]);
 
   const initialSellable = (resolvedInitial?.products || []).filter((p) => !p.isRawMaterial);
   const initialVariantMap: Record<string, string> = {};

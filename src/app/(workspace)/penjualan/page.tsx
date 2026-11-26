@@ -6,6 +6,8 @@ import { fetchJsonCached, getCachedData, invalidateCache } from "@/lib/client-ca
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SlideDrawer } from "@/components/ui/SlideDrawer";
 import { formatDateTimeJakarta, formatRupiah } from "@/lib/format";
+import { getJakartaDateKey } from "@/lib/date-jakarta";
+import { compressReceiptFileToDataUrl, dataUrlToBlobUrl } from "@/lib/receipt-client";
 import { formatRoleLabel, isStoreAdmin } from "@/lib/rbac-shared";
 import {
   Receipt,
@@ -167,24 +169,41 @@ export default function PenjualanPage() {
     setCurrentPage(1);
   }, [searchQuery, statusFilter, dateFilter, cashierFilter]);
 
-  const handleProofUpload = (file: File | null) => {
+  const handleProofUpload = async (file: File | null) => {
     if (!file) return;
     if (!ALLOWED_MIME.includes(file.type)) {
       showToast("Format bukti hanya mendukung JPG, PNG, WEBP, atau PDF.", "error");
       return;
     }
-    if (file.size > MAX_PROOF_BYTES) {
-      showToast("Ukuran file bukti maksimal 2 MB.", "error");
+    if (file.type === "application/pdf") {
+      if (file.size > MAX_PROOF_BYTES) {
+        showToast("Ukuran file bukti maksimal 2 MB.", "error");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setAmendmentProof(reader.result);
+          setAmendmentProofName(file.name);
+        }
+      };
+      reader.onerror = () => {
+        showToast("Gagal membaca berkas PDF.", "error");
+      };
+      reader.readAsDataURL(file);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setAmendmentProof(reader.result);
-        setAmendmentProofName(file.name);
+    try {
+      const result = await compressReceiptFileToDataUrl(file);
+      if (result.error || !result.dataUrl) {
+        showToast(result.error || "Gagal memproses foto bukti.", "error");
+        return;
       }
-    };
-    reader.readAsDataURL(file);
+      setAmendmentProof(result.dataUrl);
+      setAmendmentProofName(file.name);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Gagal memproses foto bukti.", "error");
+    }
   };
 
   const handleRequestAmendment = async (e: React.FormEvent) => {
@@ -276,7 +295,7 @@ export default function PenjualanPage() {
   const filteredSales = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return sales.filter((s) => {
-      if (dateFilter && !s.createdAt.startsWith(dateFilter)) return false;
+      if (dateFilter && getJakartaDateKey(s.createdAt) !== dateFilter) return false;
       if (statusFilter !== "ALL" && s.status !== statusFilter) return false;
       if (!q) return true;
       return (
@@ -669,11 +688,15 @@ export default function PenjualanPage() {
                                   {/^data:image\/(jpeg|png|webp);base64,/i.test(
                                     item.proofImageData
                                   ) ? (
-                                    <a
-                                      href={item.proofImageData}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-block"
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const blobUrl = dataUrlToBlobUrl(item.proofImageData || "");
+                                        if (!blobUrl) return;
+                                        window.open(blobUrl, "_blank", "noopener,noreferrer");
+                                        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+                                      }}
+                                      className="inline-block text-left"
                                     >
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img
@@ -681,15 +704,20 @@ export default function PenjualanPage() {
                                         alt="Bukti pendukung pembatalan"
                                         className="h-20 w-auto rounded-lg border border-slate-300 object-cover"
                                       />
-                                    </a>
+                                    </button>
                                   ) : /^data:application\/pdf;base64,/i.test(item.proofImageData) ? (
-                                    <a
-                                      href={item.proofImageData}
-                                      download={`bukti-${item.sale.receiptNumber}.pdf`}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const blobUrl = dataUrlToBlobUrl(item.proofImageData || "");
+                                        if (!blobUrl) return;
+                                        window.open(blobUrl, "_blank", "noopener,noreferrer");
+                                        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+                                      }}
                                       className="inline-flex items-center gap-1 text-xs font-bold text-[#202531] hover:underline"
                                     >
                                       Unduh Lampiran Bukti (PDF)
-                                    </a>
+                                    </button>
                                   ) : null}
                                 </div>
                               )}

@@ -301,8 +301,10 @@ export async function POST(request: Request) {
       const openingNote = parsed.data.openingNote?.trim() || null;
       const openedAt = new Date();
       const defaultCounterId = roomCounters[0]?.id || DEFAULT_COUNTER_ID;
+      const isPostgres = (process.env.DATABASE_URL || "").startsWith("postgres");
 
-      const openResult = await prisma.$transaction(async (tx) => {
+      const openResult = await prisma.$transaction(
+        async (tx) => {
         const activeShifts = await tx.shiftClosing.findMany({
           where: { roomId: user.roomId, status: "AKTIF" },
           include: { cashier: { select: { id: true, name: true, role: true } } },
@@ -330,18 +332,41 @@ export async function POST(request: Request) {
           );
         }
 
-        const recentClosed = await tx.shiftClosing.findMany({
-          where: { roomId: user.roomId, status: { not: "AKTIF" } },
+        const taggedCandidates = await tx.shiftClosing.findMany({
+          where: {
+            roomId: user.roomId,
+            status: { not: "AKTIF" },
+            notes: { contains: `"counterId":"${targetCounter.id}"` },
+          },
           orderBy: { createdAt: "desc" },
-          take: 60,
+          take: 10,
           select: { id: true, actualCashTotal: true, notes: true },
         });
 
-        const previousCounterClosed = recentClosed.find((row) => {
+        let previousCounterClosed = taggedCandidates.find((row) => {
           const env = parseShiftEnvelope(row.notes);
-          const cid = env?.counterId || defaultCounterId;
-          return cid === targetCounter.id;
+          return env?.counterId === targetCounter.id;
         });
+
+        if (!previousCounterClosed && targetCounter.id === defaultCounterId) {
+          let cursorId: string | undefined;
+          for (let page = 0; page < 10 && !previousCounterClosed; page += 1) {
+            const batch = await tx.shiftClosing.findMany({
+              where: { roomId: user.roomId, status: { not: "AKTIF" } },
+              orderBy: { createdAt: "desc" },
+              take: 100,
+              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+              select: { id: true, actualCashTotal: true, notes: true },
+            });
+            if (batch.length === 0) break;
+            previousCounterClosed = batch.find((row) => {
+              const env = parseShiftEnvelope(row.notes);
+              return (env?.counterId || defaultCounterId) === defaultCounterId;
+            });
+            cursorId = batch[batch.length - 1]?.id;
+            if (batch.length < 100) break;
+          }
+        }
 
         const handover = evaluateHandoverSync(
           openingCashTotal,
@@ -451,7 +476,11 @@ export async function POST(request: Request) {
         }
 
         return { shift, handover };
-      });
+      },
+        isPostgres
+          ? { isolationLevel: "Serializable", maxWait: 20000, timeout: 30000 }
+          : undefined
+      );
 
       return NextResponse.json(
         {
@@ -748,6 +777,17 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ closing }, { status: 201 });
   } catch (err) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "P2034"
+    ) {
+      return NextResponse.json(
+        { error: "Loket baru saja dikunci oleh transaksi kasir lain. Silakan muat ulang status loket." },
+        { status: 409 }
+      );
+    }
     const message = err instanceof Error ? err.message : "Gagal menyimpan data shift kasir.";
     if (message.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: message.slice(10) }, { status: 404 });

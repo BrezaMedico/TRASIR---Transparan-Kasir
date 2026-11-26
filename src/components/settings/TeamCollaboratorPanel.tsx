@@ -288,24 +288,7 @@ export function TeamCollaboratorPanel({
   const actorIsPemilik = session.user.role === "PEMILIK";
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-extrabold text-[#202531]">
-            Tim &amp; Kolaborator Ruangan
-          </h2>
-          <p className="text-xs text-[#525866] mt-0.5 leading-relaxed">
-            Undang kasir, petugas gudang, atau manajer menggunakan kode undangan dan kelola hak akses anggota aktif.
-          </p>
-        </div>
-        <div className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-3.5 py-2 text-xs font-bold text-[#202531] shrink-0">
-          <ShieldCheck size={16} weight="duotone" aria-hidden="true" />
-          <span>
-            Pemilik: {activeOwnerCount} · Pengelola: {activeAdminCount}
-          </span>
-        </div>
-      </div>
-
+    <div className="space-y-5">
       {loadError && (
         <div
           role="alert"
@@ -323,19 +306,26 @@ export function TeamCollaboratorPanel({
       )}
 
       {/* Form Buat Undangan */}
-      <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <UserPlus size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
-            <h3 className="text-base font-extrabold text-slate-900">
-              Undang Pegawai ke Ruangan
-            </h3>
+      <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#202531]/10">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+              <UserPlus size={18} weight="duotone" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-sm font-extrabold text-[#202531]">
+                Undang Pegawai ke Ruangan
+              </h2>
+              <p className="text-xs text-[#525866] mt-0.5">
+                Buat kode undangan atau kirim undangan langsung ke akun pegawai.
+              </p>
+            </div>
           </div>
 
           <div
             role="tablist"
             aria-label="Metode undangan"
-            className="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200"
+            className="inline-flex p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 shrink-0"
           >
             <button
               type="button"
@@ -345,7 +335,7 @@ export function TeamCollaboratorPanel({
               className={`px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-bold cursor-pointer ${
                 inviteMode === "CODE"
                   ? "bg-[#202531] text-white"
-                  : "text-slate-700 hover:text-slate-900"
+                  : "text-[#525866] hover:text-[#202531]"
               }`}
             >
               Kode &amp; Tautan Undangan
@@ -358,7 +348,7 @@ export function TeamCollaboratorPanel({
               className={`px-3 py-1.5 min-h-[36px] rounded-lg text-xs font-bold cursor-pointer ${
                 inviteMode === "USERNAME"
                   ? "bg-[#202531] text-white"
-                  : "text-slate-700 hover:text-slate-900"
+                  : "text-[#525866] hover:text-[#202531]"
               }`}
             >
               Akun Username Terdaftar
@@ -512,20 +502,35 @@ export function TeamCollaboratorPanel({
       )}
 
       {/* Daftar Anggota Tim Aktif */}
-      <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <UsersThree size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
-            <h3 className="text-base font-extrabold text-slate-900">
-              Anggota Ruangan Aktif ({members.length})
-            </h3>
+      <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#202531]/10">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+              <UsersThree size={18} weight="duotone" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-sm font-extrabold text-[#202531]">
+                Anggota Ruangan Aktif ({members.length})
+              </h2>
+              {!actorIsPemilik ? (
+                <p className="text-xs text-[#525866] mt-0.5 inline-flex items-center gap-1.5">
+                  <LockKey size={13} weight="bold" aria-hidden="true" />
+                  <span>Akun Pemilik terlindungi dan tidak dapat diubah oleh Manajer.</span>
+                </p>
+              ) : (
+                <p className="text-xs text-[#525866] mt-0.5">
+                  Kelola jabatan serta akses anggota tim di ruangan ini.
+                </p>
+              )}
+            </div>
           </div>
-          {!actorIsPemilik && (
-            <p className="text-xs text-slate-600 inline-flex items-center gap-1.5">
-              <LockKey size={14} weight="bold" className="text-[#202531]" aria-hidden="true" />
-              <span>Akun Pemilik terlindungi dan tidak dapat diubah oleh Manajer.</span>
-            </p>
-          )}
+
+          <div className="inline-flex items-center gap-2 rounded-xl bg-[#EBEBEB]/60 border border-[#202531]/12 px-3.5 py-2 text-xs font-bold text-[#202531] shrink-0">
+            <ShieldCheck size={15} weight="duotone" aria-hidden="true" />
+            <span>
+              Pemilik: {activeOwnerCount} · Pengelola: {activeAdminCount}
+            </span>
+          </div>
         </div>
 
         {loading ? (
@@ -634,12 +639,19 @@ export function TeamCollaboratorPanel({
       </section>
 
       {/* Tabel Status Undangan Keluar */}
-      <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm space-y-4">
-        <div className="flex items-center gap-2">
-          <EnvelopeSimple size={20} weight="duotone" className="text-[#202531]" aria-hidden="true" />
-          <h3 className="text-base font-extrabold text-slate-900">
-            Riwayat &amp; Status Undangan Ruangan ({invitations.length})
-          </h3>
+      <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm space-y-5">
+        <div className="flex items-center gap-3 pb-4 border-b border-[#202531]/10">
+          <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+            <EnvelopeSimple size={18} weight="duotone" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="text-sm font-extrabold text-[#202531]">
+              Riwayat &amp; Status Undangan Ruangan ({invitations.length})
+            </h2>
+            <p className="text-xs text-[#525866] mt-0.5">
+              Pantau tautan undangan aktif dan batalkan undangan yang belum diterima.
+            </p>
+          </div>
         </div>
 
         {invitations.length === 0 ? (

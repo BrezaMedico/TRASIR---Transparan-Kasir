@@ -50,9 +50,12 @@ export function ProdukClient({
 
   const resolvedInitial =
     initialCatalog ?? getCachedData<InitialProdukCatalog>("/api/products") ?? null;
-  if (initialCatalog) {
-    setCachedData("/api/products", initialCatalog);
-  }
+
+  useEffect(() => {
+    if (initialCatalog) {
+      setCachedData("/api/products", initialCatalog);
+    }
+  }, [initialCatalog]);
 
   const [pageTab, setPageTab] = useState<"catalog" | "materials" | "requests">("catalog");
   const [products, setProducts] = useState<ProductItem[]>(resolvedInitial?.products || []);
@@ -167,7 +170,7 @@ export function ProdukClient({
   const queuedMaterialsAsProducts: ProductItem[] = useMemo(
     () =>
       proposalCart
-        .filter((item) => item.isRawMaterial)
+        .filter((item) => item.isRawMaterial && item.requestKind !== "UPDATE")
         .map((item) => ({
           id: item.clientTempId,
           sku: item.sku,
@@ -195,6 +198,30 @@ export function ProdukClient({
 
   const handleAddToCart = useCallback(
     (item: ProposalCartItem) => {
+      if (item.requestKind === "UPDATE" && item.targetProductId) {
+        const alreadyQueued = proposalCart.some(
+          (existing) => existing.targetProductId === item.targetProductId
+        );
+        if (alreadyQueued) {
+          setProposalCart((prev) =>
+            prev.map((existing) =>
+              existing.targetProductId === item.targetProductId ? item : existing
+            )
+          );
+          showToast(
+            `Usulan perubahan "${item.name}" diperbarui di Daftar Pengajuan.`,
+            "success"
+          );
+          return;
+        }
+        setProposalCart((prev) => [...prev, item]);
+        showToast(
+          `Perubahan "${item.name}" masuk ke Daftar Pengajuan (${proposalCart.length + 1} item).`,
+          "success"
+        );
+        return;
+      }
+
       const normalizedNewName = item.name.trim().toLowerCase();
       const normalizedNewSku = item.sku.trim().toUpperCase();
       const dupInCart = proposalCart.find(
@@ -340,6 +367,15 @@ export function ProdukClient({
       const data = await res.json();
       if (!res.ok) {
         showToast(data.error || "Gagal menambah stok bahan baku.", "error");
+        return;
+      }
+      if (data.mode === "REQUEST") {
+        showToast(
+          data.message || `Penambahan stok "${mat.name}" diajukan ke Pemilik atau Manajer.`,
+          "info"
+        );
+        invalidateCache("/api/dashboard");
+        await loadRequests();
         return;
       }
       showToast(
@@ -585,24 +621,28 @@ export function ProdukClient({
                   </p>
                 </div>
 
-                {canCreate ? (
+                {canCreate || canEdit ? (
                   <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={openAddMaterial}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity duration-150 cursor-pointer"
-                    >
-                      <CookingPot size={17} weight="bold" aria-hidden="true" />
-                      <span>Tambah Bahan Baku</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openAddProduct}
-                      className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2a3140] transition-colors duration-150 cursor-pointer"
-                    >
-                      <Plus size={17} weight="bold" aria-hidden="true" />
-                      <span>{isAdmin ? "Tambah Menu / Produk" : "Ajukan Menu / Produk"}</span>
-                    </button>
+                    {canCreate && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={openAddMaterial}
+                          className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-90 transition-opacity duration-150 cursor-pointer"
+                        >
+                          <CookingPot size={17} weight="bold" aria-hidden="true" />
+                          <span>Tambah Bahan Baku</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={openAddProduct}
+                          className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold hover:bg-[#2a3140] transition-colors duration-150 cursor-pointer"
+                        >
+                          <Plus size={17} weight="bold" aria-hidden="true" />
+                          <span>{isAdmin ? "Tambah Menu / Produk" : "Ajukan Menu / Produk"}</span>
+                        </button>
+                      </>
+                    )}
                     {!isAdmin && (
                       <button
                         type="button"
@@ -897,7 +937,10 @@ export function ProdukClient({
                                   onClick={() => openEditProduct(prod)}
                                   className="px-3.5 min-h-[44px] rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-[#202531] cursor-pointer"
                                 >
-                                  Ubah
+                                  {!isAdmin &&
+                                  proposalCart.some((c) => c.targetProductId === prod.id)
+                                    ? "Edit Antrean"
+                                    : "Ubah"}
                                 </button>
                                 <button
                                   type="button"
@@ -1028,7 +1071,10 @@ export function ProdukClient({
                                     onClick={() => openEditMaterial(mat)}
                                     className="px-3.5 min-h-[44px] rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-[#202531] cursor-pointer"
                                   >
-                                    Ubah
+                                    {!isAdmin &&
+                                    proposalCart.some((c) => c.targetProductId === mat.id)
+                                      ? "Edit Antrean"
+                                      : "Ubah"}
                                   </button>
                                   <button
                                     type="button"
@@ -1169,8 +1215,11 @@ export function ProdukClient({
                                     key={item.id}
                                     className="px-2.5 py-1 rounded-lg bg-white border border-[#202531]/10 text-[11px] font-semibold text-[#202531]"
                                   >
+                                    {env.requestKind === "UPDATE" ? "[Ubah] " : ""}
                                     {item.name}
-                                    {initStock > 0
+                                    {env.requestKind === "UPDATE"
+                                      ? ""
+                                      : initStock > 0
                                       ? ` (${displayQty})`
                                       : item.stockMethod === "RESEP"
                                       ? " (Resep)"
@@ -1345,7 +1394,7 @@ export function ProdukClient({
             />
 
             {/* DRAWER DAFTAR PENGAJUAN GUDANG / KASIR+GUDANG */}
-            {!isAdmin && canCreate && (
+            {!isAdmin && (canCreate || canEdit) && (
               <ProposalCartDrawer
                 isOpen={cartDrawerOpen}
                 onClose={() => setCartDrawerOpen(false)}
@@ -1367,7 +1416,7 @@ export function ProdukClient({
             {/* STICKY DAFTAR PENGAJUAN BAR */}
             {portalMounted &&
               !isAdmin &&
-              canCreate &&
+              (canCreate || canEdit) &&
               proposalCart.length > 0 &&
               createPortal(
                 <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-6 z-40 !m-0 flex justify-end pointer-events-none">

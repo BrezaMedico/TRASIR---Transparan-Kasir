@@ -26,7 +26,7 @@ function fromJakartaWallClock(
   );
 }
 
-export function getJakartaDateKey(dateInput: Date | string): string {
+export function getJakartaDateKey(dateInput: Date | string = new Date()): string {
   const d = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
   const wib = toJakartaWallClock(d);
   const y = wib.getUTCFullYear();

@@ -2,6 +2,31 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
+import { z } from "zod";
+
+const markIdsSchema = z.object({
+  action: z.literal("MARK_IDS_READ"),
+  notificationIds: z.array(z.string().min(1)).min(1).max(200),
+});
+
+function buildNotificationVisibilityWhere(user: {
+  id: string;
+  roomId: string;
+  role: string;
+}) {
+  return {
+    roomId: user.roomId,
+    OR: isStoreAdmin(user.role)
+      ? [
+          { userId: user.id },
+          {
+            userId: null,
+            OR: [{ targetRole: null }, { targetRole: "PEMILIK" }, { targetRole: "MANAJER" }],
+          },
+        ]
+      : [{ userId: user.id }, { userId: null, targetRole: user.role }],
+  };
+}
 
 export async function GET(request: Request) {
   try {
@@ -33,21 +58,7 @@ export async function GET(request: Request) {
       auditWhere.actionType = actionType;
     }
 
-    const notifWhere = isRestrictedStaff
-      ? {
-          roomId: user.roomId,
-          OR: [{ userId: user.id }, { userId: null, targetRole: user.role }],
-        }
-      : {
-          roomId: user.roomId,
-          OR: [
-            { userId: user.id },
-            {
-              userId: null,
-              OR: [{ targetRole: null }, { targetRole: "PEMILIK" }, { targetRole: "MANAJER" }],
-            },
-          ],
-        };
+    const notifWhere = buildNotificationVisibilityWhere(user);
 
     const [auditLogs, notifications, users] = await Promise.all([
       prisma.auditLog.findMany({
@@ -92,16 +103,22 @@ export async function POST(request: Request) {
       await prisma.notification.updateMany({
         where: {
           id: String(body.notificationId),
-          roomId: user.roomId,
-          OR: isStoreAdmin(user.role)
-            ? [
-                { userId: user.id },
-                {
-                  userId: null,
-                  OR: [{ targetRole: null }, { targetRole: "PEMILIK" }, { targetRole: "MANAJER" }],
-                },
-              ]
-            : [{ userId: user.id }, { userId: null, targetRole: user.role }],
+          ...buildNotificationVisibilityWhere(user),
+        },
+        data: { isRead: true },
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    if (body.action === "MARK_IDS_READ") {
+      const parsedIds = markIdsSchema.safeParse(body);
+      if (!parsedIds.success) {
+        return NextResponse.json({ error: "Daftar ID notifikasi tidak valid." }, { status: 400 });
+      }
+      await prisma.notification.updateMany({
+        where: {
+          id: { in: parsedIds.data.notificationIds },
+          ...buildNotificationVisibilityWhere(user),
         },
         data: { isRead: true },
       });
@@ -110,12 +127,7 @@ export async function POST(request: Request) {
 
     if (body.action === "MARK_ALL_READ") {
       await prisma.notification.updateMany({
-        where: {
-          roomId: user.roomId,
-          OR: isStoreAdmin(user.role)
-            ? [{ userId: user.id }, { userId: null }]
-            : [{ userId: user.id }, { targetRole: user.role }],
-        },
+        where: buildNotificationVisibilityWhere(user),
         data: { isRead: true },
       });
       return NextResponse.json({ success: true });

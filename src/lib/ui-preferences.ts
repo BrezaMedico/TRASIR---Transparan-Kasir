@@ -157,11 +157,7 @@ export function saveAndApplyUiPreferences(next: UiPreferences): void {
   applyUiPreferencesToDom(next);
   if (typeof window === "undefined") return;
   try {
-    if (next.theme === "system") {
-      window.localStorage.removeItem(THEME_STORAGE_KEY);
-    } else {
-      window.localStorage.setItem(THEME_STORAGE_KEY, next.theme);
-    }
+    window.localStorage.setItem(THEME_STORAGE_KEY, next.theme);
     window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, next.fontSize);
     window.localStorage.setItem(FONT_FAMILY_STORAGE_KEY, next.fontFamily);
   } catch {

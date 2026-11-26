@@ -44,16 +44,22 @@ export function BarcodeScannerModal({
           };
           if (WinWithBarcode.BarcodeDetector && videoRef.current) {
             const detector = new WinWithBarcode.BarcodeDetector();
+            let detecting = false;
+            let detected = false;
             intervalId = setInterval(async () => {
-              if (!videoRef.current) return;
+              if (!videoRef.current || detecting || detected) return;
+              detecting = true;
               try {
                 const barcodes = await detector.detect(videoRef.current);
-                if (barcodes.length > 0 && barcodes[0].rawValue) {
+                if (!detected && barcodes.length > 0 && barcodes[0].rawValue) {
+                  detected = true;
                   onDetected(barcodes[0].rawValue);
                   onClose();
                 }
               } catch {
                 // ignore frame errors
+              } finally {
+                detecting = false;
               }
             }, 500);
           }

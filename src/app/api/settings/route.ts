@@ -406,24 +406,48 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-      const unit = await prisma.unit.create({
-        data: {
-          name: parsedUnit.data.name.toLowerCase(),
-          label: parsedUnit.data.label || parsedUnit.data.name,
-          group: parsedUnit.data.group || "HITUNGAN",
-        },
-      });
-      return NextResponse.json({ unit });
+      try {
+        const unit = await prisma.unit.create({
+          data: {
+            name: parsedUnit.data.name.toLowerCase(),
+            label: parsedUnit.data.label || parsedUnit.data.name,
+            group: parsedUnit.data.group || "HITUNGAN",
+          },
+        });
+        return NextResponse.json({ unit });
+      } catch (err) {
+        if (
+          err &&
+          typeof err === "object" &&
+          "code" in err &&
+          (err as { code?: unknown }).code === "P2002"
+        ) {
+          return NextResponse.json({ error: "Satuan tersebut sudah terdaftar." }, { status: 409 });
+        }
+        throw err;
+      }
     }
 
     if (body.action === "CREATE_CATEGORY") {
       if (!isOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const categorySchema = z.object({
+        name: z.string().trim().min(1, "Nama kategori wajib diisi").max(80),
+        areaType: z.enum(["TERBUKA", "TERTUTUP"]).optional(),
+        description: z.string().trim().max(250).optional().nullable(),
+      });
+      const parsedCategory = categorySchema.safeParse(body);
+      if (!parsedCategory.success) {
+        return NextResponse.json(
+          { error: parsedCategory.error.issues[0]?.message || "Data kategori tidak valid." },
+          { status: 400 }
+        );
+      }
       const category = await prisma.category.create({
         data: {
           roomId: user.roomId,
-          name: String(body.name).trim(),
-          areaType: body.areaType === "TERTUTUP" ? "TERTUTUP" : "TERBUKA",
-          description: body.description ? String(body.description).trim() : null,
+          name: parsedCategory.data.name,
+          areaType: parsedCategory.data.areaType === "TERTUTUP" ? "TERTUTUP" : "TERBUKA",
+          description: parsedCategory.data.description || null,
         },
       });
       await recordAuditLog({
@@ -444,11 +468,22 @@ export async function POST(request: Request) {
 
     if (body.action === "CREATE_WAREHOUSE") {
       if (!isOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const warehouseSchema = z.object({
+        name: z.string().trim().min(1, "Nama gudang wajib diisi").max(80),
+        location: z.string().trim().max(200).optional().nullable(),
+      });
+      const parsedWarehouse = warehouseSchema.safeParse(body);
+      if (!parsedWarehouse.success) {
+        return NextResponse.json(
+          { error: parsedWarehouse.error.issues[0]?.message || "Data gudang tidak valid." },
+          { status: 400 }
+        );
+      }
       const warehouse = await prisma.warehouse.create({
         data: {
           roomId: user.roomId,
-          name: String(body.name).trim(),
-          location: body.location ? String(body.location).trim() : null,
+          name: parsedWarehouse.data.name,
+          location: parsedWarehouse.data.location || null,
         },
       });
       return NextResponse.json({ warehouse });
@@ -488,6 +523,13 @@ export async function POST(request: Request) {
         updateData.passwordHash = await hashPassword(nextPassword);
         updateData.tokenVersion = { increment: 1 };
         passwordChanged = true;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return NextResponse.json(
+          { error: "Tidak ada perubahan profil untuk disimpan." },
+          { status: 400 }
+        );
       }
 
       const updated = await prisma.user.update({

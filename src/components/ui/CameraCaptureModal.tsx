@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Camera, X, ArrowsClockwise } from "@phosphor-icons/react";
+import { compressReceiptFileToDataUrl } from "@/lib/receipt-client";
 
 export function CameraCaptureModal({
   isOpen,
@@ -97,16 +98,19 @@ export function CameraCaptureModal({
     }
   };
 
-  const handleFallbackLiveReceipt = (file: File | null) => {
+  const handleFallbackLiveReceipt = async (file: File | null) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        onCapture(reader.result);
-        onClose();
+    try {
+      const result = await compressReceiptFileToDataUrl(file);
+      if (result.error || !result.dataUrl) {
+        setErrorMsg(result.error || "Gagal memproses gambar dari perangkat.");
+        return;
       }
-    };
-    reader.readAsDataURL(file);
+      onCapture(result.dataUrl);
+      onClose();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Gagal memproses gambar dari perangkat.");
+    }
   };
 
   return createPortal(
@@ -164,7 +168,7 @@ export function CameraCaptureModal({
                   <span>Ambil dari Perangkat Kamera / File</span>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp"
                     capture="environment"
                     className="hidden"
                     onChange={(e) => handleFallbackLiveReceipt(e.target.files?.[0] || null)}

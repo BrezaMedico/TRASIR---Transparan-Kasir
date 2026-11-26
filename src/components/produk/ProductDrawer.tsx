@@ -379,9 +379,29 @@ export function ProductDrawer({
         variants: normalizedVariants,
       };
 
-      if (!editingProduct && !isAdmin && onAddToCart) {
+      if (!isAdmin && onAddToCart) {
+        const isUpdate = Boolean(editingProduct);
         onAddToCart({
-          clientTempId: `cart-prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          clientTempId: editingProduct
+            ? `cart-edit-${editingProduct.id}`
+            : `cart-prod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          requestKind: isUpdate ? "UPDATE" : "CREATE",
+          targetProductId: editingProduct?.id,
+          previousSnapshot: editingProduct
+            ? {
+                name: editingProduct.name,
+                sku: editingProduct.sku,
+                barcode: editingProduct.barcode,
+                costPrice: editingProduct.costPrice,
+                sellPrice: editingProduct.sellPrice,
+                currentStock: editingProduct.currentStock,
+                minStockAlert: editingProduct.minStockAlert,
+                stockMethod: editingProduct.stockMethod,
+                purchaseUnit: editingProduct.purchaseUnit,
+                sellUnit: editingProduct.sellUnit,
+                conversionRatio: editingProduct.conversionRatio,
+              }
+            : undefined,
           sku: payload.sku,
           barcode: payload.barcode,
           name: payload.name,
@@ -452,11 +472,15 @@ export function ProductDrawer({
       widthClass="max-w-2xl"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
-        {!editingProduct && !isAdmin && (
+        {!isAdmin && (
           <div className="p-3.5 rounded-xl bg-[#EBEBEB] border border-[#202531]/15 text-xs text-[#202531] flex items-start gap-2.5">
             <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
             <p>
-              {onAddToCart
+              {editingProduct
+                ? onAddToCart
+                  ? "Perubahan harga atau data produk akan masuk ke Daftar Pengajuan agar Anda bisa mengedit item lain lalu mengirimnya sekaligus ke Manajer/Pemilik."
+                  : "Usulan perubahan produk akan berstatus Menunggu Persetujuan Pemilik atau Manajer."
+                : onAddToCart
                 ? "Menu/produk akan dimasukkan ke Daftar Pengajuan agar bisa dikirim bersamaan dengan bahan baku dan nota."
                 : "Produk yang Anda kirim akan berstatus Menunggu Persetujuan dan aktif di Kasir setelah disetujui Pemilik atau Manajer."}
             </p>
@@ -1284,7 +1308,7 @@ export function ProductDrawer({
               aria-busy={submitting}
               className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 cursor-pointer"
             >
-              {!editingProduct && !isAdmin && onAddToCart ? (
+              {!isAdmin && onAddToCart ? (
                 <ClipboardText size={18} weight="bold" aria-hidden="true" />
               ) : (
                 <FloppyDisk size={18} weight="bold" aria-hidden="true" />
@@ -1293,7 +1317,9 @@ export function ProductDrawer({
                 {submitting
                   ? "Menyimpan Menu..."
                   : editingProduct
-                  ? "Simpan Perubahan"
+                  ? !isAdmin && onAddToCart
+                    ? "Masukkan Perubahan ke Daftar Pengajuan"
+                    : "Simpan Perubahan"
                   : isAdmin
                   ? "Simpan & Aktifkan di Kasir"
                   : onAddToCart

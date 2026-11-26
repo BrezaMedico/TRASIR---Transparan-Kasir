@@ -22,6 +22,27 @@ const purchaseItemSchema = z.object({
   subtotal: z.number().int().min(0),
 });
 
+type PurchaseItemPayload = z.infer<typeof purchaseItemSchema>;
+
+function mapPurchaseItemsForWrite(items: PurchaseItemPayload[]) {
+  return items.map((it) => ({
+    productId: it.productId || null,
+    isNewProduct: Boolean(it.isNewProduct || !it.productId),
+    itemName: it.itemName.trim(),
+    categoryName: it.categoryName || null,
+    quantity: it.quantity,
+    unit: it.unit,
+    conversionRatio: it.conversionRatio ?? 1,
+    sellUnit: it.sellUnit ?? it.unit,
+    unitCost: it.unitCost,
+    sellPrice: it.sellPrice ?? Math.round(it.unitCost * 1.25),
+    subtotal: it.subtotal,
+    aiExtractedQty: null,
+    aiExtractedPrice: null,
+    aiDiscrepancyNote: null,
+  }));
+}
+
 const purchaseSchema = z.object({
   id: z.string().optional(),
   invoiceNumber: z.string().min(1, "Nomor nota wajib diisi"),
@@ -180,22 +201,7 @@ export async function POST(request: Request) {
             aiAnalysisJson: null,
             approvalStatus: "MENUNGGU_PERSETUJUAN",
             items: {
-              create: data.items.map((it) => ({
-                productId: it.productId || null,
-                isNewProduct: Boolean(it.isNewProduct || !it.productId),
-                itemName: it.itemName.trim(),
-                categoryName: it.categoryName || null,
-                quantity: it.quantity,
-                unit: it.unit,
-                conversionRatio: it.conversionRatio ?? 1,
-                sellUnit: it.sellUnit ?? it.unit,
-                unitCost: it.unitCost,
-                sellPrice: it.sellPrice ?? Math.round(it.unitCost * 1.25),
-                subtotal: it.subtotal,
-                aiExtractedQty: null,
-                aiExtractedPrice: null,
-                aiDiscrepancyNote: null,
-              })),
+              create: mapPurchaseItemsForWrite(data.items),
             },
           },
           include: { items: true },
@@ -262,22 +268,7 @@ export async function POST(request: Request) {
           approvalStatus: "MENUNGGU_PERSETUJUAN",
           submittedById: user.id,
           items: {
-            create: data.items.map((it) => ({
-              productId: it.productId || null,
-              isNewProduct: Boolean(it.isNewProduct || !it.productId),
-              itemName: it.itemName.trim(),
-              categoryName: it.categoryName || null,
-              quantity: it.quantity,
-              unit: it.unit,
-              conversionRatio: it.conversionRatio ?? 1,
-              sellUnit: it.sellUnit ?? it.unit,
-              unitCost: it.unitCost,
-              sellPrice: it.sellPrice ?? Math.round(it.unitCost * 1.25),
-              subtotal: it.subtotal,
-              aiExtractedQty: null,
-              aiExtractedPrice: null,
-              aiDiscrepancyNote: null,
-            })),
+            create: mapPurchaseItemsForWrite(data.items),
           },
         },
         include: { items: true },

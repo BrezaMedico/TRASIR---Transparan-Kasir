@@ -1,9 +1,12 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, ensureSystemBaseline, isStoreAdmin } from "@/lib/rbac";
 import { getCatalogPayload } from "@/lib/queries/catalog";
+import { createProductVariantsWithCost } from "@/lib/inventory";
 import { createNotification, recordAuditLog } from "@/lib/audit";
+import { serializeProductRequestEnvelope } from "@/lib/product-request-batch";
 import { z } from "zod";
 
 const ingredientSchema = z.object({
@@ -194,72 +197,13 @@ export async function POST(request: Request) {
         });
 
         if (data.stockMethod === "RESEP" && data.variants && data.variants.length > 0) {
-          let primaryVariantCost: number | null = null;
-          let primaryVariantSellPrice: number | null = null;
-
-          for (const v of data.variants) {
-            let calculatedCost = v.costPrice ?? 0;
-            const resolvedIngredients: {
-              materialId: string;
-              quantity: number;
-              unit: string;
-            }[] = [];
-
-            if (v.ingredients && v.ingredients.length > 0) {
-              let sumCost = 0;
-              for (const ing of v.ingredients) {
-                const mat = await tx.product.findFirst({
-                  where: { id: ing.materialId, roomId: user.roomId },
-                });
-                if (!mat) {
-                  throw new Error("CONFLICT:Bahan baku resep tidak ditemukan pada ruangan ini.");
-                }
-                sumCost += Math.round(mat.costPrice * ing.quantity);
-                resolvedIngredients.push({
-                  materialId: mat.id,
-                  quantity: ing.quantity,
-                  unit: ing.unit,
-                });
-              }
-              if (sumCost > 0) calculatedCost = sumCost;
-            }
-
-            if (primaryVariantCost === null) {
-              primaryVariantCost = calculatedCost;
-              primaryVariantSellPrice = v.sellPrice;
-            }
-
-            await tx.productVariant.create({
-              data: {
-                productId: product.id,
-                name: v.name.trim(),
-                sellPrice: v.sellPrice,
-                costPrice: calculatedCost,
-                ingredients:
-                  resolvedIngredients.length > 0
-                    ? {
-                        create: resolvedIngredients.map((ing) => ({
-                          materialId: ing.materialId,
-                          quantity: ing.quantity,
-                          unit: ing.unit,
-                        })),
-                      }
-                    : undefined,
-              },
-            });
-          }
-
-          if (primaryVariantCost !== null) {
-            await tx.product.update({
-              where: { id: product.id },
-              data: {
-                costPrice: primaryVariantCost,
-                ...(data.sellPrice <= 0 && primaryVariantSellPrice !== null
-                  ? { sellPrice: primaryVariantSellPrice }
-                  : {}),
-              },
-            });
-          }
+          await createProductVariantsWithCost(tx, {
+            roomId: user.roomId,
+            productId: product.id,
+            sellPrice: data.sellPrice,
+            variants: data.variants,
+            missingIngredientError: "CONFLICT:Bahan baku resep tidak ditemukan pada ruangan ini.",
+          });
         }
 
         await recordAuditLog(
@@ -463,6 +407,124 @@ export async function PUT(request: Request) {
       );
     }
 
+    // Pegawai non-admin tidak boleh mengubah harga/produk secara langsung; kirim usulan persetujuan
+    if (!isStoreAdmin(user.role)) {
+      const ratio = data.stockMethod === "TETAP" ? 1 : data.conversionRatio;
+      const resolvedSellUnit = data.stockMethod === "TETAP" ? data.purchaseUnit : data.sellUnit;
+      const requestedStock =
+        typeof data.currentStock === "number" && data.stockMethod !== "RESEP"
+          ? Math.max(0, data.currentStock)
+          : undefined;
+      const hasStockChange =
+        typeof requestedStock === "number" && requestedStock !== existing.currentStock;
+      const batchId = `BATCH-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+
+      const variantsJson = serializeProductRequestEnvelope({
+        requestKind: "UPDATE",
+        targetProductId: existing.id,
+        previousSnapshot: {
+          name: existing.name,
+          sku: existing.sku,
+          barcode: existing.barcode,
+          costPrice: existing.costPrice,
+          sellPrice: existing.sellPrice,
+          currentStock: existing.currentStock,
+          minStockAlert: existing.minStockAlert,
+          stockMethod: existing.stockMethod,
+          purchaseUnit: existing.purchaseUnit,
+          sellUnit: existing.sellUnit,
+          conversionRatio: existing.conversionRatio,
+        },
+        initialStock: hasStockChange ? requestedStock : undefined,
+        variants: data.stockMethod === "RESEP" && data.variants ? data.variants : undefined,
+        batchId,
+        batchIndex: 0,
+        batchSize: 1,
+        batchTitle: `Ubah ${data.name.trim()}`,
+      });
+
+      const createdRequest = await prisma.$transaction(async (tx) => {
+        const reqRow = await tx.productRequest.create({
+          data: {
+            roomId: user.roomId,
+            requestedById: user.id,
+            status: "MENUNGGU_PERSETUJUAN",
+            sku: normalizedSku,
+            barcode: normalizedBarcode,
+            name: data.name.trim(),
+            categoryId: category.id,
+            stockMethod: data.stockMethod,
+            isRawMaterial: Boolean(data.isRawMaterial),
+            purchaseUnit: data.purchaseUnit,
+            sellUnit: resolvedSellUnit,
+            conversionRatio: ratio,
+            costPrice: data.costPrice,
+            sellPrice: data.sellPrice,
+            minStockAlert: data.minStockAlert ?? existing.minStockAlert,
+            variantsJson,
+          },
+          include: {
+            category: { select: { id: true, name: true, areaType: true } },
+            requestedBy: { select: { id: true, name: true, username: true, role: true } },
+            reviewedBy: { select: { id: true, name: true, username: true, role: true } },
+          },
+        });
+
+        await recordAuditLog(
+          {
+            roomId: user.roomId,
+            actorId: user.id,
+            actorName: user.name,
+            actorRole: user.role,
+            actionType: "PRODUCT_REQUEST",
+            actionSummary: `${user.name} mengajukan perubahan harga/data "${reqRow.name}" (Rp ${existing.sellPrice.toLocaleString("id-ID")} -> Rp ${reqRow.sellPrice.toLocaleString("id-ID")})`,
+            entityType: "ProductRequestBatch",
+            entityId: batchId,
+            beforeData: {
+              productId: existing.id,
+              name: existing.name,
+              costPrice: existing.costPrice,
+              sellPrice: existing.sellPrice,
+              currentStock: existing.currentStock,
+            },
+            afterData: {
+              productId: existing.id,
+              name: reqRow.name,
+              costPrice: reqRow.costPrice,
+              sellPrice: reqRow.sellPrice,
+            },
+            approvalState: "MENUNGGU_PERSETUJUAN",
+            linkUrl: "/produk?tab=requests",
+          },
+          tx
+        );
+
+        await createNotification(
+          {
+            roomId: user.roomId,
+            title: "Usulan Perubahan Produk/Harga",
+            message: `${user.name} mengusulkan perubahan pada "${reqRow.name}". Menunggu persetujuan Pemilik atau Manajer.`,
+            severity: "INFO",
+            category: "KATALOG",
+            targetRole: null,
+            linkUrl: "/produk?tab=requests",
+          },
+          tx
+        );
+
+        return reqRow;
+      });
+
+      return NextResponse.json(
+        {
+          mode: "REQUEST",
+          productRequest: createdRequest,
+          message: `Perubahan "${createdRequest.name}" diajukan dan menunggu persetujuan Pemilik atau Manajer.`,
+        },
+        { status: 202 }
+      );
+    }
+
     const ratio = data.stockMethod === "TETAP" ? 1 : data.conversionRatio;
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -489,72 +551,13 @@ export async function PUT(request: Request) {
 
       if (data.stockMethod === "RESEP" && data.variants) {
         await tx.productVariant.deleteMany({ where: { productId } });
-        let primaryVariantCost: number | null = null;
-        let primaryVariantSellPrice: number | null = null;
-
-        for (const v of data.variants) {
-          let calculatedCost = v.costPrice ?? 0;
-          const resolvedIngredients: {
-            materialId: string;
-            quantity: number;
-            unit: string;
-          }[] = [];
-
-          if (v.ingredients && v.ingredients.length > 0) {
-            let sumCost = 0;
-            for (const ing of v.ingredients) {
-              const mat = await tx.product.findFirst({
-                where: { id: ing.materialId, roomId: user.roomId },
-              });
-              if (!mat) {
-                throw new Error("CONFLICT:Bahan baku resep tidak ditemukan pada ruangan ini.");
-              }
-              sumCost += Math.round(mat.costPrice * ing.quantity);
-              resolvedIngredients.push({
-                materialId: mat.id,
-                quantity: ing.quantity,
-                unit: ing.unit,
-              });
-            }
-            if (sumCost > 0) calculatedCost = sumCost;
-          }
-
-          if (primaryVariantCost === null) {
-            primaryVariantCost = calculatedCost;
-            primaryVariantSellPrice = v.sellPrice;
-          }
-
-          await tx.productVariant.create({
-            data: {
-              productId: prod.id,
-              name: v.name.trim(),
-              sellPrice: v.sellPrice,
-              costPrice: calculatedCost,
-              ingredients:
-                resolvedIngredients.length > 0
-                  ? {
-                      create: resolvedIngredients.map((ing) => ({
-                        materialId: ing.materialId,
-                        quantity: ing.quantity,
-                        unit: ing.unit,
-                      })),
-                    }
-                  : undefined,
-            },
-          });
-        }
-
-        if (primaryVariantCost !== null) {
-          await tx.product.update({
-            where: { id: prod.id },
-            data: {
-              costPrice: primaryVariantCost,
-              ...(data.sellPrice <= 0 && primaryVariantSellPrice !== null
-                ? { sellPrice: primaryVariantSellPrice }
-                : {}),
-            },
-          });
-        }
+        await createProductVariantsWithCost(tx, {
+          roomId: user.roomId,
+          productId: prod.id,
+          sellPrice: data.sellPrice,
+          variants: data.variants,
+          missingIngredientError: "CONFLICT:Bahan baku resep tidak ditemukan pada ruangan ini.",
+        });
       }
 
       await recordAuditLog(

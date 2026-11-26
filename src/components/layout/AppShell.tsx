@@ -108,6 +108,7 @@ export interface SessionState {
 interface WorkspaceContextValue {
   session: SessionState;
   refreshSession: () => Promise<void>;
+  acknowledgeUnreadNotifications: () => void;
 }
 
 const WorkspaceSessionContext = createContext<WorkspaceContextValue | null>(null);
@@ -164,6 +165,7 @@ function ShellFrame({
   setMobileMenuOpen,
   isOnline,
   handleLogout,
+  onOpenNotifications,
   children,
 }: {
   session: SessionState;
@@ -173,6 +175,7 @@ function ShellFrame({
   setMobileMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   isOnline: boolean;
   handleLogout: () => Promise<void>;
+  onOpenNotifications: () => void;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -303,13 +306,13 @@ function ShellFrame({
                 >
                   <Nav3DIcon iconKey={item.key} />
                   {!collapsed && <span className="truncate flex-1">{item.label}</span>}
-                  {isPending && (
+                  {!collapsed && isPending && (
                     <span
                       className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-[#202531]/25 border-t-[#01DAD7] animate-spin"
                       aria-hidden="true"
                     />
                   )}
-                  {!isPending && item.key === "aktivitas" && session.unreadNotifications > 0 && (
+                  {(!isPending || collapsed) && item.key === "aktivitas" && session.unreadNotifications > 0 && (
                     <span
                       className={`${
                         collapsed
@@ -383,8 +386,15 @@ function ShellFrame({
 
             <div className="flex items-center gap-2.5 md:gap-3">
               <Link
-                href="/aktivitas"
+                href="/aktivitas?tab=notifications"
                 prefetch={false}
+                onClick={() => {
+                  onOpenNotifications();
+                  handleNavClick("/aktivitas");
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(new Event("trasir:open-notifications"));
+                  }
+                }}
                 aria-label={`Aktivitas dan notifikasi (${session.unreadNotifications} baru)`}
                 className="relative min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl border border-[#202531]/15 text-[#202531] hover:bg-[#EBEBEB] transition-colors"
               >
@@ -613,6 +623,12 @@ export function WorkspaceChrome({
     }
   }, [router, pathname]);
 
+  const acknowledgeUnreadNotifications = useCallback(() => {
+    setSession((prev) =>
+      prev.unreadNotifications === 0 ? prev : { ...prev, unreadNotifications: 0 }
+    );
+  }, []);
+
   const handleLogout = useCallback(async () => {
     clearAllClientCache();
     await fetch("/api/auth/logout", { method: "POST" });
@@ -621,7 +637,9 @@ export function WorkspaceChrome({
   }, [router, showToast]);
 
   return (
-    <WorkspaceSessionContext.Provider value={{ session, refreshSession }}>
+    <WorkspaceSessionContext.Provider
+      value={{ session, refreshSession, acknowledgeUnreadNotifications }}
+    >
       <ShellFrame
         session={session}
         collapsed={collapsed}
@@ -630,6 +648,7 @@ export function WorkspaceChrome({
         setMobileMenuOpen={setMobileMenuOpen}
         isOnline={isOnline}
         handleLogout={handleLogout}
+        onOpenNotifications={acknowledgeUnreadNotifications}
       >
         {children}
       </ShellFrame>
@@ -732,6 +751,12 @@ function StandaloneAppShell({
     router.replace("/login");
   };
 
+  const acknowledgeUnreadNotifications = useCallback(() => {
+    setSession((prev) =>
+      prev && prev.unreadNotifications > 0 ? { ...prev, unreadNotifications: 0 } : prev
+    );
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#EBEBEB] flex items-center justify-center p-6">
@@ -757,6 +782,7 @@ function StandaloneAppShell({
       setMobileMenuOpen={setMobileMenuOpen}
       isOnline={isOnline}
       handleLogout={handleLogout}
+      onOpenNotifications={acknowledgeUnreadNotifications}
     >
       {children(session, fetchSession)}
     </ShellFrame>

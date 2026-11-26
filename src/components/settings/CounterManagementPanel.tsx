@@ -103,103 +103,135 @@ export function CounterManagementPanel() {
   const placeholderName = suggestNextCounterName(counters);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-extrabold text-[#202531]">
-            Manajemen Loket Kasir
-          </h2>
-          <p className="text-xs text-[#525866] mt-0.5 leading-relaxed">
-            Atur jumlah loket kasir di usaha Anda. Satu loket hanya bisa dipakai oleh satu kasir yang sedang bertugas hingga tutup shift selesai.
-          </p>
-        </div>
+    <div className="space-y-5">
+      {/* Ringkasan & Form Tambah Loket */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+        <section className="lg:col-span-5 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col justify-between gap-4">
+          <div className="flex items-start justify-between gap-3 pb-4 border-b border-[#202531]/10">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+                <Storefront size={18} weight="duotone" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-extrabold text-[#202531]">
+                  Ringkasan Loket Kasir
+                </h2>
+                <p className="text-xs text-[#525866] mt-0.5">
+                  Pemakaian loket aktif pada shift berjalan.
+                </p>
+              </div>
+            </div>
 
-        <button
-          type="button"
-          onClick={() => loadCounters(false)}
-          disabled={loading}
-          className="self-start sm:self-auto inline-flex items-center gap-2 px-3.5 min-h-[40px] rounded-xl border border-[#202531]/20 bg-white text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer shrink-0"
+            <button
+              type="button"
+              onClick={() => loadCounters(false)}
+              disabled={loading}
+              aria-label="Perbarui status loket"
+              className="inline-flex items-center gap-1.5 px-3 min-h-[40px] rounded-xl border border-[#202531]/15 bg-[#EBEBEB]/60 text-xs font-bold text-[#202531] hover:bg-[#EBEBEB] cursor-pointer shrink-0"
+            >
+              <ArrowsClockwise size={14} weight="bold" aria-hidden="true" />
+              <span>Segarkan</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="rounded-xl border border-[#202531]/12 bg-[#EBEBEB]/35 p-3.5">
+              <p className="text-[11px] font-semibold text-[#525866]">Total Loket</p>
+              <p className="text-lg font-extrabold text-[#202531] mt-1 tabular-nums">
+                {counters.length}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#202531]/12 bg-[#EBEBEB]/35 p-3.5">
+              <p className="text-[11px] font-semibold text-[#525866]">Aktif</p>
+              <p className="text-lg font-extrabold text-[#006B69] mt-1 tabular-nums">
+                {occupiedCount}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#202531]/12 bg-[#EBEBEB]/35 p-3.5">
+              <p className="text-[11px] font-semibold text-[#525866]">Tersedia</p>
+              <p className="text-lg font-extrabold text-[#202531] mt-1 tabular-nums">
+                {Math.max(0, counters.length - occupiedCount)}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <form
+          onSubmit={handleAddCounter}
+          className="lg:col-span-7 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col justify-between gap-4"
         >
-          <ArrowsClockwise size={15} weight="bold" aria-hidden="true" />
-          <span>Perbarui Status</span>
-        </button>
-      </div>
+          <div className="flex items-center gap-3 pb-4 border-b border-[#202531]/10">
+            <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+              <Plus size={18} weight="bold" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 className="text-sm font-extrabold text-[#202531]">
+                Tambah Loket Baru
+              </h2>
+              <p className="text-xs text-[#525866] mt-0.5">
+                Setiap loket memiliki kunci kasir aktif dan rekonsiliasi shift terpisah.
+              </p>
+            </div>
+          </div>
 
-      {/* Ringkasan Loket */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-2xl border border-[#202531]/12 bg-white p-4">
-          <p className="text-xs font-semibold text-[#525866]">Total Loket Terdaftar</p>
-          <p className="text-xl font-extrabold text-[#202531] mt-1 tabular-nums">
-            {counters.length} Loket
-          </p>
-        </div>
-        <div className="rounded-2xl border border-[#202531]/12 bg-white p-4">
-          <p className="text-xs font-semibold text-[#525866]">Sedang Aktif Dipakai</p>
-          <p className="text-xl font-extrabold text-[#006B69] mt-1 tabular-nums">
-            {occupiedCount} Loket
-          </p>
-        </div>
-        <div className="rounded-2xl border border-[#202531]/12 bg-white p-4">
-          <p className="text-xs font-semibold text-[#525866]">Tersedia untuk Shift Baru</p>
-          <p className="text-xl font-extrabold text-[#202531] mt-1 tabular-nums">
-            {Math.max(0, counters.length - occupiedCount)} Loket
-          </p>
-        </div>
+          <div className="space-y-2">
+            <label htmlFor="new-counter-name" className="block text-xs font-bold text-[#202531]">
+              Nama Loket Kasir
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                id="new-counter-name"
+                type="text"
+                required
+                minLength={2}
+                maxLength={40}
+                value={newCounterName}
+                onChange={(e) => setNewCounterName(e.target.value)}
+                placeholder={`Contoh: ${placeholderName} atau Kasir Drive-Thru`}
+                className="flex-1 min-h-[44px] rounded-xl border border-[#202531]/20 px-3.5 text-sm text-[#202531] focus:border-[#006B69] focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={submittingAdd}
+                className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer shrink-0"
+              >
+                <Plus size={16} weight="bold" aria-hidden="true" />
+                <span>{submittingAdd ? "Menyimpan..." : "Tambah Loket"}</span>
+              </button>
+            </div>
+          </div>
+        </form>
       </div>
-
-      {/* Form Tambah Loket Baru */}
-      <form
-        onSubmit={handleAddCounter}
-        className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-3"
-      >
-        <label htmlFor="new-counter-name" className="block text-sm font-extrabold text-[#202531]">
-          Tambah Loket Baru
-        </label>
-        <p className="text-xs text-[#525866]">
-          Setiap loket punya antrean modal awal dan rekonsiliasi shift terpisah agar uang tidak tercampur.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
-          <input
-            id="new-counter-name"
-            type="text"
-            required
-            minLength={2}
-            maxLength={40}
-            value={newCounterName}
-            onChange={(e) => setNewCounterName(e.target.value)}
-            placeholder={`Contoh: ${placeholderName} atau Kasir Drive-Thru`}
-            className="flex-1 min-h-[44px] rounded-xl border border-[#202531]/20 px-3.5 text-sm text-[#202531] focus:border-[#006B69] focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={submittingAdd}
-            className="inline-flex items-center justify-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer shrink-0"
-          >
-            <Plus size={16} weight="bold" aria-hidden="true" />
-            <span>{submittingAdd ? "Menyimpan..." : "Tambah Loket"}</span>
-          </button>
-        </div>
-      </form>
 
       {/* Daftar Loket & Status Penggunaan Langsung */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-extrabold text-[#202531]">
-          Daftar Loket &amp; Pengguna Aktif Saat Ini
-        </h3>
+      <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm space-y-5">
+        <div className="flex items-center gap-3 pb-4 border-b border-[#202531]/10">
+          <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+            <LockKey size={18} weight="duotone" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="text-sm font-extrabold text-[#202531]">
+              Daftar Loket &amp; Pengguna Aktif ({counters.length})
+            </h2>
+            <p className="text-xs text-[#525866] mt-0.5">
+              Satu loket hanya dapat digunakan satu kasir hingga tutup shift selesai.
+            </p>
+          </div>
+        </div>
 
         {loading && counters.length === 0 ? (
-          <div className="p-6 rounded-2xl border border-[#202531]/15 bg-white text-center text-xs text-[#525866]">
+          <div className="py-8 text-center text-xs text-[#525866]">
             Memuat status loket kasir...
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {counters.map((counter) => {
               const canDelete = !counter.isOccupied && counters.length > 1;
               return (
                 <div
                   key={counter.id}
-                  className={`rounded-2xl border p-4 sm:p-5 bg-white flex flex-col justify-between gap-4 ${
-                    counter.isOccupied ? "border-[#006B69]/40" : "border-[#202531]/15"
+                  className={`rounded-xl border p-4 bg-[#EBEBEB]/30 flex flex-col justify-between gap-4 ${
+                    counter.isOccupied ? "border-[#006B69]/40" : "border-[#202531]/12"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -301,7 +333,7 @@ export function CounterManagementPanel() {
             })}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

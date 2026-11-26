@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { parseProductRequestEnvelope } from "@/lib/product-request-batch";
 
 export interface StockDeductionResult {
   unitCost: number;
@@ -196,6 +197,231 @@ export async function restoreStockForSaleItem(
       currentStock: {
         increment: qty,
       },
+    },
+  });
+}
+
+export interface VariantIngredientInput {
+  materialId: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface ProductVariantInput {
+  name: string;
+  sellPrice: number;
+  costPrice?: number | null;
+  ingredients?: VariantIngredientInput[];
+}
+
+/**
+ * Creates ProductVariant and RecipeIngredient rows inside a transaction,
+ * enforcing room ownership and syncing primary variant cost/sell price to the parent product.
+ */
+export async function createProductVariantsWithCost(
+  tx: Prisma.TransactionClient,
+  params: {
+    roomId: string;
+    productId: string;
+    sellPrice: number;
+    variants: ProductVariantInput[];
+    tempIdToProductId?: Map<string, string>;
+    missingIngredientError: string;
+  }
+): Promise<void> {
+  let primaryVariantCost: number | null = null;
+  let primaryVariantSellPrice: number | null = null;
+
+  for (const v of params.variants) {
+    let calculatedCost = v.costPrice ?? 0;
+    const resolvedIngredients: VariantIngredientInput[] = [];
+
+    if (v.ingredients && v.ingredients.length > 0) {
+      let sumCost = 0;
+      for (const ing of v.ingredients) {
+        const resolvedMatId =
+          params.tempIdToProductId?.get(ing.materialId) || ing.materialId;
+        const mat = await tx.product.findFirst({
+          where: { id: resolvedMatId, roomId: params.roomId },
+        });
+        if (!mat) {
+          throw new Error(params.missingIngredientError);
+        }
+        sumCost += Math.round(mat.costPrice * ing.quantity);
+        resolvedIngredients.push({
+          materialId: mat.id,
+          quantity: ing.quantity,
+          unit: ing.unit,
+        });
+      }
+      if (sumCost > 0) calculatedCost = sumCost;
+    }
+
+    if (primaryVariantCost === null) {
+      primaryVariantCost = calculatedCost;
+      primaryVariantSellPrice = v.sellPrice;
+    }
+
+    await tx.productVariant.create({
+      data: {
+        productId: params.productId,
+        name: v.name.trim(),
+        sellPrice: v.sellPrice,
+        costPrice: calculatedCost,
+        ingredients:
+          resolvedIngredients.length > 0
+            ? {
+                create: resolvedIngredients.map((ing) => ({
+                  materialId: ing.materialId,
+                  quantity: ing.quantity,
+                  unit: ing.unit,
+                })),
+              }
+            : undefined,
+      },
+    });
+  }
+
+  if (primaryVariantCost !== null) {
+    await tx.product.update({
+      where: { id: params.productId },
+      data: {
+        costPrice: primaryVariantCost,
+        ...(params.sellPrice <= 0 && primaryVariantSellPrice !== null
+          ? { sellPrice: primaryVariantSellPrice }
+          : {}),
+      },
+    });
+  }
+}
+
+export async function applyApprovedProductRequest(
+  tx: Prisma.TransactionClient,
+  params: {
+    roomId: string;
+    reqRow: {
+      id: string;
+      sku: string;
+      barcode: string | null;
+      name: string;
+      categoryId: string;
+      stockMethod: string;
+      isRawMaterial: boolean;
+      purchaseUnit: string;
+      sellUnit: string;
+      conversionRatio: number;
+      costPrice: number;
+      sellPrice: number;
+      minStockAlert: number;
+      variantsJson: string | null;
+    };
+    tempIdToProductId?: Map<string, string>;
+  }
+) {
+  const { roomId, reqRow, tempIdToProductId } = params;
+  const env = parseProductRequestEnvelope(reqRow.variantsJson);
+  const isUpdate = env.requestKind === "UPDATE" && Boolean(env.targetProductId);
+  const targetProductId = isUpdate ? env.targetProductId! : undefined;
+
+  if (targetProductId) {
+    const existingTarget = await tx.product.findFirst({
+      where: { id: targetProductId, roomId },
+      select: { id: true },
+    });
+    if (!existingTarget) {
+      throw new Error(
+        `CONFLICT:Produk "${reqRow.name}" sudah dihapus atau tidak ditemukan di katalog ruangan ini.`
+      );
+    }
+  }
+
+  const dup = await tx.product.findFirst({
+    where: {
+      roomId,
+      ...(targetProductId ? { id: { not: targetProductId } } : {}),
+      OR: [
+        { sku: reqRow.sku },
+        ...(reqRow.barcode ? [{ barcode: reqRow.barcode }] : []),
+      ],
+    },
+    select: { name: true, sku: true },
+  });
+
+  if (dup) {
+    throw new Error(
+      `CONFLICT:Tidak dapat menyetujui "${reqRow.name}" karena SKU/barcode sudah dipakai oleh produk "${dup.name}".`
+    );
+  }
+
+  const hasExplicitStock =
+    reqRow.stockMethod !== "RESEP" && typeof env.initialStock === "number";
+  const resolvedStock = hasExplicitStock ? Math.max(0, Number(env.initialStock) || 0) : 0;
+
+  let productId: string;
+  if (targetProductId) {
+    const updatedProd = await tx.product.update({
+      where: { id: targetProductId },
+      data: {
+        sku: reqRow.sku,
+        barcode: reqRow.barcode,
+        name: reqRow.name,
+        categoryId: reqRow.categoryId,
+        stockMethod: reqRow.stockMethod,
+        isRawMaterial: reqRow.isRawMaterial,
+        purchaseUnit: reqRow.purchaseUnit,
+        sellUnit: reqRow.sellUnit,
+        conversionRatio: reqRow.conversionRatio,
+        costPrice: reqRow.costPrice,
+        sellPrice: reqRow.sellPrice,
+        ...(hasExplicitStock ? { currentStock: resolvedStock } : {}),
+        minStockAlert: reqRow.minStockAlert,
+        isActive: true,
+      },
+    });
+    productId = updatedProd.id;
+    await tx.productVariant.deleteMany({ where: { productId } });
+  } else {
+    const createdProd = await tx.product.create({
+      data: {
+        roomId,
+        sku: reqRow.sku,
+        barcode: reqRow.barcode,
+        name: reqRow.name,
+        categoryId: reqRow.categoryId,
+        stockMethod: reqRow.stockMethod,
+        isRawMaterial: reqRow.isRawMaterial,
+        purchaseUnit: reqRow.purchaseUnit,
+        sellUnit: reqRow.sellUnit,
+        conversionRatio: reqRow.conversionRatio,
+        costPrice: reqRow.costPrice,
+        sellPrice: reqRow.sellPrice,
+        currentStock: resolvedStock,
+        minStockAlert: reqRow.minStockAlert,
+        isActive: true,
+      },
+    });
+    productId = createdProd.id;
+    if (env.clientTempId && tempIdToProductId) {
+      tempIdToProductId.set(env.clientTempId, productId);
+    }
+  }
+
+  if (reqRow.stockMethod === "RESEP" && env.variants && env.variants.length > 0) {
+    await createProductVariantsWithCost(tx, {
+      roomId,
+      productId,
+      sellPrice: reqRow.sellPrice,
+      variants: env.variants,
+      tempIdToProductId,
+      missingIngredientError: `CONFLICT:Bahan baku resep untuk "${reqRow.name}" tidak ditemukan atau belum aktif.`,
+    });
+  }
+
+  return tx.product.findUnique({
+    where: { id: productId },
+    include: {
+      category: true,
+      variants: { include: { ingredients: { include: { material: true } } } },
     },
   });
 }

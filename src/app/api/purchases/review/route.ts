@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
@@ -137,9 +138,10 @@ export async function POST(request: Request) {
             }
           }
 
-          const skuCode = `PRD-${Date.now().toString().slice(-5)}-${Math.floor(
-            Math.random() * 90 + 10
-          )}`;
+          const skuCode = `PRD-${Date.now().toString().slice(-5)}-${crypto
+            .randomBytes(3)
+            .toString("hex")
+            .toUpperCase()}`;
           const newProd = await tx.product.create({
             data: {
               roomId: user.roomId,

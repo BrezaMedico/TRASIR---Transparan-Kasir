@@ -6,6 +6,7 @@ import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SalesLineChart } from "@/components/charts/SalesLineChart";
 import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
+import { addJakartaDays, getJakartaDateKey } from "@/lib/date-jakarta";
 import { RUPIAH_DENOMINATIONS, type DenominationMap } from "@/lib/shift-session";
 import {
   CaretDown,
@@ -99,12 +100,8 @@ export default function LaporanPage() {
   const { showToast } = useToast();
 
   const [period, setPeriod] = useState<"daily" | "weekly" | "monthly" | "custom">("monthly");
-  const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
-  });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(() => addJakartaDays(getJakartaDateKey(), -30));
+  const [endDate, setEndDate] = useState(() => getJakartaDateKey());
   const initialReport = getCachedData<ReportPayload>("/api/reports?period=monthly") ?? null;
   const [report, setReport] = useState<ReportPayload | null>(initialReport);
   const [loading, setLoading] = useState(!initialReport);
@@ -202,7 +199,7 @@ export default function LaporanPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Laporan-Keuangan-TRASIR-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `Laporan-Keuangan-TRASIR-${getJakartaDateKey()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast("Laporan Keuangan berhasil diekspor ke berkas CSV.", "success");

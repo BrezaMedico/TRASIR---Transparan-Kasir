@@ -1,3 +1,5 @@
+import type { ProductRequestPreviousSnapshot } from "@/lib/product-request-batch";
+
 export interface IngredientRow {
   materialId: string;
   materialName?: string;
@@ -14,6 +16,9 @@ export interface VariantRow {
 
 export interface ProposalCartItem {
   clientTempId: string;
+  requestKind?: "CREATE" | "UPDATE";
+  targetProductId?: string;
+  previousSnapshot?: ProductRequestPreviousSnapshot;
   sku: string;
   barcode: string | null;
   name: string;
@@ -107,24 +112,6 @@ export interface InitialProdukCatalog {
   categories: CategoryOption[];
   units: UnitOption[];
   pendingRequestsCount?: number;
-}
-
-export function parseRequestInitialStock(variantsJson?: string | null): number | null {
-  if (!variantsJson) return null;
-  try {
-    const parsed = JSON.parse(variantsJson) as { initialStock?: unknown } | unknown[];
-    if (
-      !Array.isArray(parsed) &&
-      parsed &&
-      typeof parsed === "object" &&
-      typeof parsed.initialStock === "number"
-    ) {
-      return Math.max(0, parsed.initialStock);
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 export function getUnitDisplayLabel(unit: string): string {

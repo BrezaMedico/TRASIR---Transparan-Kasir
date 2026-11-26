@@ -1,9 +1,11 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { checkUserPermission, isStoreAdmin } from "@/lib/rbac";
 import { deductStockForSaleItem } from "@/lib/inventory";
 import { recordAuditLog } from "@/lib/audit";
+import { getJakartaDateKey } from "@/lib/date-jakarta";
 import { z } from "zod";
 
 const saleItemInputSchema = z.object({
@@ -228,10 +230,10 @@ export async function POST(request: Request) {
       }
 
       const changeAmount = data.paymentMethod === "TUNAI" ? cashReceived - grandTotal : 0;
-      const receiptNumber = `TRX-${new Date()
-        .toISOString()
-        .slice(0, 10)
-        .replace(/-/g, "")}-${Math.floor(100000 + Math.random() * 900000)}`;
+      const receiptNumber = `TRX-${getJakartaDateKey().replace(/-/g, "")}-${crypto.randomInt(
+        100000,
+        1000000
+      )}`;
 
       const sale = await tx.sale.create({
         data: {

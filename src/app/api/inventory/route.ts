@@ -350,19 +350,29 @@ export async function POST(request: Request) {
               throw new Error("NOT_FOUND:Gudang asal atau tujuan tidak ditemukan pada ruangan ini.");
             }
 
-            await tx.productStock.upsert({
+            const fromStock = await tx.productStock.findUnique({
               where: {
                 productId_warehouseId: {
                   productId: adj.productId,
                   warehouseId: adj.fromWarehouseId,
                 },
               },
-              update: { quantity: { decrement: adj.quantity } },
-              create: {
-                productId: adj.productId,
-                warehouseId: adj.fromWarehouseId,
-                quantity: 0,
+              select: { quantity: true },
+            });
+            if (!fromStock || fromStock.quantity < adj.quantity) {
+              throw new Error(
+                `CONFLICT:Stok di gudang asal tidak mencukupi untuk pemindahan (${fromStock?.quantity ?? 0} tersedia).`
+              );
+            }
+
+            await tx.productStock.update({
+              where: {
+                productId_warehouseId: {
+                  productId: adj.productId,
+                  warehouseId: adj.fromWarehouseId,
+                },
               },
+              data: { quantity: { decrement: adj.quantity } },
             });
 
             await tx.productStock.upsert({
@@ -717,7 +727,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: message.slice(10) }, { status: 404 });
     }
     if (message.startsWith("CONFLICT:")) {
-      return NextResponse.json({ error: message.slice(9) }, { status: 400 });
+      return NextResponse.json({ error: message.slice(9) }, { status: 409 });
     }
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -6,6 +6,8 @@ import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SlideDrawer } from "@/components/ui/SlideDrawer";
 import { formatDateTimeJakarta, formatNumber, formatRupiah } from "@/lib/format";
+import { getJakartaDateKey } from "@/lib/date-jakarta";
+import { compressReceiptFileToDataUrl } from "@/lib/receipt-client";
 import {
   Package,
   ArrowsLeftRight,
@@ -133,7 +135,7 @@ export default function InventarisPage() {
   // Tab 3: Blind Count Opname states
   const [blindModeActive, setBlindModeActive] = useState(false);
   const [opnameTitle, setOpnameTitle] = useState(
-    () => `Audit Stok Fisik ${new Date().toISOString().slice(0, 10)}`
+    () => `Audit Stok Fisik ${getJakartaDateKey()}`
   );
   const [physicalInputs, setPhysicalInputs] = useState<Record<string, string>>({});
   const [submittingOpname, setSubmittingOpname] = useState(false);
@@ -169,8 +171,9 @@ export default function InventarisPage() {
         setOpnameSessions(data.opnameSessions || []);
         setToleranceThresholdRp(data.toleranceThresholdRp ?? 50000);
         setOpnameSchedule(data.opnameSchedule ?? "MINGGUAN");
-        if (!adjProductId && data.products?.[0]) {
-          setAdjProductId(data.products[0].id);
+        if (data.products?.[0]) {
+          const fallbackId = data.products[0].id;
+          setAdjProductId((prev) => prev || fallbackId);
         }
       }
     } catch {
@@ -180,19 +183,24 @@ export default function InventarisPage() {
     } finally {
       setLoading(false);
     }
-  }, [adjProductId, showToast]);
+  }, [showToast]);
 
   useEffect(() => {
     loadInventory();
   }, [loadInventory]);
 
-  const handleFileToDataUrl = (file: File | null, cb: (url: string) => void) => {
+  const handleFileToDataUrl = async (file: File | null, cb: (url: string) => void) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") cb(reader.result);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const result = await compressReceiptFileToDataUrl(file);
+      if (result.error || !result.dataUrl) {
+        showToast(result.error || "Gagal memproses foto bukti.", "error");
+        return;
+      }
+      cb(result.dataUrl);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Gagal memproses foto bukti.", "error");
+    }
   };
 
   const handleSubmitAdjustment = async (e: React.FormEvent) => {
@@ -743,7 +751,7 @@ export default function InventarisPage() {
                         </span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/jpeg,image/png,image/webp"
                           className="hidden"
                           onChange={(e) =>
                             handleFileToDataUrl(e.target.files?.[0] || null, setAdjProof)
@@ -1197,7 +1205,7 @@ export default function InventarisPage() {
                         </span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/jpeg,image/png,image/webp"
                           className="hidden"
                           onChange={(e) =>
                             handleFileToDataUrl(

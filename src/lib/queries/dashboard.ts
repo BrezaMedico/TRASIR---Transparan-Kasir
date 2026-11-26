@@ -158,10 +158,12 @@ export async function getDashboardPayload(roomId: string, range = "month") {
       profit: profitReport,
       kpis: {
         totalRevenue: profitReport.metrics.netSalesRevenue,
+        /** @deprecated Placeholder retained for dashboard API backward compatibility. */
         totalPurchases: 0,
         totalCogs: profitReport.metrics.totalCogs,
         estimatedGrossProfit: profitReport.metrics.grossProfit,
         grossMarginPct: profitReport.metrics.grossMarginPct,
+        /** @deprecated Placeholder retained for dashboard API backward compatibility. */
         discrepancyItemsCount: 0,
         totalProductsCount,
         lowStockCount: lowStockProducts.filter((p) => p.currentStock <= p.minStockAlert).length,
@@ -175,7 +177,9 @@ export async function getDashboardPayload(roomId: string, range = "month") {
         adjustments: [],
       },
       anomalies: {
+        /** @deprecated Placeholder retained for dashboard API backward compatibility. */
         aiFlaggedPurchases: [],
+        /** @deprecated Placeholder retained for dashboard API backward compatibility. */
         exceedingOpnameItems: [],
         flaggedShifts,
       },

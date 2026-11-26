@@ -13,6 +13,7 @@ import {
   normalizePurchaseAiResult,
 } from "@/components/ui/ReceiptAiCheckPanel";
 import { formatDateJakarta, formatNumber, formatRupiah } from "@/lib/format";
+import { getJakartaDateKey } from "@/lib/date-jakarta";
 import { compressReceiptFileToDataUrl } from "@/lib/receipt-client";
 import { isStoreAdmin } from "@/lib/rbac-shared";
 import type { AIReceiptValidationResult } from "@/lib/gemini";
@@ -72,7 +73,7 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
   // Form fields
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [supplierName, setSupplierName] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [purchaseDate, setPurchaseDate] = useState(() => getJakartaDateKey());
   const [fundingSource, setFundingSource] = useState<"DANA_TOKO" | "BELANJA_PEMILIK">("DANA_TOKO");
   const [captureMethod, setCaptureMethod] = useState<"LIVE_CAMERA" | "DIGITAL_UPLOAD" | "TANPA_NOTA">("TANPA_NOTA");
   const [receiptImageData, setReceiptImageData] = useState<string>("");
@@ -144,7 +145,7 @@ export function PurchaseDetailView({ purchaseId }: { purchaseId?: string }) {
           const p = pJson.purchase;
           setInvoiceNumber(p.invoiceNumber);
           setSupplierName(p.supplierName);
-          setPurchaseDate(new Date(p.purchaseDate).toISOString().slice(0, 10));
+          setPurchaseDate(getJakartaDateKey(p.purchaseDate));
           setFundingSource(p.fundingSource);
           setCaptureMethod(p.captureMethod || (p.receiptImageData ? "DIGITAL_UPLOAD" : "TANPA_NOTA"));
           setReceiptImageData(p.receiptImageData || "");

@@ -43,7 +43,9 @@ export async function PATCH(request: Request) {
     const candidates = await prisma.productRequest.findMany({
       where: {
         roomId: user.roomId,
-        ...(requestIds && requestIds.length > 0 ? { id: { in: requestIds } } : {}),
+        ...(requestIds && requestIds.length > 0
+          ? { id: { in: requestIds } }
+          : { variantsJson: { contains: batchId! } }),
       },
       orderBy: { createdAt: "asc" },
     });

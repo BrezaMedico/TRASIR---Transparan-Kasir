@@ -29,6 +29,7 @@ const variantSchema = z.object({
 
 const batchItemSchema = z.object({
   clientTempId: z.string().trim().optional(),
+  targetProductId: z.string().trim().min(1).optional(),
   sku: z.string().trim().min(1, "Kode SKU wajib diisi"),
   barcode: z.string().trim().optional().nullable(),
   name: z.string().trim().min(1, "Nama produk wajib diisi"),
@@ -130,12 +131,15 @@ export async function POST(request: Request) {
     if (auth.errorResponse) return auth.errorResponse;
     const user = auth.user;
 
-    const canCreate = await checkUserPermission(user.role, "produk", "create");
-    if (!canCreate) {
+    const [canCreate, canEdit] = await Promise.all([
+      checkUserPermission(user.role, "produk", "create"),
+      checkUserPermission(user.role, "produk", "edit"),
+    ]);
+    if (!canCreate && !canEdit) {
       return NextResponse.json(
         {
           error:
-            "Peran Kasir tidak diizinkan menambahkan barang. Hanya Gudang, Kasir + Gudang, Manajer, atau Pemilik yang dapat mengajukan barang.",
+            "Peran Kasir tidak diizinkan menambahkan atau mengubah barang. Hanya Gudang, Kasir + Gudang, Manajer, atau Pemilik yang dapat mengajukan barang.",
         },
         { status: 403 }
       );
@@ -176,6 +180,67 @@ export async function POST(request: Request) {
     }
 
     const data = parsed.data;
+
+    for (const item of data.items) {
+      if (item.targetProductId && !canEdit) {
+        return NextResponse.json(
+          { error: `Anda tidak memiliki izin mengajukan perubahan untuk "${item.name}".` },
+          { status: 403 }
+        );
+      }
+      if (!item.targetProductId && !canCreate) {
+        return NextResponse.json(
+          { error: `Anda tidak memiliki izin mengajukan barang baru "${item.name}".` },
+          { status: 403 }
+        );
+      }
+    }
+
+    const seenTargetIds = new Set<string>();
+    for (const item of data.items) {
+      if (item.targetProductId) {
+        if (seenTargetIds.has(item.targetProductId)) {
+          return NextResponse.json(
+            {
+              error: `Barang "${item.name}" hanya boleh memiliki satu usulan perubahan dalam satu paket.`,
+            },
+            { status: 409 }
+          );
+        }
+        seenTargetIds.add(item.targetProductId);
+      }
+    }
+
+    const targetProductIds = Array.from(seenTargetIds);
+    const targetProducts =
+      targetProductIds.length > 0
+        ? await prisma.product.findMany({
+            where: { roomId: user.roomId, id: { in: targetProductIds }, isActive: true },
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              barcode: true,
+              costPrice: true,
+              sellPrice: true,
+              currentStock: true,
+              minStockAlert: true,
+              stockMethod: true,
+              purchaseUnit: true,
+              sellUnit: true,
+              conversionRatio: true,
+            },
+          })
+        : [];
+    const targetProductMap = new Map(targetProducts.map((p) => [p.id, p]));
+    for (const item of data.items) {
+      if (item.targetProductId && !targetProductMap.has(item.targetProductId)) {
+        return NextResponse.json(
+          { error: `Produk target untuk "${item.name}" tidak ditemukan pada ruangan ini.` },
+          { status: 404 }
+        );
+      }
+    }
 
     if (data.receiptImageData) {
       const proofCheck = validateProofAttachment(data.receiptImageData);
@@ -262,20 +327,22 @@ export async function POST(request: Request) {
     const [existingProducts, existingPending] = await Promise.all([
       prisma.product.findMany({
         where: { roomId: user.roomId },
-        select: { sku: true, barcode: true, name: true, isActive: true },
+        select: { id: true, sku: true, barcode: true, name: true, isActive: true },
       }),
       prisma.productRequest.findMany({
         where: { roomId: user.roomId, status: "MENUNGGU_PERSETUJUAN" },
-        select: { sku: true, barcode: true, name: true },
+        select: { sku: true, barcode: true, name: true, variantsJson: true },
       }),
     ]);
 
     for (const item of normalizedItems) {
+      const targetId = item.raw.targetProductId;
       const conflictProd = existingProducts.find(
         (p) =>
-          p.sku === item.normalizedSku ||
-          (item.normalizedBarcode && p.barcode === item.normalizedBarcode) ||
-          (p.isActive && p.name.trim().toLowerCase() === item.normalizedName.toLowerCase())
+          p.id !== targetId &&
+          (p.sku === item.normalizedSku ||
+            (item.normalizedBarcode && p.barcode === item.normalizedBarcode) ||
+            (p.isActive && p.name.trim().toLowerCase() === item.normalizedName.toLowerCase()))
       );
       if (conflictProd) {
         return NextResponse.json(
@@ -286,12 +353,15 @@ export async function POST(request: Request) {
         );
       }
 
-      const conflictReq = existingPending.find(
-        (r) =>
+      const conflictReq = existingPending.find((r) => {
+        const rEnv = parseProductRequestEnvelope(r.variantsJson);
+        if (targetId && rEnv.targetProductId === targetId) return true;
+        return (
           r.sku === item.normalizedSku ||
           (item.normalizedBarcode && r.barcode === item.normalizedBarcode) ||
           r.name.trim().toLowerCase() === item.normalizedName.toLowerCase()
-      );
+        );
+      });
       if (conflictReq) {
         return NextResponse.json(
           {
@@ -302,20 +372,59 @@ export async function POST(request: Request) {
       }
     }
 
+    const updateCount = normalizedItems.filter((it) => Boolean(it.raw.targetProductId)).length;
+    const allUpdates = updateCount === normalizedItems.length;
     const batchId = `BATCH-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const resolvedBatchTitle =
       data.batchTitle?.trim() ||
       (normalizedItems.length === 1
-        ? normalizedItems[0].normalizedName
-        : `Paket ${normalizedItems.length} Barang Baru`);
+        ? allUpdates
+          ? `Ubah ${normalizedItems[0].normalizedName}`
+          : normalizedItems[0].normalizedName
+        : allUpdates
+          ? `Paket ${normalizedItems.length} Perubahan Barang`
+          : updateCount > 0
+            ? `Paket ${normalizedItems.length} Pengajuan & Perubahan`
+            : `Paket ${normalizedItems.length} Barang Baru`);
 
     const createdRequests = await prisma.$transaction(async (tx) => {
       const created = [];
       for (let idx = 0; idx < normalizedItems.length; idx += 1) {
         const item = normalizedItems[idx];
+        const targetProd = item.raw.targetProductId
+          ? targetProductMap.get(item.raw.targetProductId)
+          : undefined;
+        const hasStockInput =
+          typeof item.raw.currentStock === "number" || typeof item.raw.initialStock === "number";
+        const updateStockValue =
+          targetProd &&
+          item.raw.stockMethod !== "RESEP" &&
+          hasStockInput &&
+          item.resolvedInitialStock !== targetProd.currentStock
+            ? item.resolvedInitialStock
+            : undefined;
+
         const variantsJson = serializeProductRequestEnvelope({
-          initialStock:
-            item.raw.stockMethod !== "RESEP" && item.resolvedInitialStock > 0
+          requestKind: targetProd ? "UPDATE" : "CREATE",
+          targetProductId: targetProd?.id,
+          previousSnapshot: targetProd
+            ? {
+                name: targetProd.name,
+                sku: targetProd.sku,
+                barcode: targetProd.barcode,
+                costPrice: targetProd.costPrice,
+                sellPrice: targetProd.sellPrice,
+                currentStock: targetProd.currentStock,
+                minStockAlert: targetProd.minStockAlert,
+                stockMethod: targetProd.stockMethod,
+                purchaseUnit: targetProd.purchaseUnit,
+                sellUnit: targetProd.sellUnit,
+                conversionRatio: targetProd.conversionRatio,
+              }
+            : undefined,
+          initialStock: targetProd
+            ? updateStockValue
+            : item.raw.stockMethod !== "RESEP" && item.resolvedInitialStock > 0
               ? item.resolvedInitialStock
               : undefined,
           variants:
@@ -490,6 +599,12 @@ export async function DELETE(request: Request) {
     }
     if (requestIds && requestIds.length > 0) {
       whereClause.id = { in: requestIds };
+    } else if (batchId) {
+      if (batchId.startsWith("single-")) {
+        whereClause.id = batchId.slice("single-".length);
+      } else {
+        whereClause.variantsJson = { contains: batchId };
+      }
     }
 
     const candidates = await prisma.productRequest.findMany({

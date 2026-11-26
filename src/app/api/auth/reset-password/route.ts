@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth";
 import { validateResetTokenAgainstDb } from "@/lib/password-reset";
 import { recordAuditLog } from "@/lib/audit";
+import { checkRateLimit, getClientIpKey } from "@/lib/rate-limit";
 import { z } from "zod";
 
 const resetSchema = z.object({
@@ -15,6 +16,13 @@ const resetSchema = z.object({
 
 export async function GET(request: Request) {
   try {
+    const ipLimit = checkRateLimit(`reset-pwd:get:${getClientIpKey(request)}`, 20, 15 * 60_000);
+    if (ipLimit.limited) {
+      return NextResponse.json(
+        { valid: false, error: "Terlalu banyak percobaan verifikasi tautan. Coba lagi nanti." },
+        { status: 429 }
+      );
+    }
     const { searchParams } = new URL(request.url);
     const token = searchParams.get("token")?.trim() || "";
     if (!token) {
@@ -44,6 +52,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const ipLimit = checkRateLimit(`reset-pwd:post:${getClientIpKey(request)}`, 20, 15 * 60_000);
+    if (ipLimit.limited) {
+      return NextResponse.json(
+        { error: "Terlalu banyak percobaan atur ulang kata sandi. Coba beberapa saat lagi." },
+        { status: 429 }
+      );
+    }
     const body = await request.json();
     const parsed = resetSchema.safeParse(body);
     if (!parsed.success) {

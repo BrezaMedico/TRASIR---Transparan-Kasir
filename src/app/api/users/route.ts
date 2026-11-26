@@ -37,39 +37,50 @@ export async function GET() {
       ])
     );
 
-    const [shiftClosings, normalSales] = await withDbRetry(() =>
+    const [activeShifts, latestClosings] = await withDbRetry(() =>
       Promise.all([
         prisma.shiftClosing.findMany({
-          where: { roomId: user.roomId },
-          orderBy: { createdAt: "desc" },
-          select: { cashierId: true, status: true, createdAt: true },
+          where: { roomId: user.roomId, status: "AKTIF" },
+          select: { cashierId: true },
+          distinct: ["cashierId"],
         }),
-        prisma.sale.findMany({
-          where: { roomId: user.roomId, status: "NORMAL" },
-          select: { cashierId: true, createdAt: true },
+        prisma.shiftClosing.groupBy({
+          by: ["cashierId"],
+          where: { roomId: user.roomId, status: { not: "AKTIF" } },
+          _max: { createdAt: true },
         }),
       ])
     );
 
-    const activeShiftCashiers = new Set<string>();
+    const activeShiftCashiers = new Set<string>(activeShifts.map((row) => row.cashierId));
     const lastClosingByCashier = new Map<string, Date>();
-    for (const row of shiftClosings) {
-      if (row.status === "AKTIF") {
-        activeShiftCashiers.add(row.cashierId);
-      } else if (!lastClosingByCashier.has(row.cashierId)) {
-        lastClosingByCashier.set(row.cashierId, row.createdAt);
+    for (const row of latestClosings) {
+      if (row._max.createdAt) {
+        lastClosingByCashier.set(row.cashierId, row._max.createdAt);
       }
     }
 
     const unclosedCountByCashier = new Map<string, number>();
-    for (const sale of normalSales) {
-      const lastClosingAt = lastClosingByCashier.get(sale.cashierId);
-      if (!lastClosingAt || sale.createdAt > lastClosingAt) {
-        unclosedCountByCashier.set(
-          sale.cashierId,
-          (unclosedCountByCashier.get(sale.cashierId) ?? 0) + 1
-        );
-      }
+    for (let i = 0; i < users.length; i += 3) {
+      const batch = users.slice(i, i + 3);
+      const counts = await withDbRetry(() =>
+        Promise.all(
+          batch.map((member) => {
+            const lastClosingAt = lastClosingByCashier.get(member.id);
+            return prisma.sale.count({
+              where: {
+                roomId: user.roomId,
+                cashierId: member.id,
+                status: "NORMAL",
+                ...(lastClosingAt ? { createdAt: { gt: lastClosingAt } } : {}),
+              },
+            });
+          })
+        )
+      );
+      batch.forEach((member, idx) => {
+        unclosedCountByCashier.set(member.id, counts[idx] ?? 0);
+      });
     }
 
     const enriched = users.map((member) => {

@@ -67,31 +67,62 @@ const INTERACTION_FALLBACK_MODELS = [
   "gemini-flash-lite-latest",
 ] as const;
 
+const COMMON_RECEIPT_REQUIRED = [
+  "isReceiptReadable",
+  "detectedDocumentType",
+  "receiptLines",
+  "hasDiscrepancy",
+  "hasEditSuspicion",
+  "neutralSummary",
+  "items",
+];
+
+const COMMON_RECEIPT_GEN_PROPERTIES: Record<string, Schema> = {
+  isReceiptReadable: { type: Type.BOOLEAN },
+  detectedDocumentType: { type: Type.STRING },
+  receiptLines: { type: Type.ARRAY, items: { type: Type.STRING } },
+  unmatchedReceiptItems: { type: Type.ARRAY, items: { type: Type.STRING } },
+  missingReceiptInfo: { type: Type.ARRAY, items: { type: Type.STRING } },
+  extractedSupplier: { type: Type.STRING },
+  extractedInvoiceNumber: { type: Type.STRING },
+  extractedDate: { type: Type.STRING },
+  extractedTotal: { type: Type.NUMBER },
+  hasDiscrepancy: { type: Type.BOOLEAN },
+  hasEditSuspicion: { type: Type.BOOLEAN },
+  editSuspicionReason: { type: Type.STRING },
+  neutralSummary: { type: Type.STRING },
+};
+
+const COMMON_RECEIPT_INTERACTION_PROPERTIES = {
+  isReceiptReadable: { type: "boolean" },
+  detectedDocumentType: { type: "string" },
+  receiptLines: { type: "array", items: { type: "string" } },
+  unmatchedReceiptItems: { type: "array", items: { type: "string" } },
+  missingReceiptInfo: { type: "array", items: { type: "string" } },
+  extractedSupplier: { type: "string" },
+  extractedInvoiceNumber: { type: "string" },
+  extractedDate: { type: "string" },
+  extractedTotal: { type: "number" },
+  hasDiscrepancy: { type: "boolean" },
+  hasEditSuspicion: { type: "boolean" },
+  editSuspicionReason: { type: "string" },
+  neutralSummary: { type: "string" },
+};
+
+const RECEIPT_ITEM_REQUIRED = [
+  "submittedName",
+  "itemName",
+  "quantity",
+  "unitCost",
+  "subtotal",
+  "matchStatus",
+  "matchesInput",
+];
+
 const RECEIPT_GEN_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
-    isReceiptReadable: { type: Type.BOOLEAN },
-    detectedDocumentType: { type: Type.STRING },
-    receiptLines: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    unmatchedReceiptItems: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    missingReceiptInfo: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    extractedSupplier: { type: Type.STRING },
-    extractedInvoiceNumber: { type: Type.STRING },
-    extractedDate: { type: Type.STRING },
-    extractedTotal: { type: Type.NUMBER },
-    hasDiscrepancy: { type: Type.BOOLEAN },
-    hasEditSuspicion: { type: Type.BOOLEAN },
-    editSuspicionReason: { type: Type.STRING },
-    neutralSummary: { type: Type.STRING },
+    ...COMMON_RECEIPT_GEN_PROPERTIES,
     items: {
       type: Type.ARRAY,
       items: {
@@ -110,45 +141,17 @@ const RECEIPT_GEN_SCHEMA: Schema = {
           matchesInput: { type: Type.BOOLEAN },
           discrepancyNote: { type: Type.STRING },
         },
-        required: [
-          "submittedName",
-          "itemName",
-          "quantity",
-          "unitCost",
-          "subtotal",
-          "matchStatus",
-          "matchesInput",
-        ],
+        required: RECEIPT_ITEM_REQUIRED,
       },
     },
   },
-  required: [
-    "isReceiptReadable",
-    "detectedDocumentType",
-    "receiptLines",
-    "hasDiscrepancy",
-    "hasEditSuspicion",
-    "neutralSummary",
-    "items",
-  ],
+  required: COMMON_RECEIPT_REQUIRED,
 };
 
 const RECEIPT_INTERACTION_SCHEMA = {
   type: "object",
   properties: {
-    isReceiptReadable: { type: "boolean" },
-    detectedDocumentType: { type: "string" },
-    receiptLines: { type: "array", items: { type: "string" } },
-    unmatchedReceiptItems: { type: "array", items: { type: "string" } },
-    missingReceiptInfo: { type: "array", items: { type: "string" } },
-    extractedSupplier: { type: "string" },
-    extractedInvoiceNumber: { type: "string" },
-    extractedDate: { type: "string" },
-    extractedTotal: { type: "number" },
-    hasDiscrepancy: { type: "boolean" },
-    hasEditSuspicion: { type: "boolean" },
-    editSuspicionReason: { type: "string" },
-    neutralSummary: { type: "string" },
+    ...COMMON_RECEIPT_INTERACTION_PROPERTIES,
     items: {
       type: "array",
       items: {
@@ -167,54 +170,17 @@ const RECEIPT_INTERACTION_SCHEMA = {
           matchesInput: { type: "boolean" },
           discrepancyNote: { type: "string" },
         },
-        required: [
-          "submittedName",
-          "itemName",
-          "quantity",
-          "unitCost",
-          "subtotal",
-          "matchStatus",
-          "matchesInput",
-        ],
+        required: RECEIPT_ITEM_REQUIRED,
       },
     },
   },
-  required: [
-    "isReceiptReadable",
-    "detectedDocumentType",
-    "receiptLines",
-    "hasDiscrepancy",
-    "hasEditSuspicion",
-    "neutralSummary",
-    "items",
-  ],
+  required: COMMON_RECEIPT_REQUIRED,
 };
 
 const PRODUCT_BATCH_GEN_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
-    isReceiptReadable: { type: Type.BOOLEAN },
-    detectedDocumentType: { type: Type.STRING },
-    receiptLines: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    unmatchedReceiptItems: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    missingReceiptInfo: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    extractedSupplier: { type: Type.STRING },
-    extractedInvoiceNumber: { type: Type.STRING },
-    extractedDate: { type: Type.STRING },
-    extractedTotal: { type: Type.NUMBER },
-    hasDiscrepancy: { type: Type.BOOLEAN },
-    hasEditSuspicion: { type: Type.BOOLEAN },
-    editSuspicionReason: { type: Type.STRING },
-    neutralSummary: { type: Type.STRING },
+    ...COMMON_RECEIPT_GEN_PROPERTIES,
     items: {
       type: Type.ARRAY,
       items: {
@@ -235,33 +201,13 @@ const PRODUCT_BATCH_GEN_SCHEMA: Schema = {
       },
     },
   },
-  required: [
-    "isReceiptReadable",
-    "detectedDocumentType",
-    "receiptLines",
-    "hasDiscrepancy",
-    "hasEditSuspicion",
-    "neutralSummary",
-    "items",
-  ],
+  required: COMMON_RECEIPT_REQUIRED,
 };
 
 const PRODUCT_BATCH_INTERACTION_SCHEMA = {
   type: "object",
   properties: {
-    isReceiptReadable: { type: "boolean" },
-    detectedDocumentType: { type: "string" },
-    receiptLines: { type: "array", items: { type: "string" } },
-    unmatchedReceiptItems: { type: "array", items: { type: "string" } },
-    missingReceiptInfo: { type: "array", items: { type: "string" } },
-    extractedSupplier: { type: "string" },
-    extractedInvoiceNumber: { type: "string" },
-    extractedDate: { type: "string" },
-    extractedTotal: { type: "number" },
-    hasDiscrepancy: { type: "boolean" },
-    hasEditSuspicion: { type: "boolean" },
-    editSuspicionReason: { type: "string" },
-    neutralSummary: { type: "string" },
+    ...COMMON_RECEIPT_INTERACTION_PROPERTIES,
     items: {
       type: "array",
       items: {
@@ -282,15 +228,7 @@ const PRODUCT_BATCH_INTERACTION_SCHEMA = {
       },
     },
   },
-  required: [
-    "isReceiptReadable",
-    "detectedDocumentType",
-    "receiptLines",
-    "hasDiscrepancy",
-    "hasEditSuspicion",
-    "neutralSummary",
-    "items",
-  ],
+  required: COMMON_RECEIPT_REQUIRED,
 };
 
 export function computeReceiptHash(base64OrDataUrl: string): string {

@@ -207,9 +207,29 @@ export function RawMaterialDrawer({
       minStockAlert: Math.max(0, Number(minStockAlert) || Math.round(safePackSize * 0.2)),
     };
 
-    if (!editingProduct && !isAdmin && onAddToCart) {
+    if (!isAdmin && onAddToCart) {
+      const isUpdate = Boolean(editingProduct);
       onAddToCart({
-        clientTempId: `cart-mat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        clientTempId: editingProduct
+          ? `cart-edit-${editingProduct.id}`
+          : `cart-mat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        requestKind: isUpdate ? "UPDATE" : "CREATE",
+        targetProductId: editingProduct?.id,
+        previousSnapshot: editingProduct
+          ? {
+              name: editingProduct.name,
+              sku: editingProduct.sku,
+              barcode: editingProduct.barcode,
+              costPrice: editingProduct.costPrice,
+              sellPrice: editingProduct.sellPrice,
+              currentStock: editingProduct.currentStock,
+              minStockAlert: editingProduct.minStockAlert,
+              stockMethod: editingProduct.stockMethod,
+              purchaseUnit: editingProduct.purchaseUnit,
+              sellUnit: editingProduct.sellUnit,
+              conversionRatio: editingProduct.conversionRatio,
+            }
+          : undefined,
         sku: payload.sku,
         barcode: payload.barcode,
         name: payload.name,
@@ -277,11 +297,15 @@ export function RawMaterialDrawer({
       widthClass="max-w-xl"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
-        {!editingProduct && !isAdmin && (
+        {!isAdmin && (
           <div className="p-3.5 rounded-xl bg-[#EBEBEB] text-[#202531] border border-[#202531]/15 flex items-start gap-2.5 text-xs">
             <Info size={16} weight="bold" className="shrink-0 mt-0.5" aria-hidden="true" />
             <p>
-              {onAddToCart
+              {editingProduct
+                ? onAddToCart
+                  ? "Perubahan harga beli atau data bahan akan masuk ke Daftar Pengajuan. Anda bisa mengubah bahan atau menu lain lalu mengirimnya sekaligus."
+                  : "Usulan perubahan bahan baku akan menunggu persetujuan Pemilik atau Manajer."
+                : onAddToCart
                 ? "Bahan ini akan masuk ke Daftar Pengajuan. Anda bisa menambah bahan atau menu lain lalu mengirimnya sekaligus."
                 : "Bahan baku yang Anda masukkan akan menunggu persetujuan Pemilik atau Manajer."}
             </p>
@@ -629,7 +653,7 @@ export function RawMaterialDrawer({
               aria-busy={submitting}
               className="w-full flex items-center justify-center gap-2 px-5 min-h-[48px] rounded-xl bg-[#01DAD7] text-[#202531] text-sm font-extrabold hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity duration-150 cursor-pointer"
             >
-              {!editingProduct && !isAdmin && onAddToCart ? (
+              {!isAdmin && onAddToCart ? (
                 <ClipboardText size={18} weight="bold" aria-hidden="true" />
               ) : (
                 <FloppyDisk size={18} weight="bold" aria-hidden="true" />
@@ -638,7 +662,9 @@ export function RawMaterialDrawer({
                 {submitting
                   ? "Menyimpan..."
                   : editingProduct
-                  ? "Simpan Perubahan"
+                  ? !isAdmin && onAddToCart
+                    ? "Masukkan Perubahan ke Daftar Pengajuan"
+                    : "Simpan Perubahan"
                   : isAdmin
                   ? "Simpan Bahan Baku"
                   : onAddToCart

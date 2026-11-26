@@ -16,6 +16,10 @@ const loginSchema = z.object({
   password: z.string().min(1, "Kata sandi wajib diisi"),
 });
 
+// Constant-time mitigation hash when identifier is not found
+const DUMMY_BCRYPT_HASH =
+  "$2b$12$C6UzMDM.H6dfI/f/IKxGhu6N7xW8h4bQ0pI5c7u9iQ2w0zP1rS3u.";
+
 export async function POST(request: Request) {
   try {
     await ensureSystemBaseline();
@@ -48,6 +52,7 @@ export async function POST(request: Request) {
     });
 
     if (!user) {
+      await verifyPassword(parsed.data.password, DUMMY_BCRYPT_HASH).catch(() => false);
       return NextResponse.json(
         { error: "Akun tidak ditemukan atau kata sandi salah." },
         { status: 401 }

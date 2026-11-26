@@ -24,10 +24,12 @@ interface DashboardPayload {
   profit: GrossProfitReport;
   kpis: {
     totalRevenue: number;
+    /** @deprecated Placeholder retained for dashboard API backward compatibility. */
     totalPurchases: number;
     totalCogs: number;
     estimatedGrossProfit: number;
     grossMarginPct: number;
+    /** @deprecated Placeholder retained for dashboard API backward compatibility. */
     discrepancyItemsCount: number;
     totalProductsCount: number;
     lowStockCount: number;

@@ -193,8 +193,10 @@ export async function POST(request: Request) {
     }
 
     const code = normalizeInviteCode(rawInviteCode);
+    const isPostgres = (process.env.DATABASE_URL || "").startsWith("postgres");
 
-    const joinResult = await prisma.$transaction(async (tx) => {
+    const joinResult = await prisma.$transaction(
+      async (tx) => {
       const invitation = await tx.storeInvitation.findUnique({
         where: { code },
         include: {
@@ -257,8 +259,8 @@ export async function POST(request: Request) {
         },
       });
 
-      await tx.storeInvitation.update({
-        where: { id: invitation.id },
+      const claim = await tx.storeInvitation.updateMany({
+        where: { id: invitation.id, status: "PENDING" },
         data: {
           status: "ACCEPTED",
           targetUserId: created.id,
@@ -266,6 +268,9 @@ export async function POST(request: Request) {
           respondedAt: now,
         },
       });
+      if (claim.count !== 1) {
+        throw new Error("CONFLICT:Kode undangan ini sudah pernah digunakan.");
+      }
 
       await recordAuditLog(
         {
@@ -303,7 +308,11 @@ export async function POST(request: Request) {
       );
 
       return { created, room: invitation.room };
-    });
+    },
+      isPostgres
+        ? { isolationLevel: "Serializable", maxWait: 20000, timeout: 30000 }
+        : undefined
+    );
 
     const role = joinResult.created.role as UserRole;
     const sessionUser = {
@@ -333,7 +342,25 @@ export async function POST(request: Request) {
     attachSessionCookie(res, token);
     return res;
   } catch (err) {
+    if (err && typeof err === "object" && "code" in err) {
+      const code = (err as { code?: unknown }).code;
+      if (code === "P2002") {
+        return NextResponse.json(
+          { error: "Username atau email sudah terdaftar pada akun lain." },
+          { status: 409 }
+        );
+      }
+      if (code === "P2034") {
+        return NextResponse.json(
+          { error: "Permintaan pendaftaran bersamaan. Silakan coba beberapa saat lagi." },
+          { status: 409 }
+        );
+      }
+    }
     const rawMsg = err instanceof Error ? err.message : "Gagal mendaftarkan akun baru.";
+    if (rawMsg.startsWith("CONFLICT:")) {
+      return NextResponse.json({ error: rawMsg.replace("CONFLICT:", "") }, { status: 409 });
+    }
     if (rawMsg.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: rawMsg.replace("NOT_FOUND:", "") }, { status: 404 });
     }
@@ -346,6 +373,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    return NextResponse.json({ error: rawMsg }, { status: 500 });
+    return NextResponse.json({ error: "Gagal mendaftarkan akun baru." }, { status: 500 });
   }
 }

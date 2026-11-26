@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { isStoreAdmin } from "@/lib/rbac";
+import { applyApprovedProductRequest } from "@/lib/inventory";
 import { createNotification, recordAuditLog } from "@/lib/audit";
 import { parseProductRequestEnvelope } from "@/lib/product-request-batch";
 import { z } from "zod";
@@ -46,32 +47,61 @@ export async function POST(request: Request) {
     }
 
     const now = new Date();
+    const isPostgres = (process.env.DATABASE_URL || "").startsWith("postgres");
 
-    const result = await prisma.$transaction(async (tx) => {
-      const candidateRows = await tx.productRequest.findMany({
-        where: {
-          roomId: reviewer.roomId,
-          status: "MENUNGGU_PERSETUJUAN",
-          ...(requestIds && requestIds.length > 0 ? { id: { in: requestIds } } : {}),
-        },
-        include: {
-          category: true,
-          requestedBy: { select: { id: true, name: true, username: true, role: true } },
-        },
-        orderBy: { createdAt: "asc" },
-      });
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const candidateRows = await tx.productRequest.findMany({
+          where: {
+            roomId: reviewer.roomId,
+            status: "MENUNGGU_PERSETUJUAN",
+            ...(requestIds && requestIds.length > 0
+              ? { id: { in: requestIds } }
+              : { variantsJson: { contains: batchId! } }),
+          },
+          include: {
+            category: true,
+            requestedBy: { select: { id: true, name: true, username: true, role: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        });
 
-      const targetRows =
-        requestIds && requestIds.length > 0
-          ? candidateRows
-          : candidateRows.filter((row) => parseProductRequestEnvelope(row.variantsJson).batchId === batchId);
+        const targetRows =
+          requestIds && requestIds.length > 0
+            ? candidateRows
+            : candidateRows.filter(
+                (row) => parseProductRequestEnvelope(row.variantsJson).batchId === batchId
+              );
 
-      if (targetRows.length === 0) {
-        throw new Error("NOT_FOUND:Tidak ada item pengajuan berstatus Menunggu Persetujuan pada paket ini.");
-      }
+        if (targetRows.length === 0) {
+          throw new Error(
+            "NOT_FOUND:Tidak ada item pengajuan berstatus Menunggu Persetujuan pada paket ini."
+          );
+        }
 
-      const approvedProducts: unknown[] = [];
-      const updatedRequests: unknown[] = [];
+        const targetIds = targetRows.map((r) => r.id);
+        const cleanReason = decision === "DITOLAK" ? rejectionReason?.trim() || null : null;
+        const claim = await tx.productRequest.updateMany({
+          where: {
+            id: { in: targetIds },
+            roomId: reviewer.roomId,
+            status: "MENUNGGU_PERSETUJUAN",
+          },
+          data: {
+            status: decision,
+            reviewedById: reviewer.id,
+            reviewedAt: now,
+            rejectionReason: cleanReason,
+          },
+        });
+        if (claim.count !== targetIds.length) {
+          throw new Error(
+            "CONFLICT:Sebagian atau seluruh pengajuan pada paket ini sudah diproses."
+          );
+        }
+
+        const approvedProducts: unknown[] = [];
+        const updatedRequests: unknown[] = [];
 
       if (decision === "DISETUJUI") {
         // Urutkan agar Bahan Baku & Produk Langsung Jual dibuat lebih dulu sebelum Menu Resep
@@ -84,161 +114,26 @@ export async function POST(request: Request) {
         const tempIdToProductId = new Map<string, string>();
 
         for (const reqRow of sortedRows) {
-          const dup = await tx.product.findFirst({
-            where: {
-              roomId: reviewer.roomId,
-              OR: [
-                { sku: reqRow.sku },
-                ...(reqRow.barcode ? [{ barcode: reqRow.barcode }] : []),
-              ],
-            },
-            select: { name: true, sku: true },
-          });
-
-          if (dup) {
-            throw new Error(
-              `CONFLICT:Tidak dapat menyetujui "${reqRow.name}" karena SKU/barcode sudah dipakai oleh produk "${dup.name}".`
-            );
-          }
-
-          const env = parseProductRequestEnvelope(reqRow.variantsJson);
-          const approvedInitialStock =
-            reqRow.stockMethod !== "RESEP" && typeof env.initialStock === "number"
-              ? Math.max(0, env.initialStock)
-              : 0;
-
-          const createdProd = await tx.product.create({
-            data: {
-              roomId: reviewer.roomId,
-              sku: reqRow.sku,
-              barcode: reqRow.barcode,
-              name: reqRow.name,
-              categoryId: reqRow.categoryId,
-              stockMethod: reqRow.stockMethod,
-              isRawMaterial: reqRow.isRawMaterial,
-              purchaseUnit: reqRow.purchaseUnit,
-              sellUnit: reqRow.sellUnit,
-              conversionRatio: reqRow.conversionRatio,
-              costPrice: reqRow.costPrice,
-              sellPrice: reqRow.sellPrice,
-              currentStock: approvedInitialStock,
-              minStockAlert: reqRow.minStockAlert,
-              isActive: true,
-            },
-          });
-
-          if (env.clientTempId) {
-            tempIdToProductId.set(env.clientTempId, createdProd.id);
-          }
-
-          if (reqRow.stockMethod === "RESEP" && env.variants && env.variants.length > 0) {
-            let primaryVariantCost: number | null = null;
-            let primaryVariantSellPrice: number | null = null;
-
-            for (const v of env.variants) {
-              let calculatedCost = v.costPrice ?? 0;
-              const resolvedIngredients: {
-                materialId: string;
-                quantity: number;
-                unit: string;
-              }[] = [];
-
-              if (v.ingredients && v.ingredients.length > 0) {
-                let sumCost = 0;
-                for (const ing of v.ingredients) {
-                  const resolvedMatId = tempIdToProductId.get(ing.materialId) || ing.materialId;
-                  const mat = await tx.product.findFirst({
-                    where: { id: resolvedMatId, roomId: reviewer.roomId },
-                  });
-                  if (!mat) {
-                    throw new Error(
-                      `CONFLICT:Bahan baku resep untuk "${reqRow.name}" tidak ditemukan atau belum aktif.`
-                    );
-                  }
-                  sumCost += Math.round(mat.costPrice * ing.quantity);
-                  resolvedIngredients.push({
-                    materialId: mat.id,
-                    quantity: ing.quantity,
-                    unit: ing.unit,
-                  });
-                }
-                if (sumCost > 0) calculatedCost = sumCost;
-              }
-
-              if (primaryVariantCost === null) {
-                primaryVariantCost = calculatedCost;
-                primaryVariantSellPrice = v.sellPrice;
-              }
-
-              await tx.productVariant.create({
-                data: {
-                  productId: createdProd.id,
-                  name: v.name.trim(),
-                  sellPrice: v.sellPrice,
-                  costPrice: calculatedCost,
-                  ingredients:
-                    resolvedIngredients.length > 0
-                      ? {
-                          create: resolvedIngredients.map((ing) => ({
-                            materialId: ing.materialId,
-                            quantity: ing.quantity,
-                            unit: ing.unit,
-                          })),
-                        }
-                      : undefined,
-                },
-              });
-            }
-
-            if (primaryVariantCost !== null) {
-              await tx.product.update({
-                where: { id: createdProd.id },
-                data: {
-                  costPrice: primaryVariantCost,
-                  ...(reqRow.sellPrice <= 0 && primaryVariantSellPrice !== null
-                    ? { sellPrice: primaryVariantSellPrice }
-                    : {}),
-                },
-              });
-            }
-          }
-
-          const hydratedProd = await tx.product.findUnique({
-            where: { id: createdProd.id },
-            include: {
-              category: true,
-              variants: { include: { ingredients: { include: { material: true } } } },
-            },
+          const hydratedProd = await applyApprovedProductRequest(tx, {
+            roomId: reviewer.roomId,
+            reqRow,
+            tempIdToProductId,
           });
           approvedProducts.push(hydratedProd);
 
-          const updatedReq = await tx.productRequest.update({
-            where: { id: reqRow.id },
-            data: {
-              status: "DISETUJUI",
-              reviewedById: reviewer.id,
-              reviewedAt: now,
-              rejectionReason: null,
-              approvedProductId: createdProd.id,
-            },
-          });
-          updatedRequests.push(updatedReq);
+          if (hydratedProd) {
+            const updatedReq = await tx.productRequest.update({
+              where: { id: reqRow.id },
+              data: { approvedProductId: hydratedProd.id },
+            });
+            updatedRequests.push(updatedReq);
+          }
         }
       } else {
-        const cleanReason = rejectionReason?.trim() || null;
-        for (const reqRow of targetRows) {
-          const updatedReq = await tx.productRequest.update({
-            where: { id: reqRow.id },
-            data: {
-              status: "DITOLAK",
-              reviewedById: reviewer.id,
-              reviewedAt: now,
-              rejectionReason: cleanReason,
-              approvedProductId: null,
-            },
-          });
-          updatedRequests.push(updatedReq);
-        }
+        const rejectedRows = await tx.productRequest.findMany({
+          where: { id: { in: targetIds }, roomId: reviewer.roomId },
+        });
+        updatedRequests.push(...rejectedRows);
       }
 
       const itemNamesSummary = targetRows
@@ -306,10 +201,25 @@ export async function POST(request: Request) {
         approvedProducts,
         updatedRequests,
       };
-    });
+    },
+      isPostgres
+        ? { isolationLevel: "Serializable", maxWait: 20000, timeout: 30000 }
+        : undefined
+    );
 
     return NextResponse.json(result);
   } catch (err) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "P2034"
+    ) {
+      return NextResponse.json(
+        { error: "Paket pengajuan sedang diproses bersamaan. Silakan muat ulang." },
+        { status: 409 }
+      );
+    }
     const rawMsg = err instanceof Error ? err.message : "Gagal memproses paket pengajuan produk.";
     if (rawMsg.startsWith("NOT_FOUND:")) {
       return NextResponse.json({ error: rawMsg.replace("NOT_FOUND:", "") }, { status: 404 });

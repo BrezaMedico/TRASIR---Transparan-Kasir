@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AppShell, useToast } from "@/components/layout/AppShell";
-import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
+import { AppShell, useToast, useWorkspaceSession } from "@/components/layout/AppShell";
+import { fetchJsonCached, getCachedData, invalidateCache } from "@/lib/client-cache";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDateTimeJakarta } from "@/lib/format";
+import { getJakartaDateKey } from "@/lib/date-jakarta";
 import { formatRoleLabel, isStoreAdmin } from "@/lib/rbac-shared";
 import {
   formatActionTypeLabel,
@@ -49,13 +50,22 @@ interface AuditLogRow {
 
 export default function AktivitasPage() {
   const { showToast } = useToast();
+  const workspaceSession = useWorkspaceSession();
 
   const cachedAudit = getCachedData<{
     auditLogs?: AuditLogRow[];
     notifications?: NotificationRow[];
   }>("/api/audit?");
 
-  const [activeTab, setActiveTab] = useState<"notifications" | "audit">("audit");
+  const [activeTab, setActiveTab] = useState<"notifications" | "audit">(() => {
+    if (
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("tab") === "notifications"
+    ) {
+      return "notifications";
+    }
+    return "audit";
+  });
   const [notifications, setNotifications] = useState<NotificationRow[]>(
     cachedAudit?.notifications || []
   );
@@ -64,6 +74,17 @@ export default function AktivitasPage() {
   const [roleFilter, setRoleFilter] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [loading, setLoading] = useState(!cachedAudit);
+  const [justSeenNewIds, setJustSeenNewIds] = useState<Set<string>>(() => new Set());
+  const acknowledgedIdsRef = useRef<Set<string>>(new Set());
+  const refreshSessionRef = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    const onOpenNotifications = () => {
+      setActiveTab("notifications");
+    };
+    window.addEventListener("trasir:open-notifications", onOpenNotifications);
+    return () => window.removeEventListener("trasir:open-notifications", onOpenNotifications);
+  }, []);
 
   const loadActivity = useCallback(async () => {
     const params = new URLSearchParams();
@@ -103,6 +124,51 @@ export default function AktivitasPage() {
     loadActivity();
   }, [loadActivity]);
 
+  // Saat Pusat Notifikasi dibuka: tampilkan label "Baru" untuk sekali lihat,
+  // langsung hilangkan angka lencana ikon & simpan status terbaca ke DB.
+  useEffect(() => {
+    if (activeTab !== "notifications") return;
+    const unreadToCapture = notifications
+      .filter((n) => !n.isRead && !acknowledgedIdsRef.current.has(n.id))
+      .map((n) => n.id);
+    if (unreadToCapture.length === 0) return;
+
+    unreadToCapture.forEach((id) => acknowledgedIdsRef.current.add(id));
+    setJustSeenNewIds((prev) => new Set([...prev, ...unreadToCapture]));
+    workspaceSession?.acknowledgeUnreadNotifications();
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "MARK_IDS_READ",
+            notificationIds: unreadToCapture,
+          }),
+        });
+        if (res.ok) {
+          invalidateCache("/api/audit");
+          setNotifications((prev) =>
+            prev.map((n) => (unreadToCapture.includes(n.id) ? { ...n, isRead: true } : n))
+          );
+          if (refreshSessionRef.current) {
+            await refreshSessionRef.current();
+          }
+        }
+      } catch {
+        // biarkan tampil dan coba lagi bila perlu
+      }
+    })();
+  }, [activeTab, notifications, workspaceSession]);
+
+  const handleTabSwitch = (nextTab: "notifications" | "audit") => {
+    if (activeTab === "notifications" && nextTab !== "notifications") {
+      setJustSeenNewIds(new Set());
+    }
+    setActiveTab(nextTab);
+  };
+
   const handleMarkAllRead = async () => {
     try {
       await fetch("/api/audit", {
@@ -110,6 +176,9 @@ export default function AktivitasPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "MARK_ALL_READ" }),
       });
+      setJustSeenNewIds(new Set());
+      invalidateCache("/api/audit");
+      workspaceSession?.acknowledgeUnreadNotifications();
       showToast("Seluruh notifikasi ditandai sudah dibaca.", "info");
       await loadActivity();
     } catch {
@@ -120,10 +189,14 @@ export default function AktivitasPage() {
   return (
     <AppShell>
       {(session, refreshSession) => {
+        refreshSessionRef.current = refreshSession;
         const filteredAudit = auditLogs.filter((log) => {
-          if (dateFilter && !log.createdAt.startsWith(dateFilter)) return false;
+          if (dateFilter && getJakartaDateKey(log.createdAt) !== dateFilter) return false;
           return true;
         });
+        const visibleNewCount = notifications.filter(
+          (n) => !n.isRead || justSeenNewIds.has(n.id)
+        ).length;
 
         return (
           <div className="space-y-6">
@@ -155,7 +228,7 @@ export default function AktivitasPage() {
                     type="button"
                     role="tab"
                     aria-selected={activeTab === "audit"}
-                    onClick={() => setActiveTab("audit")}
+                    onClick={() => handleTabSwitch("audit")}
                     className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                       activeTab === "audit"
                         ? "bg-[#202531] text-white"
@@ -170,7 +243,7 @@ export default function AktivitasPage() {
                     type="button"
                     role="tab"
                     aria-selected={activeTab === "notifications"}
-                    onClick={() => setActiveTab("notifications")}
+                    onClick={() => handleTabSwitch("notifications")}
                     className={`inline-flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                       activeTab === "notifications"
                         ? "bg-[#202531] text-white"
@@ -179,7 +252,9 @@ export default function AktivitasPage() {
                   >
                     <BellRinging size={16} weight="bold" aria-hidden="true" />
                     <span>
-                      Pusat Notifikasi ({notifications.filter((n) => !n.isRead).length} Baru)
+                      {visibleNewCount > 0
+                        ? `Pusat Notifikasi (${visibleNewCount} Baru)`
+                        : "Pusat Notifikasi"}
                     </span>
                   </button>
                 </div>
@@ -363,11 +438,13 @@ export default function AktivitasPage() {
                     Belum ada notifikasi peringatan atau tindakan menunggu.
                   </div>
                 ) : (
-                  notifications.map((n) => (
+                  notifications.map((n) => {
+                    const isNewOnce = !n.isRead || justSeenNewIds.has(n.id);
+                    return (
                     <div
                       key={n.id}
                       className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                        !n.isRead
+                        isNewOnce
                           ? "bg-[#EBEBEB]/40 border-[#202531]"
                           : "bg-slate-50 border-slate-200"
                       }`}
@@ -377,7 +454,7 @@ export default function AktivitasPage() {
                           <span className="text-xs font-extrabold text-slate-900">
                             {formatNotificationText(n.title)}
                           </span>
-                          {!n.isRead && (
+                          {isNewOnce && (
                             <span className="px-2 py-0.5 rounded-full bg-[#FF2A63] text-white text-[10px] font-bold">
                               Baru
                             </span>
@@ -393,13 +470,14 @@ export default function AktivitasPage() {
 
                       <Link
                         href={n.linkUrl}
+                        onClick={() => setJustSeenNewIds(new Set())}
                         className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl bg-[#202531] text-white text-xs font-bold hover:bg-[#2a3140] shrink-0"
                       >
                         <span>Tindak Lanjuti</span>
                         <ArrowUpRight size={14} weight="bold" aria-hidden="true" />
                       </Link>
                     </div>
-                  ))
+                  );})
                 )}
               </div>
             )}

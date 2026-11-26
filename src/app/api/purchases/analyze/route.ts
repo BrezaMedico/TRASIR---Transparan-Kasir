@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAssignedUser } from "@/lib/auth";
 import { isStoreAdmin } from "@/lib/rbac";
 import { validateProofAttachment } from "@/lib/attachment";
+import { getJakartaDateKey } from "@/lib/date-jakarta";
 import {
   analyzePurchaseReceiptWithGemini,
   computeReceiptHash,
@@ -93,8 +94,8 @@ export async function POST(request: Request) {
     const purchaseDate = String(
       body.purchaseDate ||
         (existingPurchase
-          ? new Date(existingPurchase.purchaseDate).toISOString().slice(0, 10)
-          : new Date().toISOString().slice(0, 10))
+          ? getJakartaDateKey(existingPurchase.purchaseDate)
+          : getJakartaDateKey())
     );
     const totalAmount = Number(
       body.totalAmount !== undefined ? body.totalAmount : existingPurchase?.totalAmount ?? 0

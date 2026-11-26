@@ -55,7 +55,7 @@ export function ProposalCartDrawer({
   };
 
   const estimatedTotalCapital = items.reduce((sum, item) => {
-    if (item.stockMethod === "RESEP") return sum;
+    if (item.requestKind === "UPDATE" || item.stockMethod === "RESEP") return sum;
     return sum + Math.round(item.costPrice * Math.max(0, item.currentStock));
   }, 0);
 
@@ -83,12 +83,18 @@ export function ProposalCartDrawer({
 
     setSubmitting(true);
     try {
+      const updateCount = items.filter((it) => it.requestKind === "UPDATE").length;
+      const allUpdates = updateCount === items.length;
       const payload = {
         batchTitle:
           items.length === 1
-            ? items[0].name
+            ? allUpdates
+              ? `Ubah ${items[0].name}`
+              : items[0].name
             : supplierName.trim()
             ? `Pengajuan ${items.length} Item (${supplierName.trim()})`
+            : allUpdates
+            ? `Paket ${items.length} Perubahan Barang`
             : `Paket ${items.length} Pengajuan Barang`,
         batchNote: batchNote.trim() || undefined,
         supplierName: supplierName.trim() || undefined,
@@ -96,6 +102,7 @@ export function ProposalCartDrawer({
         receiptSource: receiptImageData ? receiptSource || "DIGITAL" : undefined,
         items: items.map((item) => ({
           clientTempId: item.clientTempId,
+          targetProductId: item.targetProductId || undefined,
           sku: item.sku,
           barcode: item.barcode,
           name: item.name,
@@ -233,6 +240,11 @@ export function ProposalCartDrawer({
                         <span className="font-mono text-[11px] font-bold text-[#525866] shrink-0">
                           #{idx + 1}
                         </span>
+                        {item.requestKind === "UPDATE" && (
+                          <span className="px-1.5 py-0.5 rounded bg-[#EBEBEB] border border-[#202531]/15 text-[10px] font-extrabold text-[#202531] shrink-0">
+                            Ubah
+                          </span>
+                        )}
                         <span className="text-sm font-extrabold text-[#202531] truncate">
                           {item.name}
                         </span>
@@ -269,11 +281,29 @@ export function ProposalCartDrawer({
 
                     {isExpanded && (
                       <div className="mt-2.5 pt-2.5 border-t border-[#202531]/10 space-y-1.5 text-xs text-[#525866]">
-                        <div>
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className="inline-block px-2 py-0.5 rounded bg-[#EBEBEB] text-[#202531] text-[11px] font-bold">
                             {kindLabel}
                           </span>
+                          {item.requestKind === "UPDATE" && (
+                            <span className="inline-block px-2 py-0.5 rounded bg-[#E0F7F6] text-[#005B59] text-[11px] font-bold">
+                              Usulan Ubah
+                            </span>
+                          )}
                         </div>
+
+                        {item.requestKind === "UPDATE" && item.previousSnapshot && (
+                          <p className="text-[11px] text-[#202531] bg-[#F8FAFC] border border-[#202531]/10 rounded-lg px-2.5 py-1.5 font-medium">
+                            Perubahan:{" "}
+                            {!item.isRawMaterial &&
+                              `Harga jual ${formatRupiah(item.previousSnapshot.sellPrice)} -> ${formatRupiah(item.sellPrice)}`}
+                            {item.previousSnapshot.costPrice !== item.costPrice &&
+                              `${!item.isRawMaterial ? " • " : ""}Harga modal ${formatRupiah(item.previousSnapshot.costPrice)} -> ${formatRupiah(item.costPrice)}`}
+                            {item.stockMethod !== "RESEP" &&
+                              item.previousSnapshot.currentStock !== item.currentStock &&
+                              `${!item.isRawMaterial || item.previousSnapshot.costPrice !== item.costPrice ? " • " : ""}Stok ${formatNumber(item.previousSnapshot.currentStock)} -> ${formatNumber(item.currentStock)} ${unitLabel}`}
+                          </p>
+                        )}
 
                         {item.stockMethod === "RESEP" ? (
                           <p>

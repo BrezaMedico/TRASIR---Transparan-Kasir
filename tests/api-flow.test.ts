@@ -2701,4 +2701,303 @@ describe("TRASIR 25-Scenario Full-Stack Verification Suite", () => {
     );
     expect(newSessAllowed.status).toBe(200);
   });
+
+  it("Scenario 34: One-time notification MARK_IDS_READ & non-admin batch price/product edit approval flow", async () => {
+    const ownerRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "CREATE_ROOM",
+        name: "Owner Batch Edit",
+        username: "owner_batch34",
+        email: "owner34@toko.id",
+        password: "PasswordAman123",
+        roomName: "Toko Approval Harga",
+      })
+    );
+    expect(ownerRes.status).toBe(201);
+    const ownerToken = extractSessionToken(ownerRes)!;
+    const ownerJson = await ownerRes.json();
+
+    activeSessionToken = ownerToken;
+    const cat = await prisma.category.create({
+      data: { roomId: ownerJson.room.id, name: "Minuman", areaType: "TERBUKA" },
+    });
+
+    // Owner seeds 2 existing products
+    const p1Res = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "MNM-01",
+        name: "Es Kopi Susu",
+        categoryId: cat.id,
+        stockMethod: "TETAP",
+        purchaseUnit: "cup",
+        sellUnit: "cup",
+        conversionRatio: 1,
+        costPrice: 8000,
+        sellPrice: 18000,
+        currentStock: 10,
+      })
+    );
+    expect(p1Res.status).toBe(201);
+    const prod1 = (await p1Res.json()).product;
+
+    const p2Res = await createProduct(
+      jsonReq("http://localhost/api/products", "POST", {
+        sku: "MNM-02",
+        name: "Matcha Latte",
+        categoryId: cat.id,
+        stockMethod: "TETAP",
+        purchaseUnit: "cup",
+        sellUnit: "cup",
+        conversionRatio: 1,
+        costPrice: 10000,
+        sellPrice: 22000,
+        currentStock: 15,
+      })
+    );
+    expect(p2Res.status).toBe(201);
+    const prod2 = (await p2Res.json()).product;
+
+    // Invite Gudang & Kasir users
+    const [invGudang, invKasir] = await Promise.all([
+      (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "GUDANG",
+          })
+        )
+      ).json(),
+      (
+        await createInvitation(
+          jsonReq("http://localhost/api/invitations", "POST", {
+            inviteType: "CODE",
+            assignedRole: "KASIR",
+          })
+        )
+      ).json(),
+    ]);
+
+    const gudangRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "JOIN_ROOM",
+        name: "Staf Gudang 34",
+        username: "gudang34",
+        email: "gudang34@toko.id",
+        password: "PasswordAman123",
+        inviteCode: invGudang.inviteCode,
+      })
+    );
+    expect(gudangRes.status).toBe(201);
+    const gudangToken = extractSessionToken(gudangRes)!;
+
+    const kasirRes = await registerUser(
+      jsonReq("http://localhost/api/auth/register", "POST", {
+        mode: "JOIN_ROOM",
+        name: "Kasir 34",
+        username: "kasir34",
+        email: "kasir34@toko.id",
+        password: "PasswordAman123",
+        inviteCode: invKasir.inviteCode,
+      })
+    );
+    expect(kasirRes.status).toBe(201);
+    const kasirToken = extractSessionToken(kasirRes)!;
+
+    // 1. One-time MARK_IDS_READ scoping & selective dismiss
+    const [notifA, notifB, notifOwnerOnly] = await Promise.all([
+      prisma.notification.create({
+        data: {
+          roomId: ownerJson.room.id,
+          title: "Notif Terlihat A",
+          message: "Pesan A",
+          severity: "INFO",
+          category: "KATALOG",
+          linkUrl: "/produk",
+        },
+      }),
+      prisma.notification.create({
+        data: {
+          roomId: ownerJson.room.id,
+          title: "Notif Terlihat B",
+          message: "Pesan B",
+          severity: "INFO",
+          category: "KATALOG",
+          linkUrl: "/produk",
+        },
+      }),
+      prisma.notification.create({
+        data: {
+          roomId: ownerJson.room.id,
+          title: "Notif Khusus Pemilik",
+          message: "Pesan Rahasia",
+          severity: "CRITICAL",
+          category: "SHIFT",
+          targetRole: "PEMILIK",
+          linkUrl: "/laporan",
+        },
+      }),
+    ]);
+
+    activeSessionToken = kasirToken;
+    const kasirDismissRes = await postAudit(
+      jsonReq("http://localhost/api/audit", "POST", {
+        action: "MARK_IDS_READ",
+        notificationIds: [notifOwnerOnly.id],
+      })
+    );
+    expect(kasirDismissRes.status).toBe(200);
+    expect(
+      (await prisma.notification.findUniqueOrThrow({ where: { id: notifOwnerOnly.id } })).isRead
+    ).toBe(false);
+
+    activeSessionToken = ownerToken;
+    const ownerDismissRes = await postAudit(
+      jsonReq("http://localhost/api/audit", "POST", {
+        action: "MARK_IDS_READ",
+        notificationIds: [notifA.id],
+      })
+    );
+    expect(ownerDismissRes.status).toBe(200);
+    expect((await prisma.notification.findUniqueOrThrow({ where: { id: notifA.id } })).isRead).toBe(
+      true
+    );
+    expect((await prisma.notification.findUniqueOrThrow({ where: { id: notifB.id } })).isRead).toBe(
+      false
+    );
+
+    // 2. Non-admin PUT /api/products cannot change price directly -> creates pending request (202)
+    activeSessionToken = gudangToken;
+    const directPutRes = await updateProduct(
+      jsonReq("http://localhost/api/products", "PUT", {
+        id: prod1.id,
+        sku: prod1.sku,
+        name: prod1.name,
+        categoryId: cat.id,
+        stockMethod: "TETAP",
+        purchaseUnit: "cup",
+        sellUnit: "cup",
+        conversionRatio: 1,
+        costPrice: 8000,
+        sellPrice: 99000,
+        currentStock: 10,
+      })
+    );
+    expect(directPutRes.status).toBe(202);
+    const directPutJson = await directPutRes.json();
+    expect(directPutJson.mode).toBe("REQUEST");
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: prod1.id } })).sellPrice).toBe(
+      18000
+    );
+
+    // Reject single edit request -> keeps catalog unchanged & clears pending queue for prod1
+    activeSessionToken = ownerToken;
+    const rejectSingleRes = await reviewProductRequest(
+      jsonReq(`http://localhost/api/product-requests/${directPutJson.productRequest.id}/review`, "POST", {
+        decision: "DITOLAK",
+        rejectionReason: "Harga terlalu tinggi",
+      }),
+      { params: Promise.resolve({ id: directPutJson.productRequest.id }) }
+    );
+    expect(rejectSingleRes.status).toBe(200);
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: prod1.id } })).sellPrice).toBe(
+      18000
+    );
+
+    // 3. Employee queues multiple edits + 1 new item together in a single batch
+    activeSessionToken = gudangToken;
+    const batchRes = await submitProductRequestBatch(
+      jsonReq("http://localhost/api/product-requests", "POST", {
+        batchTitle: "Update Harga Menu & Tambah Thai Tea",
+        items: [
+          {
+            clientTempId: "edit-p1",
+            targetProductId: prod1.id,
+            sku: prod1.sku,
+            name: prod1.name,
+            categoryId: cat.id,
+            stockMethod: "TETAP",
+            isRawMaterial: false,
+            purchaseUnit: "cup",
+            sellUnit: "cup",
+            conversionRatio: 1,
+            costPrice: 8500,
+            sellPrice: 20000,
+            currentStock: 10,
+          },
+          {
+            clientTempId: "edit-p2",
+            targetProductId: prod2.id,
+            sku: prod2.sku,
+            name: "Matcha Latte Premium",
+            categoryId: cat.id,
+            stockMethod: "TETAP",
+            isRawMaterial: false,
+            purchaseUnit: "cup",
+            sellUnit: "cup",
+            conversionRatio: 1,
+            costPrice: 11000,
+            sellPrice: 25000,
+            currentStock: 15,
+          },
+          {
+            clientTempId: "new-p3",
+            sku: "MNM-03",
+            name: "Thai Tea",
+            categoryId: cat.id,
+            stockMethod: "TETAP",
+            isRawMaterial: false,
+            purchaseUnit: "cup",
+            sellUnit: "cup",
+            conversionRatio: 1,
+            costPrice: 7000,
+            sellPrice: 16000,
+            currentStock: 12,
+          },
+        ],
+      })
+    );
+    expect(batchRes.status).toBe(202);
+    const batchJson = await batchRes.json();
+    expect(batchJson.mode).toBe("REQUEST_BATCH");
+    expect(batchJson.requests).toHaveLength(3);
+
+    // Prices must still be unchanged while awaiting approval
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: prod1.id } })).sellPrice).toBe(
+      18000
+    );
+    expect((await prisma.product.findUniqueOrThrow({ where: { id: prod2.id } })).sellPrice).toBe(
+      22000
+    );
+
+    // Simulate concurrent POS sale reducing prod1 stock 10 -> 8 before Manager approves
+    await prisma.product.update({ where: { id: prod1.id }, data: { currentStock: 8 } });
+
+    // Owner approves whole batch at once
+    activeSessionToken = ownerToken;
+    const batchApproveRes = await reviewProductBatch(
+      jsonReq("http://localhost/api/product-requests/batch-review", "POST", {
+        batchId: batchJson.batchId,
+        decision: "DISETUJUI",
+      })
+    );
+    expect(batchApproveRes.status).toBe(200);
+    const batchApproveJson = await batchApproveRes.json();
+    expect(batchApproveJson.processedCount).toBe(3);
+
+    const updatedP1 = await prisma.product.findUniqueOrThrow({ where: { id: prod1.id } });
+    const updatedP2 = await prisma.product.findUniqueOrThrow({ where: { id: prod2.id } });
+    const createdP3 = await prisma.product.findFirstOrThrow({
+      where: { roomId: ownerJson.room.id, sku: "MNM-03" },
+    });
+
+    expect(updatedP1.costPrice).toBe(8500);
+    expect(updatedP1.sellPrice).toBe(20000);
+    // Unmodified stock in request does NOT overwrite concurrent POS stock changes
+    expect(updatedP1.currentStock).toBe(8);
+    expect(updatedP2.name).toBe("Matcha Latte Premium");
+    expect(updatedP2.costPrice).toBe(11000);
+    expect(updatedP2.sellPrice).toBe(25000);
+    expect(createdP3.sellPrice).toBe(16000);
+    expect(createdP3.currentStock).toBe(12);
+  });
 });

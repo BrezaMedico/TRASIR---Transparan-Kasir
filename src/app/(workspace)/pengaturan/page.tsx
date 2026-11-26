@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AppShell, useToast } from "@/components/layout/AppShell";
 import { fetchJsonCached, getCachedData } from "@/lib/client-cache";
 import { formatDateTimeJakarta } from "@/lib/format";
+import { getJakartaDateKey } from "@/lib/date-jakarta";
 import { formatRoleLabel } from "@/lib/rbac-shared";
 import { CounterManagementPanel } from "@/components/settings/CounterManagementPanel";
 import { TeamCollaboratorPanel } from "@/components/settings/TeamCollaboratorPanel";
@@ -301,7 +302,7 @@ export default function PengaturanPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `TRASIR-Database-Backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `TRASIR-Database-Backup-${getJakartaDateKey()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       showToast("Cadangan database JSON berhasil diunduh.", "success");
@@ -404,24 +405,31 @@ export default function PengaturanPage() {
               <>
                 {/* TAB 1: UMUM & TAMPILAN */}
                 {activeTab === "umum" && (
-                  <div className="space-y-5 max-w-4xl">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
                     {isOwner && (
                       <form
                         onSubmit={(e) => handleSaveCompanyIdentity(e, refreshSession)}
-                        className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4"
+                        className="lg:col-span-5 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col gap-5"
                       >
-                        <div className="flex items-center gap-2.5">
-                          <Buildings size={18} weight="duotone" className="text-[#006B69]" aria-hidden="true" />
-                          <h2 className="text-sm font-extrabold text-[#202531]">
-                            Profil Perusahaan
-                          </h2>
+                        <div className="flex items-center gap-3 pb-4 border-b border-[#202531]/10">
+                          <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+                            <Buildings size={18} weight="duotone" aria-hidden="true" />
+                          </div>
+                          <div>
+                            <h2 className="text-sm font-extrabold text-[#202531]">
+                              Profil Perusahaan
+                            </h2>
+                            <p className="text-xs text-[#525866] mt-0.5">
+                              Identitas toko pada header, struk, dan laporan.
+                            </p>
+                          </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                        <div className="space-y-4">
                           <div>
                             <label
                               htmlFor="company-name-input"
-                              className="block text-xs font-bold text-[#202531] mb-1"
+                              className="block text-xs font-bold text-[#202531] mb-1.5"
                             >
                               Nama Perusahaan
                             </label>
@@ -439,7 +447,7 @@ export default function PengaturanPage() {
                           <div>
                             <label
                               htmlFor="company-address-input"
-                              className="block text-xs font-bold text-[#202531] mb-1"
+                              className="block text-xs font-bold text-[#202531] mb-1.5"
                             >
                               Lokasi Singkat
                             </label>
@@ -454,11 +462,11 @@ export default function PengaturanPage() {
                           </div>
                         </div>
 
-                        <div className="flex justify-end">
+                        <div className="mt-auto pt-4 border-t border-[#202531]/10 flex justify-end">
                           <button
                             type="submit"
                             disabled={savingSettings}
-                            className="inline-flex items-center gap-2 px-5 min-h-[42px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                            className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
                           >
                             <FloppyDisk size={15} weight="bold" aria-hidden="true" />
                             <span>{savingSettings ? "Menyimpan..." : "Simpan Nama"}</span>
@@ -468,15 +476,29 @@ export default function PengaturanPage() {
                     )}
 
                     {/* Kartu Tampilan Sederhana (Tema + Ukuran + 5 Font) */}
-                    <section className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-5">
-                      <h2 className="text-sm font-extrabold text-[#202531]">
-                        Tampilan Layar
-                      </h2>
+                    <section
+                      className={`${
+                        isOwner ? "lg:col-span-7" : "lg:col-span-12"
+                      } bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col gap-5`}
+                    >
+                      <div className="flex items-center gap-3 pb-4 border-b border-[#202531]/10">
+                        <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+                          <Desktop size={18} weight="duotone" aria-hidden="true" />
+                        </div>
+                        <div>
+                          <h2 className="text-sm font-extrabold text-[#202531]">
+                            Tampilan Layar
+                          </h2>
+                          <p className="text-xs text-[#525866] mt-0.5">
+                            Tema warna, ukuran teks, dan jenis huruf perangkat ini.
+                          </p>
+                        </div>
+                      </div>
 
                       {/* Tema */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                         <span className="text-xs font-bold text-[#525866]">Tema</span>
-                        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 sm:w-auto w-full">
+                        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 sm:w-[340px] w-full">
                           {themeOptions.map((opt) => {
                             const selected = uiPrefs.theme === opt.id;
                             return (
@@ -485,7 +507,7 @@ export default function PengaturanPage() {
                                 type="button"
                                 aria-pressed={selected}
                                 onClick={() => updateUiPref({ theme: opt.id }, `Tema ${opt.label}`)}
-                                className={`inline-flex items-center justify-center gap-1.5 px-3 min-h-[40px] rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                                className={`inline-flex items-center justify-center gap-1.5 px-2.5 min-h-[40px] rounded-lg text-xs font-bold cursor-pointer transition-colors ${
                                   selected
                                     ? "bg-[#202531] text-white"
                                     : "text-[#525866] hover:text-[#202531]"
@@ -502,7 +524,7 @@ export default function PengaturanPage() {
                       {/* Ukuran Huruf */}
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-4 border-t border-[#202531]/10">
                         <span className="text-xs font-bold text-[#525866]">Ukuran Huruf</span>
-                        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 sm:w-80 w-full">
+                        <div className="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-[#EBEBEB]/75 border border-[#202531]/10 sm:w-[340px] w-full">
                           {FONT_SIZE_OPTIONS.map((opt) => {
                             const selected = uiPrefs.fontSize === opt.id;
                             return (
@@ -531,7 +553,7 @@ export default function PengaturanPage() {
                         <span className="block text-xs font-bold text-[#525866]">
                           Jenis Huruf
                         </span>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2.5">
                           {FONT_FAMILY_OPTIONS.map((font) => {
                             const selected = uiPrefs.fontFamily === font.id;
                             return (
@@ -574,101 +596,109 @@ export default function PengaturanPage() {
 
                 {/* TAB 4: AKUN & LANJUTAN */}
                 {activeTab === "lanjutan" && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
                     {/* Profil & Kata Sandi */}
                     <form
                       onSubmit={(e) => handleUpdateOwnProfile(e, refreshSession)}
-                      className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4"
+                      className="lg:col-span-6 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col gap-5"
                     >
-                      <div className="flex items-center gap-2">
-                        <LockKey size={19} weight="duotone" className="text-[#006B69]" aria-hidden="true" />
+                      <div className="flex items-center gap-3 pb-4 border-b border-[#202531]/10">
+                        <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+                          <LockKey size={18} weight="duotone" aria-hidden="true" />
+                        </div>
                         <div>
                           <h2 className="text-sm font-extrabold text-[#202531]">
                             Profil &amp; Kata Sandi
                           </h2>
-                          <p className="text-xs text-[#525866]">
+                          <p className="text-xs text-[#525866] mt-0.5">
                             @{session.user.username} · {formatRoleLabel(session.user.role)}
                           </p>
                         </div>
                       </div>
 
-                      <div>
-                        <label htmlFor="prof-name" className="block text-xs font-bold text-[#202531] mb-1">
-                          Nama Tampilan
-                        </label>
-                        <input
-                          id="prof-name"
-                          type="text"
-                          value={profileName}
-                          onChange={(e) => setProfileName(e.target.value)}
-                          placeholder={session.user.name}
-                          className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
-                        />
+                      <div className="space-y-4">
+                        <div>
+                          <label htmlFor="prof-name" className="block text-xs font-bold text-[#202531] mb-1.5">
+                            Nama Tampilan
+                          </label>
+                          <input
+                            id="prof-name"
+                            type="text"
+                            value={profileName}
+                            onChange={(e) => setProfileName(e.target.value)}
+                            placeholder={session.user.name}
+                            className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            htmlFor="prof-curr-pass"
+                            className="block text-xs font-bold text-[#202531] mb-1.5"
+                          >
+                            Kata Sandi Saat Ini
+                          </label>
+                          <input
+                            id="prof-curr-pass"
+                            type="password"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
+                          />
+                        </div>
+
+                        <div>
+                          <label
+                            htmlFor="prof-new-pass"
+                            className="block text-xs font-bold text-[#202531] mb-1.5"
+                          >
+                            Kata Sandi Baru (Min. 6 Karakter)
+                          </label>
+                          <input
+                            id="prof-new-pass"
+                            type="password"
+                            minLength={6}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
+                          />
+                        </div>
                       </div>
 
-                      <div>
-                        <label
-                          htmlFor="prof-curr-pass"
-                          className="block text-xs font-bold text-[#202531] mb-1"
+                      <div className="mt-auto pt-4 border-t border-[#202531]/10 flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={savingSettings}
+                          className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
                         >
-                          Kata Sandi Saat Ini
-                        </label>
-                        <input
-                          id="prof-curr-pass"
-                          type="password"
-                          value={currentPassword}
-                          onChange={(e) => setCurrentPassword(e.target.value)}
-                          className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
-                        />
+                          <FloppyDisk size={15} weight="bold" aria-hidden="true" />
+                          <span>Simpan Profil &amp; Sandi</span>
+                        </button>
                       </div>
-
-                      <div>
-                        <label
-                          htmlFor="prof-new-pass"
-                          className="block text-xs font-bold text-[#202531] mb-1"
-                        >
-                          Kata Sandi Baru (Min. 6 Karakter)
-                        </label>
-                        <input
-                          id="prof-new-pass"
-                          type="password"
-                          minLength={6}
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="w-full px-3.5 min-h-[44px] rounded-xl border border-[#202531]/20 text-xs"
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={savingSettings}
-                        className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#202531] text-white text-xs font-extrabold cursor-pointer disabled:opacity-50"
-                      >
-                        <FloppyDisk size={15} weight="bold" aria-hidden="true" />
-                        <span>Simpan Profil &amp; Sandi</span>
-                      </button>
                     </form>
 
                     {/* Ganti Email (Wajib Verifikasi Kode Email) */}
-                    <div className="bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm space-y-4">
-                      <div className="flex items-center gap-2">
-                        <EnvelopeSimple size={19} weight="duotone" className="text-[#006B69]" aria-hidden="true" />
+                    <section className="lg:col-span-6 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col gap-5">
+                      <div className="flex items-center gap-3 pb-4 border-b border-[#202531]/10">
+                        <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+                          <EnvelopeSimple size={18} weight="duotone" aria-hidden="true" />
+                        </div>
                         <div>
                           <h2 className="text-sm font-extrabold text-[#202531]">
                             Ganti Email Akun
                           </h2>
-                          <p className="text-xs text-[#525866]">
+                          <p className="text-xs text-[#525866] mt-0.5">
                             Saat ini: <strong>{session.user.email}</strong>
                           </p>
                         </div>
                       </div>
 
                       {!emailVerificationToken ? (
-                        <form onSubmit={handleRequestEmailChange} className="space-y-3.5">
+                        <form onSubmit={handleRequestEmailChange} className="flex-1 flex flex-col gap-4">
                           <div>
                             <label
                               htmlFor="next-email-input"
-                              className="block text-xs font-bold text-[#202531] mb-1"
+                              className="block text-xs font-bold text-[#202531] mb-1.5"
                             >
                               Alamat Email Baru
                             </label>
@@ -686,7 +716,7 @@ export default function PengaturanPage() {
                           <div>
                             <label
                               htmlFor="email-pass-input"
-                              className="block text-xs font-bold text-[#202531] mb-1"
+                              className="block text-xs font-bold text-[#202531] mb-1.5"
                             >
                               Konfirmasi Kata Sandi Saat Ini
                             </label>
@@ -700,21 +730,23 @@ export default function PengaturanPage() {
                             />
                           </div>
 
-                          <button
-                            type="submit"
-                            disabled={emailSubmitting}
-                            className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
-                          >
-                            <EnvelopeSimple size={15} weight="bold" aria-hidden="true" />
-                            <span>
-                              {emailSubmitting ? "Mengirim Kode..." : "Kirim Kode Verifikasi"}
-                            </span>
-                          </button>
+                          <div className="mt-auto pt-4 border-t border-[#202531]/10 flex justify-end">
+                            <button
+                              type="submit"
+                              disabled={emailSubmitting}
+                              className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                            >
+                              <EnvelopeSimple size={15} weight="bold" aria-hidden="true" />
+                              <span>
+                                {emailSubmitting ? "Mengirim Kode..." : "Kirim Kode Verifikasi"}
+                              </span>
+                            </button>
+                          </div>
                         </form>
                       ) : (
                         <form
                           onSubmit={(e) => handleConfirmEmailChange(e, refreshSession)}
-                          className="space-y-3.5"
+                          className="flex-1 flex flex-col gap-4"
                         >
                           <p className="text-xs text-[#525866]">
                             Masukkan kode 6 digit yang dikirim ke{" "}
@@ -730,7 +762,7 @@ export default function PengaturanPage() {
                           <div>
                             <label
                               htmlFor="email-otp-input"
-                              className="block text-xs font-bold text-[#202531] mb-1"
+                              className="block text-xs font-bold text-[#202531] mb-1.5"
                             >
                               Kode Verifikasi (6 Digit)
                             </label>
@@ -750,16 +782,7 @@ export default function PengaturanPage() {
                             />
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="submit"
-                              disabled={emailSubmitting}
-                              className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
-                            >
-                              <span>
-                                {emailSubmitting ? "Memverifikasi..." : "Verifikasi & Ganti Email"}
-                              </span>
-                            </button>
+                          <div className="mt-auto pt-4 border-t border-[#202531]/10 flex flex-wrap items-center justify-end gap-2">
                             <button
                               type="button"
                               onClick={() => {
@@ -771,22 +794,36 @@ export default function PengaturanPage() {
                             >
                               Batal
                             </button>
+                            <button
+                              type="submit"
+                              disabled={emailSubmitting}
+                              className="inline-flex items-center gap-2 px-5 min-h-[44px] rounded-xl bg-[#01DAD7] text-[#202531] text-xs font-extrabold hover:opacity-95 disabled:opacity-50 cursor-pointer"
+                            >
+                              <span>
+                                {emailSubmitting ? "Memverifikasi..." : "Verifikasi & Ganti Email"}
+                              </span>
+                            </button>
                           </div>
                         </form>
                       )}
-                    </div>
+                    </section>
 
                     {/* Cadangan Data JSON (Khusus Pemilik/Manajer) */}
                     {isOwner && (
-                      <div className="lg:col-span-2 bg-white rounded-2xl border border-[#202531]/15 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="space-y-0.5">
-                          <h2 className="text-sm font-extrabold text-[#202531]">
-                            Cadangan Data Perusahaan (JSON)
-                          </h2>
-                          <p className="text-xs text-[#525866]">
-                            Jadwal otomatis: <strong>{autoBackupInterval}</strong> · Terakhir:{" "}
-                            <strong>{formatDateTimeJakarta(lastBackupAt)}</strong>
-                          </p>
+                      <section className="lg:col-span-12 bg-white rounded-2xl border border-[#202531]/15 p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-[#EBEBEB]/75 text-[#202531] flex items-center justify-center shrink-0">
+                            <DownloadSimple size={18} weight="duotone" aria-hidden="true" />
+                          </div>
+                          <div>
+                            <h2 className="text-sm font-extrabold text-[#202531]">
+                              Cadangan Data Perusahaan (JSON)
+                            </h2>
+                            <p className="text-xs text-[#525866] mt-0.5">
+                              Jadwal otomatis: <strong>{autoBackupInterval}</strong> · Terakhir:{" "}
+                              <strong>{formatDateTimeJakarta(lastBackupAt)}</strong>
+                            </p>
+                          </div>
                         </div>
 
                         <button
@@ -797,7 +834,7 @@ export default function PengaturanPage() {
                           <DownloadSimple size={16} weight="bold" aria-hidden="true" />
                           <span>Unduh Cadangan Data</span>
                         </button>
-                      </div>
+                      </section>
                     )}
                   </div>
                 )}

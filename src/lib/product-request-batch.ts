@@ -50,7 +50,24 @@ export interface ProductRequestAIResult {
   checkedAt: string;
 }
 
+export interface ProductRequestPreviousSnapshot {
+  name: string;
+  sku: string;
+  barcode?: string | null;
+  costPrice: number;
+  sellPrice: number;
+  currentStock: number;
+  minStockAlert?: number;
+  stockMethod?: string;
+  purchaseUnit?: string;
+  sellUnit?: string;
+  conversionRatio?: number;
+}
+
 export interface ProductRequestEnvelope {
+  requestKind?: "CREATE" | "UPDATE";
+  targetProductId?: string;
+  previousSnapshot?: ProductRequestPreviousSnapshot;
   initialStock?: number;
   variants?: ProductRequestVariantData[];
   clientTempId?: string;
@@ -117,6 +134,18 @@ export function parseProductRequestEnvelope(
         variants: Array.isArray(obj.variants)
           ? (obj.variants as ProductRequestVariantData[])
           : undefined,
+        requestKind:
+          obj.requestKind === "UPDATE" || obj.requestKind === "CREATE"
+            ? obj.requestKind
+            : undefined,
+        targetProductId:
+          typeof obj.targetProductId === "string" && obj.targetProductId.length > 0
+            ? obj.targetProductId
+            : undefined,
+        previousSnapshot:
+          obj.previousSnapshot && typeof obj.previousSnapshot === "object"
+            ? (obj.previousSnapshot as ProductRequestPreviousSnapshot)
+            : undefined,
         clientTempId: typeof obj.clientTempId === "string" ? obj.clientTempId : undefined,
         batchId: typeof obj.batchId === "string" ? obj.batchId : undefined,
         batchIndex:
@@ -161,7 +190,13 @@ export function serializeProductRequestEnvelope(
   envelope: ProductRequestEnvelope
 ): string | null {
   const clean: ProductRequestEnvelope = {};
-  if (typeof envelope.initialStock === "number" && envelope.initialStock > 0) {
+  if (envelope.requestKind) clean.requestKind = envelope.requestKind;
+  if (envelope.targetProductId) clean.targetProductId = envelope.targetProductId;
+  if (envelope.previousSnapshot) clean.previousSnapshot = envelope.previousSnapshot;
+  if (
+    typeof envelope.initialStock === "number" &&
+    (envelope.initialStock > 0 || (envelope.requestKind === "UPDATE" && envelope.initialStock >= 0))
+  ) {
     clean.initialStock = envelope.initialStock;
   }
   if (envelope.variants && envelope.variants.length > 0) {
@@ -268,11 +303,13 @@ export function groupProductRequestsIntoBatches<T extends BatchableProductReques
       if (!supplierName && entry.env.supplierName) {
         supplierName = entry.env.supplierName;
       }
-      totalEstimatedCost += computeRequestItemEstimatedCost({
-        stockMethod: entry.row.stockMethod,
-        costPrice: entry.row.costPrice,
-        initialStock: entry.env.initialStock,
-      });
+      if (entry.env.requestKind !== "UPDATE") {
+        totalEstimatedCost += computeRequestItemEstimatedCost({
+          stockMethod: entry.row.stockMethod,
+          costPrice: entry.row.costPrice,
+          initialStock: entry.env.initialStock,
+        });
+      }
     }
 
     const pendingCount = items.filter((i) => i.status === "MENUNGGU_PERSETUJUAN").length;
@@ -290,10 +327,15 @@ export function groupProductRequestsIntoBatches<T extends BatchableProductReques
       status = "SEBAGIAN";
     }
 
+    const allUpdates = sorted.every((entry) => entry.env.requestKind === "UPDATE");
     const defaultTitle =
       items.length === 1
-        ? lead.row.name
-        : `Paket ${items.length} Pengajuan Barang`;
+        ? allUpdates
+          ? `Ubah ${lead.row.name}`
+          : lead.row.name
+        : allUpdates
+          ? `Paket ${items.length} Perubahan Barang`
+          : `Paket ${items.length} Pengajuan Barang`;
 
     batches.push({
       batchId,
