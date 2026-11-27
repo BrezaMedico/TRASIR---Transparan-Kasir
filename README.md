@@ -287,10 +287,10 @@ Praktik rekayasa berikut terverifikasi langsung pada kode sumber:
 
 | Modul | Pratinjau | Keterangan Singkat |
 | :--- | :--- | :--- |
-| **Landing Page & Diorama 3D** | ![Landing Page]([LENGKAPI: path/URL screenshot landing page]) | Presentasi produk interaktif dengan diorama 3D dan akses masuk/daftar ruangan. |
-| **Dashboard & Perbandingan Loket** | ![Dashboard]([LENGKAPI: path/URL screenshot dashboard]) | Ringkasan omzet, laba kotor historis, grafik penjualan WIB, dan status loket kasir. |
-| **Kasir (POS) & Blind Shift** | ![Kasir POS]([LENGKAPI: path/URL screenshot kasir & tutup shift]) | Keranjang transaksi, scan barcode, dan penghitungan pecahan uang tutup shift. |
-| **Validasi Nota AI & Persetujuan Batch** | ![Validasi Nota AI]([LENGKAPI: path/URL screenshot review batch & AI nota]) | Tinjauan pengajuan produk/perubahan harga serta perbandingan nota otomatis Gemini AI. |
+| **Landing Page & Diorama 3D** | https://github.com/BrezaMedico/TRASIR---Transparan-Kasir/blob/main/images/Screenshot%202026-11-26%20144611.png?raw=true | Presentasi produk interaktif dengan diorama 3D dan akses masuk/daftar ruangan. |
+| **Dashboard & Perbandingan Loket** | https://github.com/BrezaMedico/TRASIR---Transparan-Kasir/blob/main/images/Screenshot%202026-11-26%20144638.png?raw=true | Ringkasan omzet, laba kotor historis, grafik penjualan WIB, dan status loket kasir. |
+| **Kasir (POS) & Blind Shift** | https://github.com/BrezaMedico/TRASIR---Transparan-Kasir/blob/main/images/Screenshot%202026-11-26%20144655.png?raw=true | Keranjang transaksi, scan barcode, dan penghitungan pecahan uang tutup shift. |
+| **Validasi Nota AI & Persetujuan Batch** | https://github.com/BrezaMedico/TRASIR---Transparan-Kasir/blob/main/images/Screenshot%202026-11-26%20144729.png?raw=true | Tinjauan pengajuan produk/perubahan harga serta perbandingan nota otomatis Gemini AI. |
 
 ### Tim Pengembang
 
